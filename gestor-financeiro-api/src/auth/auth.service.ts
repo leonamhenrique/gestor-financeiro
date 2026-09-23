@@ -20,6 +20,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -49,6 +50,7 @@ export interface SessaoEmitida {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   // Hash de uma senha qualquer, calculado uma vez. Quando o e-mail não
   // existe, a senha é conferida contra ele para gastar o mesmo tempo.
   private hashFantasma: Promise<string>;
@@ -231,11 +233,20 @@ export class AuthService {
       });
     });
 
+    // O link é a RAIZ do app com o token na query: o app é uma página só, e um
+    // caminho como /redefinir-senha daria 404 em hospedagem estática.
     const base = (process.env.APP_URL ?? 'http://localhost:5173').replace(/\/$/, '');
-    await this.mailer.enviarRedefinicaoDeSenha(
-      { email: user.email, nome: user.name },
-      `${base}/redefinir-senha?token=${encodeURIComponent(token)}`,
-    );
+    try {
+      await this.mailer.enviarRedefinicaoDeSenha(
+        { email: user.email, nome: user.name },
+        `${base}/?token=${encodeURIComponent(token)}`,
+      );
+    } catch (erro) {
+      // Falha de entrega fica no log e morre aqui. Propagar daria erro 500 para
+      // e-mail cadastrado e silêncio para o resto — a diferença entre as duas
+      // respostas seria um jeito de descobrir quem tem conta.
+      this.logger.error(`Falha ao enviar o e-mail de redefinição: ${(erro as Error).message}`);
+    }
   }
 
   async resetPassword(token: string, novaSenha: string): Promise<void> {

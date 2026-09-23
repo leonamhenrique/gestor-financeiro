@@ -170,10 +170,34 @@ os dados de verdade: leia o SQL gerado antes do push.
   porque app e API ficam em domínios diferentes. No dia em que os dois
   estiverem sob um domínio seu (`app.seudominio.com` e `api.seudominio.com`),
   troque para `strict` — é mais seguro.
-- **E-mail**: "esqueci minha senha" ainda não tem provedor de verdade. O
-  `render.yaml` sobe com `MAIL_PROVIDER=NONE`: a API funciona inteira e só
-  esse fluxo fica desligado, avisando quem tentar. Quando escolhermos um
-  serviço de envio (Resend, SES), é trocar essa variável e a chave entra no
-  painel do Render — nunca no repositório.
+- **E-mail**: ver a seção abaixo. Com `MAIL_PROVIDER=NONE` a API funciona
+  inteira e só a recuperação de senha fica desligada, avisando quem tentar.
+
+## Ligar o "esqueci minha senha" (Resend)
+
+1. Crie a conta em <https://resend.com>.
+2. **Domínio**: em *Domains*, adicione o seu e crie no seu provedor de DNS os
+   registros que ele mostrar (SPF e DKIM). Sem domínio verificado, o Resend
+   entrega **apenas para o e-mail dono da conta** — dá para testar, não para
+   usar de verdade.
+3. Em *API Keys*, crie uma chave com permissão de envio e copie.
+4. No Render, em *Environment*, três variáveis:
+
+   | Key | Value |
+   | --- | --- |
+   | `MAIL_PROVIDER` | `RESEND` |
+   | `RESEND_API_KEY` | a chave (começa com `re_`) |
+   | `MAIL_FROM` | `Gestor Financeiro <nao-responda@seudominio.com>` |
+
+5. Confira que `APP_URL` é a URL do app: o link do e-mail é montado a partir
+   dela.
+6. **Save, rebuild, and deploy**. A API confere as duas primeiras na subida —
+   faltando alguma, o deploy falha na hora, em vez de falhar no dia em que
+   alguém esquecer a senha.
+
+O link vale 30 minutos, serve uma vez só e, ao ser usado, derruba as sessões
+abertas. Se o envio falhar (domínio não verificado, chave errada), quem pediu
+vê a mesma mensagem de sempre e o motivo fica no *Logs* do Render: dizer "esse
+e-mail não existe" entregaria quais e-mails têm conta.
 - **Domínio próprio**: dá para apontar um depois, nos dois painéis, sem mudar
   nada do código além das variáveis `CORS_ORIGINS` e `APP_URL`.

@@ -892,12 +892,12 @@
       <label class="lbl" for="ent-nome">Nome</label>
       <input id="ent-nome" type="text" maxlength="60" autocomplete="name" placeholder="Como quer ser chamado">
     </div>
-    <div class="field">
+    <div class="field" id="ent-campo-email">
       <label class="lbl" for="ent-email">E-mail</label>
       <input id="ent-email" type="email" maxlength="80" autocomplete="email" inputmode="email" placeholder="voce@exemplo.com">
     </div>
     <div class="field">
-      <label class="lbl" for="ent-senha">Senha</label>
+      <label class="lbl" for="ent-senha" id="ent-senha-label">Senha</label>
       <div class="field-data">
         <input id="ent-senha" type="password" maxlength="64" autocomplete="current-password" placeholder="Pelo menos 8 caracteres">
         <button type="button" class="ghost" id="ent-ver-senha" aria-pressed="false">Mostrar</button>
@@ -2743,14 +2743,21 @@
   /** Mesmas regras que o servidor vai cobrar, conferidas antes para o usuário
    * não descobrir o erro só depois de enviar. Devolve a mensagem ou "". */
   function validarEntrada(modo, d) {
-    if (modo === "criar" && String(d.nome || "").trim().length < 2) return "Informe seu nome.";
-    if (!emailValido(d.email)) return "Informe um e-mail válido.";
-    if (!d.senha) return "Informe a senha.";
-    if (modo === "criar") {
+    function regraDaSenhaNova() {
       if (d.senha.length < 8) return "A senha precisa ter pelo menos 8 caracteres.";
       if (!/[a-zA-Z]/.test(d.senha) || !/\d/.test(d.senha)) return "Use letras e números na senha.";
       if (d.senha !== d.senha2) return "As duas senhas não são iguais.";
+      return "";
     }
+    // Redefinir não pede e-mail: quem identifica a conta é o token do link.
+    if (modo === "redefinir") {
+      if (!d.senha) return "Informe a senha nova.";
+      return regraDaSenhaNova();
+    }
+    if (modo === "criar" && String(d.nome || "").trim().length < 2) return "Informe seu nome.";
+    if (!emailValido(d.email)) return "Informe um e-mail válido.";
+    if (!d.senha) return "Informe a senha.";
+    if (modo === "criar") return regraDaSenhaNova();
     return "";
   }
   /** Conta nova começa vazia — sem as contas e lançamentos de exemplo — para
@@ -2775,29 +2782,41 @@
     document.querySelector(".shell").hidden = !entrou;
     document.querySelector(".fab-wrap").hidden = !entrou;
   }
+  /** Três modos na mesma tela: entrar, criar conta e redefinir — este último é
+   * onde o link do e-mail cai. Ele não pede e-mail: quem prova quem é você é o
+   * token do link, e pedir o e-mail de novo só daria uma chance de errar. */
   function montarEntrada(modo) {
     modoEntrada = modo;
     var criar = modo === "criar";
+    var redefinir = modo === "redefinir";
+    var senhaNova = criar || redefinir;
     document.querySelectorAll("#ent-modo [data-modo]").forEach(function (b) {
       var on = b.getAttribute("data-modo") === modo;
       b.classList.toggle("on", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
-    document.getElementById("ent-titulo").textContent = criar ? "Criar sua conta" : "Entrar na sua conta";
-    document.getElementById("ent-ctx").textContent = criar
-      ? "Leva um minuto. Depois, o app mostra os primeiros passos."
-      : "Use o e-mail e a senha que você cadastrou.";
+    document.getElementById("ent-modo").hidden = redefinir;
+    document.getElementById("ent-titulo").textContent = redefinir
+      ? "Criar uma senha nova"
+      : (criar ? "Criar sua conta" : "Entrar na sua conta");
+    document.getElementById("ent-ctx").textContent = redefinir
+      ? "Escolha a senha que você vai usar de agora em diante."
+      : (criar
+        ? "Leva um minuto. Depois, o app mostra os primeiros passos."
+        : "Use o e-mail e a senha que você cadastrou.");
     document.getElementById("ent-campo-nome").hidden = !criar;
-    document.getElementById("ent-campo-senha2").hidden = !criar;
-    document.getElementById("ent-senha-ajuda").textContent = criar
+    document.getElementById("ent-campo-email").hidden = redefinir;
+    document.getElementById("ent-campo-senha2").hidden = !senhaNova;
+    document.getElementById("ent-senha-label").textContent = redefinir ? "Senha nova" : "Senha";
+    document.getElementById("ent-senha-ajuda").textContent = senhaNova
       ? "Mínimo de 8 caracteres, com letras e números."
       : "";
-    document.getElementById("ent-senha").setAttribute("autocomplete", criar ? "new-password" : "current-password");
+    document.getElementById("ent-senha").setAttribute("autocomplete", senhaNova ? "new-password" : "current-password");
     // Curto para caber inteiro ao lado do "Mostrar" num celular de 320px; a
     // regra completa da senha nova fica na linha de ajuda abaixo do campo.
-    document.getElementById("ent-senha").setAttribute("placeholder", criar ? "Crie uma senha" : "Sua senha");
-    document.getElementById("ent-submit").textContent = criar ? "Criar conta" : "Entrar";
-    document.getElementById("ent-esqueci").hidden = criar;
+    document.getElementById("ent-senha").setAttribute("placeholder", senhaNova ? "Crie uma senha" : "Sua senha");
+    document.getElementById("ent-submit").textContent = redefinir ? "Salvar senha nova" : (criar ? "Criar conta" : "Entrar");
+    document.getElementById("ent-esqueci").hidden = criar || redefinir;
     document.getElementById("ent-erro").textContent = "";
   }
   function limparSenhas() {
@@ -3042,6 +3061,44 @@
       "Se houver uma conta com esse e-mail, enviamos um link para criar uma senha nova. Ele vale por 30 minutos.");
   });
 
+  /* ---------- redefinir senha pelo link do e-mail ----------
+   * O link chega como https://.../?token=... — o app é uma página só, então o
+   * token vem na query, não num caminho que a hospedagem estática não teria.
+   * O token sai da barra de endereços assim que é lido: ele vale por 30 minutos
+   * e uma vez só, mas não precisa ficar em histórico nem em link compartilhado. */
+  var tokenRedefinicao = null;
+  function pegarTokenDaUrl() {
+    var t = null;
+    try { t = new URLSearchParams(location.search).get("token"); } catch (e) { t = null; }
+    if (!t) return null;
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+    return t;
+  }
+
+  async function salvarSenhaNova(senha) {
+    var botao = document.getElementById("ent-submit");
+    var erroEl = document.getElementById("ent-erro");
+    botao.disabled = true;
+    botao.textContent = "Salvando…";
+    try {
+      var r = await chamarApi("/auth/reset-password", { token: tokenRedefinicao, newPassword: senha });
+      if (!r.ok) {
+        erroEl.textContent = mensagemDaApi(r.json, r.status);
+        return;
+      }
+      tokenRedefinicao = null;
+      limparSenhas();
+      montarEntrada("entrar");
+      avisar("Senha alterada",
+        "Pronto. Entre com a senha nova. As sessões abertas em outros aparelhos foram encerradas.");
+    } catch (e) {
+      erroEl.textContent = "Não consegui falar com o servidor. Verifique sua conexão e tente de novo.";
+    } finally {
+      botao.disabled = false;
+      if (modoEntrada === "redefinir") botao.textContent = "Salvar senha nova";
+    }
+  }
+
   document.getElementById("form-entrada").addEventListener("submit", function (e) {
     e.preventDefault();
     var d = {
@@ -3053,6 +3110,7 @@
     var erro = validarEntrada(modoEntrada, d);
     document.getElementById("ent-erro").textContent = erro;
     if (erro) return;
+    if (modoEntrada === "redefinir") { salvarSenhaNova(d.senha); return; }
     if (API_URL) { enviarParaApi(d); return; }
     if (modoEntrada === "criar") criarContaLocal(d.nome, d.email);
     else entrarLocal(d.email);
@@ -5534,7 +5592,13 @@
     // começa na tela de entrada e tenta renovar em silêncio.
     state.sessao = { entrou: false };
     aplicarSessao();
-    renovarSessao().then(function (ok) {
+    // Veio do link do e-mail: a tela é a de criar senha nova, e nem faz sentido
+    // tentar renovar uma sessão — quem clicou ali está sem acesso.
+    tokenRedefinicao = pegarTokenDaUrl();
+    if (tokenRedefinicao) {
+      montarEntrada("redefinir");
+      document.getElementById("ent-senha").focus();
+    } else renovarSessao().then(function (ok) {
       if (!ok) { document.getElementById("ent-email").value = state.perfil.email || ""; return; }
       state.sessao = { entrou: true };
       entrarComServidor();

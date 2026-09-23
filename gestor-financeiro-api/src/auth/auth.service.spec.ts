@@ -242,6 +242,24 @@ describe('AuthService', () => {
       expect(prisma._tabelas.passwordResetToken).toHaveLength(0);
     });
 
+    // Se o envio falhar, o pedido precisa terminar igual ao de um e-mail que
+    // não existe: a diferença entre erro e silêncio diria quem tem conta.
+    it('falha na entrega não vira erro para quem pediu', async () => {
+      const quebrado = new AuthService(prisma, jwt, new PasswordHasher({ N: 1024, r: 8, p: 1 }), {
+        enviarRedefinicaoDeSenha: async () => {
+          throw new Error('Resend recusou o envio (HTTP 403)');
+        },
+      });
+      await expect(quebrado.forgotPassword('ana@ex.com')).resolves.toBeUndefined();
+      // O token foi criado: quem tiver o link do e-mail anterior não perde a vez.
+      expect(prisma._tabelas.passwordResetToken.length).toBeGreaterThan(0);
+    });
+
+    it('o link aponta para a raiz do app, com o token na query', async () => {
+      await service.forgotPassword('ana@ex.com');
+      expect(enviados[0].link).toMatch(/\/\?token=/);
+    });
+
     it('envia um link, e o token do link não fica no banco', async () => {
       await service.forgotPassword(' ANA@ex.com ');
       expect(enviados).toHaveLength(1);

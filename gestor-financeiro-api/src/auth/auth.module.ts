@@ -16,6 +16,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { PasswordHasher } from './password-hasher';
 import { MAILER, MailerDesligado } from './mailer.port';
+import { ResendMailer } from './resend-mailer';
 import { ConsoleMailer } from './console-mailer';
 import { segredoJwt } from './jwt-secret';
 
@@ -37,7 +38,8 @@ import { segredoJwt } from './jwt-secret';
       provide: MAILER,
       useFactory: () => {
         switch (process.env.MAIL_PROVIDER) {
-          // case 'RESEND': return new ResendMailer();
+          case 'RESEND':
+            return new ResendMailer();
           // case 'SES': return new SesMailer();
           case 'NONE':
             // Escolha explícita: sem e-mail, e a recuperação de senha recusa
