@@ -28,10 +28,14 @@ services:
       - key: JWT_SECRET
         generateValue: true
       # Preencher no painel do Render (Environment):
-      # DATABASE_URL  → a connection string do Neon (a "pooled", com sslmode=require)
+      # DATABASE_URL  → connection string do Neon, a POOLED (tem "-pooler" no host)
+      # DIRECT_URL    → a mesma do Neon, mas a DIRETA (sem "-pooler"): as
+      #                 migrations não passam por pool (ver prisma/schema.prisma)
       # CORS_ORIGINS  → a URL do app no Cloudflare Pages, ex.: https://gestor-financeiro.pages.dev
       # APP_URL       → a mesma URL do app (usada nos links de e-mail)
       - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
         sync: false
       - key: CORS_ORIGINS
         sync: false

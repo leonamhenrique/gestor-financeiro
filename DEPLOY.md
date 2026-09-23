@@ -69,11 +69,18 @@ git push -u origin main
 ## Passo 3 — Banco no Neon (uma vez)
 
 1. Entre em <https://neon.com> e crie um projeto (região `AWS São Paulo`, se
-   aparecer; senão `US East`).
-2. Copie a **connection string** que ele mostra (a "Pooled connection", que
-   termina com `?sslmode=require`).
-3. Guarde no gerenciador de senhas. Ela é a senha do seu banco: não cole em
+   aparecer; senão `US East`). Postgres 16 ou mais novo.
+2. Na tela de conexão, copie **as duas** strings — o seletor "Connection
+   type" alterna entre elas:
+   - **Pooled connection** → vai virar `DATABASE_URL`. O host tem `-pooler`.
+   - **Direct connection** → vai virar `DIRECT_URL`. Mesmo host, sem `-pooler`.
+3. Guarde no gerenciador de senhas. São as senhas do seu banco: não cole em
    chat, e-mail ou arquivo do projeto.
+
+São duas porque o app e as migrations precisam de coisas diferentes: o app
+quer o pool (muitas conexões curtas), e o `prisma migrate deploy` precisa de
+uma conexão direta para segurar o lock que impede dois deploys migrarem ao
+mesmo tempo. Pelo pool, a migration falha no meio.
 
 ## Passo 4 — API no Render (uma vez)
 
@@ -81,7 +88,8 @@ git push -u origin main
 2. **New > Blueprint**, escolha o repositório. O Render lê o `render.yaml` e
    já monta o serviço.
 3. Ele vai pedir as variáveis que faltam:
-   - `DATABASE_URL` → a string do Neon.
+   - `DATABASE_URL` → a string **Pooled** do Neon.
+   - `DIRECT_URL` → a string **Direct** do Neon.
    - `CORS_ORIGINS` e `APP_URL` → a URL do app. Você ainda não a tem: ponha
      `https://gestor-financeiro.pages.dev` por enquanto e ajuste no passo 6.
 4. Clique em **Apply**. O primeiro deploy demora alguns minutos: ele instala,

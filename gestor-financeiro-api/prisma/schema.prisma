@@ -17,6 +17,13 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Migration não passa por pool. No Neon (e em qualquer PgBouncer), a conexão
+  // "pooled" não sustenta o lock que o `migrate deploy` usa para garantir que
+  // só um deploy migre por vez, e a migration falha no meio. DIRECT_URL é a
+  // conexão sem pool, usada só pelo Prisma Migrate; o app continua no pool.
+  // Em desenvolvimento não existe pool: deixe DIRECT_URL vazio e o Prisma usa
+  // a mesma DATABASE_URL.
+  directUrl = env("DIRECT_URL")
 }
 
 // ------------------------------------------------------------
