@@ -1,0 +1,14 @@
+# ============================================================
+# wrangler.toml — o app no Cloudflare Pages
+# ============================================================
+# O site é a pasta web/: um HTML pronto e o config.js com o endereço da API.
+# Não há build — nada para compilar, nada para instalar.
+#
+# Com este arquivo no repositório, o Cloudflare usa o que está aqui e ignora
+# o campo digitado no painel. Foi um "WEB" em maiúsculas lá que derrubou o
+# primeiro deploy: no Linux, "WEB" e "web" são pastas diferentes.
+# ============================================================
+
+name = "gestor-financeiro"
+compatibility_date = "2026-09-22"
+pages_build_output_dir = "web"
