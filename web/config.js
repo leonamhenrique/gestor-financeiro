@@ -4,4 +4,4 @@
 //
 // Vazio = modo demonstração (o app funciona, mas guarda tudo só no aparelho).
 // Em localhost este arquivo é ignorado: lá a API é sempre http://localhost:3000.
-window.GF_API_URL = "";
+window.GF_API_URL = "https://gestor-financeiro-api-d2hj.onrender.com";
