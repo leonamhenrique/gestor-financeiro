@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+build/
+
+# Segredos: DATABASE_URL, JWT_SECRET e afins vivem no painel do provedor,
+# nunca no repositório. O .env.example é o que fica versionado.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store
+Thumbs.db
+
+# Cópias antigas de arquivos que já estão em gestor-financeiro-api/src.
+extracted/
+files.zip
+
+# Estado de sessao do Claude Code, nao e do projeto.
+.claude/scheduled_tasks.lock

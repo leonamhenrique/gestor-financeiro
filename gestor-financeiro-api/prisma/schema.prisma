@@ -1,0 +1,501 @@
+// ============================================================
+// Gestor Financeiro — Schema Prisma (MVP)
+// ============================================================
+// Banco: PostgreSQL
+// Convenções:
+// - Todos os valores monetários usam Decimal (nunca Float) para evitar
+//   erros de arredondamento em cálculos financeiros.
+// - snake_case no banco via @@map / @map, camelCase no código TS.
+// - Soft delete não incluído no MVP; pode ser adicionado depois via
+//   campo `deletedAt` se for necessário histórico de exclusões.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------------
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionSource {
+  APP
+  WHATSAPP
+}
+
+enum AccountType {
+  CHECKING   // conta corrente
+  SAVINGS    // poupança
+  WALLET     // dinheiro / carteira física
+  INVESTMENT
+}
+
+enum InvoiceStatus {
+  OPEN
+  CLOSED
+  PAID
+  OVERDUE
+  CARRIED // paga em parte e vencida: o restante foi para a fatura seguinte
+}
+
+enum WhatsappMessageStatus {
+  PROCESSED
+  FAILED
+  PENDING_CONFIRMATION
+  IGNORED
+}
+
+// Espelha os estados que qualquer gateway de assinatura expõe. PAST_DUE é o
+// que dispara o bloqueio parcial: cobrança falhou, mas o gateway ainda está
+// tentando — a conta não deve ser cancelada nem liberada.
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE // assinatura criada mas o primeiro pagamento nunca confirmou
+}
+
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionInvoiceStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  STRIPE
+  ASAAS
+  MERCADO_PAGO
+  FAKE // ambiente de desenvolvimento e testes, sem chamada externa
+}
+
+// ------------------------------------------------------------
+// USUÁRIO
+// ------------------------------------------------------------
+
+model User {
+  id             String   @id @default(uuid())
+  name           String
+  email          String   @unique
+  passwordHash   String   @map("password_hash")
+  whatsappNumber String?  @unique @map("whatsapp_number") // formato E.164, ex: +5531999999999
+  // Bloqueio temporário contra adivinhação de senha. Fica no banco, e não em
+  // memória, para valer igual com mais de uma instância da API rodando.
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime? @map("locked_until")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  bankAccounts        BankAccount[]
+  categories          Category[]
+  transactions        Transaction[]
+  creditCards         CreditCard[]
+  whatsappMessages    WhatsappMessageLog[]
+  subscription        Subscription?
+  paymentMethods      PaymentMethod[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  transactionSeries   TransactionSeries[]
+
+  @@map("users")
+}
+
+// ------------------------------------------------------------
+// AUTENTICAÇÃO
+// ------------------------------------------------------------
+// Nenhum token é gravado como veio: guardamos só o SHA-256 dele. Quem ler o
+// banco não consegue usar o que encontrar lá.
+
+// Sessão de longa duração. Cada uso gera um token novo (rotação) na mesma
+// `familyId`; reapresentar um token já trocado indica roubo, e a família
+// inteira é revogada — o ladrão e a vítima são deslogados daquele login.
+model RefreshToken {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  tokenHash    String    @unique @map("token_hash")
+  familyId     String    @map("family_id")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  replacedById String?   @map("replaced_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+// Link de "esqueci minha senha": uso único e curta duração.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ------------------------------------------------------------
+// COBRANÇA DE ASSINATURA
+// ------------------------------------------------------------
+// Estes modelos descrevem o que ESTE sistema precisa saber sobre a
+// assinatura. A cobrança em si (tentativa, retentativa, régua de
+// inadimplência) é responsabilidade do gateway — aqui só guardamos o
+// reflexo do estado dele, sempre atualizado por webhook.
+
+model Plan {
+  id        String          @id @default(uuid())
+  code      String          @unique // "pro-mensal" — estável, usado no código
+  name      String
+  amount    Decimal         @db.Decimal(14, 2)
+  interval  BillingInterval @default(MONTHLY)
+  isActive  Boolean         @default(true) @map("is_active")
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id") // uma assinatura por usuário
+  planId String @map("plan_id")
+
+  status             SubscriptionStatus @default(INCOMPLETE)
+  currentPeriodEnd   DateTime?          @map("current_period_end")
+  cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
+
+  // Identificadores do lado do gateway. São a ponte entre os dois sistemas:
+  // sem eles não dá para reconciliar um webhook com o usuário local.
+  provider               PaymentProvider @default(FAKE)
+  providerCustomerId     String?         @map("provider_customer_id")
+  providerSubscriptionId String?         @unique @map("provider_subscription_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan     Plan                  @relation(fields: [planId], references: [id])
+  invoices SubscriptionInvoice[]
+
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model SubscriptionInvoice {
+  id             String                    @id @default(uuid())
+  subscriptionId String                    @map("subscription_id")
+  amount         Decimal                   @db.Decimal(14, 2)
+  status         SubscriptionInvoiceStatus @default(PENDING)
+  dueDate        DateTime                  @map("due_date") @db.Date
+  paidAt         DateTime?                 @map("paid_at")
+  failureReason  String?                   @map("failure_reason")
+
+  providerInvoiceId String? @unique @map("provider_invoice_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@map("subscription_invoices")
+}
+
+// NUNCA guarda dado de cartão. O número completo e o CVV vão do navegador
+// direto para o gateway, que devolve um token — é só o token que chega aqui.
+// `brand` e `last4` existem apenas para o usuário reconhecer o cartão na tela.
+model PaymentMethod {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
+  provider      PaymentProvider
+  providerToken String          @map("provider_token")
+  brand         String? // "visa", "mastercard"
+  last4         String? @db.VarChar(4)
+  expMonth      Int?    @map("exp_month")
+  expYear       Int?    @map("exp_year")
+  isDefault     Boolean @default(false) @map("is_default")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerToken])
+  @@index([userId])
+  @@map("payment_methods")
+}
+
+// Webhook chega mais de uma vez — o gateway reenvia quando não recebe 2xx.
+// Registrar o id do evento torna o processamento idempotente: a segunda
+// entrega do mesmo evento não cobra, não libera e não bloqueia de novo.
+model WebhookEvent {
+  id              String          @id @default(uuid())
+  provider        PaymentProvider
+  providerEventId String          @map("provider_event_id")
+  type            String
+  payload         Json
+  processedAt     DateTime?       @map("processed_at")
+  errorReason     String?         @map("error_reason")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@unique([provider, providerEventId])
+  @@map("webhook_events")
+}
+
+// ------------------------------------------------------------
+// CONTAS BANCÁRIAS
+// ------------------------------------------------------------
+
+model BankAccount {
+  id                String      @id @default(uuid())
+  userId            String      @map("user_id")
+  institutionName   String      @map("institution_name") // "Itaú", "Nubank", "Bradesco"...
+  institutionLogoUrl String?    @map("institution_logo_url")
+  accountType       AccountType @map("account_type")
+  initialBalance    Decimal     @default(0) @db.Decimal(14, 2) @map("initial_balance")
+  currentBalance    Decimal     @default(0) @db.Decimal(14, 2) @map("current_balance") // cache atualizado a cada transação
+  color             String?     // hex, ex: "#8A05BE" (Nubank)
+  isActive          Boolean     @default(true) @map("is_active")
+  // Oculta: continua valendo, mas fica fora do saldo geral e dos lançamentos
+  // listados por padrão (ex: conta conjunta, reserva que não se quer ver).
+  isHidden          Boolean     @default(false) @map("is_hidden")
+  sortOrder         Int         @default(0) @map("sort_order") // ordem escolhida pelo usuário
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions    Transaction[]
+  creditCards     CreditCard[]     // cartões vinculados a esta conta (fatura debitada daqui)
+  invoicePayments InvoicePayment[] // pagamentos de fatura que saíram desta conta
+
+  @@index([userId])
+  @@map("bank_accounts")
+}
+
+// ------------------------------------------------------------
+// CATEGORIAS
+// ------------------------------------------------------------
+
+model Category {
+  id        String           @id @default(uuid())
+  userId    String?          @map("user_id") // null = categoria padrão do sistema (seed)
+  name      String
+  type      TransactionType
+  icon      String?          // nome do ícone (ex: "shopping-cart")
+  color     String?
+  isDefault Boolean          @default(false) @map("is_default")
+  // Um nível só: a pai é sempre raiz e do mesmo tipo. Só folha recebe
+  // lançamento novo (ver CategoriesService).
+  parentId  String?          @map("parent_id")
+  sortOrder Int              @default(0) @map("sort_order") // ordem entre irmãs
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent       Category?     @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Category[]    @relation("CategoryTree")
+  transactions Transaction[]
+
+  // Nome único entre IRMÃS (mesmo pai, mesmo tipo), sem diferenciar
+  // maiúsculas e acentos — conferido no service. "Moradia > Luz" e
+  // "Escritório > Luz" são legítimas, por isso não há mais unique no banco.
+  @@index([userId])
+  @@index([parentId])
+  @@map("categories")
+}
+
+// ------------------------------------------------------------
+// TRANSAÇÕES (núcleo do sistema)
+// ------------------------------------------------------------
+
+model Transaction {
+  id              String            @id @default(uuid())
+  userId          String            @map("user_id")
+  bankAccountId   String?           @map("bank_account_id") // null se for despesa de cartão
+  creditCardId    String?           @map("credit_card_id")  // null se for movimentação de conta
+  categoryId      String            @map("category_id")
+  type            TransactionType
+  amount          Decimal           @db.Decimal(14, 2)
+  description     String?
+  transactionDate DateTime          @map("transaction_date") @db.Date // data definida pelo usuário
+  isRecurring     Boolean           @default(false) @map("is_recurring")
+  // Previsto (false) × confirmado (true). Só o confirmado mexe no saldo da
+  // conta e no total da fatura — um previsto é intenção, não dinheiro que
+  // já saiu. O padrão é `true` porque todo lançamento que já existia antes
+  // deste campo já tinha sido aplicado ao saldo.
+  isConfirmed     Boolean           @default(true) @map("is_confirmed")
+  // Só para compra no cartão: a fatura (dia 1 do mês) em que ela entra,
+  // quando não é a que a data indicaria — escolhida no lançamento ou por
+  // antecipação de parcelas. A data da compra continua a real.
+  invoiceMonthOverride DateTime?    @map("invoice_month_override") @db.Date
+  // Série (repetição fixa ou parcelamento) e a posição nela, começando em 0.
+  seriesId        String?           @map("series_id")
+  seriesIndex     Int?              @map("series_index")
+  source          TransactionSource @default(APP)
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount?        @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  creditCard  CreditCard?         @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  category    Category            @relation(fields: [categoryId], references: [id])
+  series      TransactionSeries?  @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  whatsappLog WhatsappMessageLog?
+
+  // Uma transação deve pertencer a UMA conta OU a UM cartão, nunca nenhum ou os dois.
+  // Essa regra é validada na camada de aplicação (Prisma não suporta CHECK constraints
+  // condicionais nativamente sem raw SQL / migration customizada).
+
+  @@index([userId, transactionDate])
+  @@index([bankAccountId])
+  @@index([creditCardId])
+  @@index([categoryId])
+  @@index([seriesId])
+  @@map("transactions")
+}
+
+enum SeriesKind {
+  FIXED       // repete o mesmo lançamento (aluguel, assinatura)
+  INSTALLMENT // parcelamento de uma compra: "parcela i de N"
+}
+
+enum SeriesFrequency {
+  BIWEEKLY  // a cada 15 dias
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+// O que as ocorrências de uma série têm em comum. Cada ocorrência é um
+// Transaction normal (com saldo/fatura próprios) que aponta para cá.
+model TransactionSeries {
+  id        String          @id @default(uuid())
+  userId    String          @map("user_id")
+  kind      SeriesKind
+  frequency SeriesFrequency
+  count     Int             // quantas ocorrências foram criadas
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@map("transaction_series")
+}
+
+// ------------------------------------------------------------
+// CARTÕES DE CRÉDITO
+// ------------------------------------------------------------
+
+model CreditCard {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  bankAccountId String?  @map("bank_account_id") // conta de onde a fatura é debitada (opcional)
+  name          String   // "Nubank Roxinho", "Itaú Click"
+  limitAmount   Decimal  @db.Decimal(14, 2) @map("limit_amount")
+  closingDay    Int      @map("closing_day") // 1-31
+  dueDay        Int      @map("due_day")     // 1-31
+  color         String?
+  isActive      Boolean  @default(true) @map("is_active")
+  sortOrder     Int      @default(0) @map("sort_order") // ordem escolhida pelo usuário
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccount  BankAccount?          @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
+  invoices     CreditCardInvoice[]
+
+  @@index([userId])
+  @@map("credit_cards")
+}
+
+// ------------------------------------------------------------
+// FATURAS DE CARTÃO
+// ------------------------------------------------------------
+
+model CreditCardInvoice {
+  id             String        @id @default(uuid())
+  creditCardId   String        @map("credit_card_id")
+  referenceMonth DateTime      @map("reference_month") @db.Date // sempre dia 1 do mês, ex: 2026-09-01
+  totalAmount    Decimal       @default(0) @db.Decimal(14, 2) @map("total_amount")
+  status         InvoiceStatus @default(OPEN)
+  closingDate    DateTime      @map("closing_date") @db.Date
+  dueDate        DateTime      @map("due_date") @db.Date
+  // Preenchido quando os pagamentos cobrem o devido (registro/consulta em
+  // massa). A regra de verdade é calculada em `invoice-statement.ts`.
+  paidAt         DateTime?     @map("paid_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  creditCard CreditCard       @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  payments   InvoicePayment[]
+
+  @@unique([creditCardId, referenceMonth])
+  @@index([creditCardId])
+  @@map("credit_card_invoices")
+}
+
+// Um pagamento de fatura. Uma fatura aceita vários (pagamento parcial em
+// partes). Cada um sai de uma conta bancária e debita o saldo dela na mesma
+// transação de banco. Não é um lançamento (Transaction): não tem categoria
+// e não é gasto novo — é o pagamento de compras que já foram contadas.
+model InvoicePayment {
+  id            String   @id @default(uuid())
+  invoiceId     String   @map("invoice_id")
+  bankAccountId String   @map("bank_account_id")
+  amount        Decimal  @db.Decimal(14, 2)
+  paidAt        DateTime @map("paid_at") @db.Date
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  invoice     CreditCardInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  // Restrict: conta com pagamento registrado é histórico e só é arquivada,
+  // nunca apagada (ver BankAccountsService.delete).
+  bankAccount BankAccount       @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([bankAccountId])
+  @@map("invoice_payments")
+}
+
+// ------------------------------------------------------------
+// LOG DE MENSAGENS DO WHATSAPP
+// ------------------------------------------------------------
+
+model WhatsappMessageLog {
+  id                   String                @id @default(uuid())
+  userId               String                @map("user_id")
+  rawMessage           String                @map("raw_message") @db.Text
+  parsedTransactionId  String?               @unique @map("parsed_transaction_id")
+  status               WhatsappMessageStatus @default(PENDING_CONFIRMATION)
+  errorReason          String?               @map("error_reason") // preenchido quando status = FAILED
+  createdAt            DateTime              @default(now()) @map("created_at")
+
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parsedTransaction  Transaction? @relation(fields: [parsedTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("whatsapp_message_logs")
+}

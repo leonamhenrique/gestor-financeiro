@@ -1,0 +1,49 @@
+# ============================================================
+# render.yaml — a API no Render
+# ============================================================
+# O Render lê este arquivo ("Blueprint") e cria o serviço sozinho. A cada
+# push no GitHub ele instala, compila, aplica as migrations pendentes
+# (`prisma migrate deploy`, dentro do start) e sobe a versão nova.
+#
+# O banco NÃO está aqui de propósito: ele fica no Neon (grátis, sem prazo).
+# A string de conexão entra como variável no painel do Render — nunca no
+# repositório.
+# ============================================================
+
+services:
+  - type: web
+    name: gestor-financeiro-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: gestor-financeiro-api
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22.11.0
+      # Segredo do JWT: o Render gera um valor forte e guarda no painel.
+      # Ninguém precisa digitar, ver ou colar esse valor em lugar nenhum.
+      - key: JWT_SECRET
+        generateValue: true
+      # Preencher no painel do Render (Environment):
+      # DATABASE_URL  → a connection string do Neon (a "pooled", com sslmode=require)
+      # CORS_ORIGINS  → a URL do app no Cloudflare Pages, ex.: https://gestor-financeiro.pages.dev
+      # APP_URL       → a mesma URL do app (usada nos links de e-mail)
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: APP_URL
+        sync: false
+      # App (pages.dev) e API (onrender.com) são domínios diferentes, e com
+      # SameSite=Strict o navegador não manda o cookie de sessão. Ver
+      # src/auth/session-cookie.ts. Com domínio próprio nos dois, volte a strict.
+      - key: COOKIE_SAMESITE
+        value: none
+      # Sem serviço de e-mail ainda: a API sobe normalmente e só a
+      # recuperação de senha fica desligada, avisando quem tentar. Quando
+      # escolhermos um provedor (Resend, SES), troque aqui.
+      - key: MAIL_PROVIDER
+        value: NONE

@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mockup",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:\\Users\\henri\\AppData\\Local\\Temp\\claude\\C--Users-henri-Downloads-gestor-financeiro\\a68b455b-e224-40bf-a9bb-9a8750af9091\\scratchpad\\servidor.js"
+      ],
+      "port": 4173
+    }
+  ]
+}
