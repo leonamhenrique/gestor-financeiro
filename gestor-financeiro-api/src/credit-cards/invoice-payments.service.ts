@@ -30,6 +30,19 @@ export class InvoicePaymentsService {
     return montarFaturas(cartao, await this.faturasGravadas(this.prisma, creditCardId), hojeNoFuso());
   }
 
+  /** Os pagamentos do cartão, um a um, com o mês da fatura a que pertencem.
+   * O extrato só traz o total pago por fatura; para editar ou desfazer um
+   * pagamento específico, o cliente precisa do id de cada um. */
+  async listar(userId: string, creditCardId: string) {
+    await this.cartaoDoUsuario(this.prisma, userId, creditCardId);
+    const faturas = await this.faturasGravadas(this.prisma, creditCardId);
+    return faturas
+      .flatMap((f) =>
+        f.payments.map((p) => ({ ...this.paraResposta(p), referenceMonth: chaveDoMes(f.referenceMonth) })),
+      )
+      .sort((a, b) => (a.paidAt < b.paidAt ? -1 : a.paidAt > b.paidAt ? 1 : 0));
+  }
+
   async pagar(
     userId: string,
     creditCardId: string,

@@ -22,6 +22,7 @@ import {
   CreateBankAccountDto,
   UpdateBankAccountDto,
   AdjustBalanceDto,
+  UpdateInitialBalanceDto,
 } from './dto/bank-account.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -66,6 +67,14 @@ export class BankAccountsController {
   @Patch(':id')
   update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateBankAccountDto) {
     return this.bankAccountsService.update(req.user.id, id, dto);
+  }
+
+  // Só funciona enquanto a conta não tem nenhum lançamento nem pagamento de
+  // fatura: depois disso o saldo inicial é história, e quem corrige o número
+  // de hoje é o ajuste de saldo (ver regra de negócio no service).
+  @Patch(':id/initial-balance')
+  updateInitialBalance(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateInitialBalanceDto) {
+    return this.bankAccountsService.updateInitialBalance(req.user.id, id, dto.initialBalance);
   }
 
   // Rota separada e explícita — deliberadamente fora do PATCH genérico

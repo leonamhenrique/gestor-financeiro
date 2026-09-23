@@ -1894,12 +1894,14 @@
   function confirmarLancamento(id) {
     var t = byId(state.transactions, id);
     if (!t || t.confirmada) return;
+    if (MODO_API) { comServidor("confirmar o lançamento", function () { return api("/transactions/" + id + "/confirm", {}); }); return; }
     t.confirmada = true; aplicarEfeito(t, 1);
     persist(); renderAll();
   }
   function desconfirmarLancamento(id) {
     var t = byId(state.transactions, id);
     if (!t || !t.confirmada) return;
+    if (MODO_API) { comServidor("voltar o lançamento a previsto", function () { return api("/transactions/" + id + "/unconfirm", {}); }); return; }
     aplicarEfeito(t, -1); t.confirmada = false;
     persist(); renderAll();
   }
@@ -2196,12 +2198,13 @@
     }
     pedirConfirmacao({
       titulo: "Excluir lançamento",
-      ctx: (t.desc || "Lançamento") + " · " + money(t.valor),
+      ctx: (rotuloLancamento(t) || "Lançamento") + " · " + money(t.valor),
       detalhe: t.pagamentoFaturaCartaoId
         ? "O valor volta para a conta e a fatura fica em aberto de novo."
         : (t.confirmada ? "Este lançamento está confirmado: o efeito dele no saldo será revertido." : "Este lançamento ainda é previsto, então nenhum saldo muda."),
       acao: "Excluir", destrutivo: true
     }, function () {
+      if (MODO_API) { comServidor("excluir o lançamento", function () { return api("/transactions/" + id, null, "DELETE"); }); return; }
       removerTransacao(t);
       persist(); renderAll();
     });
@@ -2227,6 +2230,20 @@
     }
 
     function executar() {
+      if (MODO_API) {
+        // Quem decide o que sai é o servidor, que confere fatura por fatura;
+        // a conta feita aqui serve para o texto da confirmação.
+        comServidor("excluir a série", async function () {
+          var r = await api("/transactions/" + alvo.id + "/series?scope=" + ESCOPO_API[escopo], null, "DELETE");
+          if (r && r.protectedCount) {
+            setTimeout(function () {
+              avisar(r.deleted === 1 ? "1 lançamento excluído" : r.deleted + " lançamentos excluídos",
+                r.protectedCount + " ocorrência(s) ficaram: pertencem a uma fatura já paga.");
+            }, 50);
+          }
+        });
+        return;
+      }
       permitidos.forEach(removerTransacao);
       persist(); renderAll();
     }
@@ -2314,6 +2331,13 @@
         botaoIcone("edit", "editar-cartao", card.id, "Editar cartão") + '</div>' : '') +
       '</div>';
   }
+  /** O que o usuário lê na linha. Parcela ganha o "2/6" na hora de mostrar. */
+  function rotuloLancamento(t) {
+    if (t.serieTipo === "INSTALLMENT" && t.serieTotal) {
+      return (t.desc || "Compra") + " (Parcela " + ((t.serieIndex || 0) + 1) + "/" + t.serieTotal + ")";
+    }
+    return t.desc;
+  }
   function linhaLancamentoHTML(t, comAcoes) {
     var cat = t.categoriaId ? byId(state.categories, t.categoriaId) : null;
     var entrada = t.tipo === "INCOME";
@@ -2324,7 +2348,7 @@
       '<span class="cell-data num">' + fmtDia(t.data) + '</span>' +
       '<span class="row-main"><span class="row-title">' +
       '<span class="dot" style="background:' + cor + '"></span>' +
-      '<span class="row-name">' + esc(t.desc || nomeCat) + '</span>' +
+      '<span class="row-name">' + esc(rotuloLancamento(t) || nomeCat) + '</span>' +
       (t.confirmada ? "" : '<span class="tag tag-previsto">prevista</span>') + '</span>' +
       '<span class="row-meta">' + fmtDia(t.data) + ' · ' + esc(nomeCat) + ' · ' + esc(origem || "—") +
       (t.confirmada ? "" : '<span class="tag-previsto-meta"> · prevista</span>') + '</span></span>' +
@@ -2372,8 +2396,7 @@
       var pagamentos = (card.pagamentos || []).filter(function (p) { return p.mesKey === mk; });
       var contas = [];
       pagamentos.forEach(function (p) {
-        var t = byId(state.transactions, p.transacaoId);
-        var a = t && t.contaId ? byId(state.accounts, t.contaId) : null;
+        var a = contaDoPagamento(p);
         if (a && contas.indexOf(a.nome) < 0) contas.push(a.nome);
       });
       var status = statusFatura(card, vm.y, vm.m);
@@ -2848,6 +2871,101 @@
     }
   }
 
+  /* ================= dados no servidor =================
+   * Com sessão de verdade, o servidor passa a ser o dono dos dados: contas,
+   * categorias, cartões, lançamentos e pagamentos de fatura. Sem API (o
+   * artefato publicado), nada disso liga e o app segue no aparelho, como antes.
+   *
+   * A tradução fica só nesta fronteira: a API fala inglês e campos de banco
+   * (institutionName, isHidden, invoiceMonthOverride), o app fala nome, oculto
+   * e fatura. Por isso nenhuma tela precisou ser reescrita.
+   *
+   * Depois de cada gravação o app RECARREGA em vez de adivinhar o resultado.
+   * Saldo de conta, total de fatura, rotativo e status são calculados no
+   * servidor; recalcular aqui criaria uma segunda verdade, e a hora em que as
+   * duas discordassem seria a hora em que o usuário perde a confiança. */
+  var MODO_API = false;
+
+  function soData(v) { return String(v || "").slice(0, 10); }
+  function contaDaApi(j) {
+    return {
+      id: j.id, nome: j.institutionName, tipo: j.accountType,
+      saldo: Number(j.currentBalance), saldoInicial: Number(j.initialBalance),
+      cor: j.color || CORES[0], isActive: j.isActive, oculto: !!j.isHidden
+    };
+  }
+  function categoriaDaApi(j) {
+    return { id: j.id, nome: j.name, tipo: j.type, cor: j.color || CORES[0], padrao: !!j.isDefault, paiId: j.parentId || null };
+  }
+  function cartaoDaApi(j) {
+    return {
+      id: j.id, nome: j.name, limite: Number(j.limitAmount), fechamento: j.closingDay,
+      vencimento: j.dueDay, cor: j.color || CORES[0], contaId: j.bankAccountId || null, pagamentos: []
+    };
+  }
+  function lancamentoDaApi(j) {
+    return {
+      id: j.id, tipo: j.type, valor: Number(j.amount), categoriaId: j.categoryId,
+      desc: j.description || "", data: soData(j.transactionDate),
+      contaId: j.bankAccountId || null, cartaoId: j.creditCardId || null,
+      confirmada: !!j.isConfirmed,
+      faturaMesOverride: j.invoiceMonthOverride ? String(j.invoiceMonthOverride).slice(0, 7) : null,
+      serieId: j.seriesId || null, serieIndex: j.seriesIndex == null ? null : j.seriesIndex,
+      // "Parcela 2/6" é derivado da série, não gravado na descrição: gravado,
+      // ele voltaria colado no texto a cada edição e viraria "(Parcela 2/6)
+      // (Parcela 2/6)". Ver rotuloLancamento.
+      serieTipo: j.series ? j.series.kind : null,
+      serieTotal: j.series ? j.series.count : null
+    };
+  }
+  function pagamentoDaApi(p) {
+    return { pagamentoId: p.id, mesKey: p.referenceMonth, valor: Number(p.amount), data: soData(p.paidAt), contaId: p.bankAccountId };
+  }
+  var FREQ_API = { QUINZENAL: "BIWEEKLY", MENSAL: "MONTHLY", TRIMESTRAL: "QUARTERLY", ANUAL: "YEARLY" };
+  var ESCOPO_API = { SOMENTE: "ONLY", PROXIMOS: "FOLLOWING", TODOS: "ALL" };
+
+  /** Como chamarApi, mas erro vira exceção com a mensagem que a API escreveu —
+   * quem chama só cuida do caminho feliz. */
+  async function api(caminho, corpo, metodo) {
+    var r = await chamarApi(caminho, corpo, metodo || (corpo ? "POST" : "GET"));
+    if (!r.ok) throw new Error(mensagemDaApi(r.json, r.status));
+    return r.json;
+  }
+
+  /** Traz tudo do servidor para o `state`. Conta oculta vem junto: quem
+   * esconde da tela é o app, e o saldo oculto continua somando no seu quadro. */
+  async function carregarDoServidor() {
+    var partes = await Promise.all([
+      api("/bank-accounts?includeInactive=true"),
+      api("/categories"),
+      api("/credit-cards?includeInactive=true"),
+      api("/transactions?includeHidden=true")
+    ]);
+    state.accounts = partes[0].map(contaDaApi);
+    state.categories = partes[1].map(categoriaDaApi);
+    state.cards = partes[2].map(cartaoDaApi);
+    state.transactions = partes[3].map(lancamentoDaApi);
+    var pagamentos = await Promise.all(state.cards.map(function (k) {
+      return api("/credit-cards/" + k.id + "/payments");
+    }));
+    state.cards.forEach(function (k, i) { k.pagamentos = pagamentos[i].map(pagamentoDaApi); });
+    persist();
+  }
+
+  /** Grava no servidor e recarrega. Se falhar, a tela não muda e a mensagem da
+   * API aparece: melhor um "não consegui" honesto que uma tela otimista. */
+  async function comServidor(oQue, acao) {
+    try {
+      await acao();
+      await carregarDoServidor();
+      renderAll();
+      return true;
+    } catch (e) {
+      avisar("Não deu para " + oQue, (e && e.message) || "Tente de novo em instantes.");
+      return false;
+    }
+  }
+
   function entrarNoApp() {
     limparSenhas();
     persist();
@@ -2855,6 +2973,22 @@
     renderAll();
     irPara("resumo");
     setTimeout(convidarMicrofone, 600);
+  }
+
+  /** Entrou de verdade: a partir daqui os dados vêm do servidor, e "hoje" é
+   * hoje — no modo demonstração ele fica fixo para o exemplo cair sempre igual. */
+  async function entrarComServidor() {
+    MODO_API = true;
+    HOJE = new Date();
+    resumoMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
+    extratoMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
+    cartaoSel = null; faturaMes = null;
+    try {
+      await carregarDoServidor();
+    } catch (e) {
+      avisar("Não consegui carregar seus dados", (e && e.message) || "Tente entrar de novo.");
+    }
+    entrarNoApp();
   }
 
   async function enviarParaApi(d) {
@@ -2873,9 +3007,11 @@
         return;
       }
       tokenAcesso = r.json.accessToken;
-      if (criar) criarContaLocal(r.json.user.name, r.json.user.email);
-      else { entrarLocal(r.json.user.email); state.perfil.nome = r.json.user.name; }
-      entrarNoApp();
+      // Sem servidor, criar conta limpa o exemplo; com servidor, quem diz o que
+      // existe é ele — inclusive as categorias que toda conta nova já recebe.
+      state.perfil = { nome: r.json.user.name, email: r.json.user.email };
+      state.sessao = { entrou: true };
+      await entrarComServidor();
     } catch (e) {
       erroEl.textContent = LOCAL
         ? "Não consegui falar com o servidor (localhost:3000). Ele está ligado?"
@@ -2924,6 +3060,14 @@
   });
 
   function sairDaConta() {
+    if (MODO_API) {
+      // Os dados eram do servidor: saem da memória e do aparelho junto com a
+      // sessão, senão a próxima pessoa a abrir o app veria as contas de quem
+      // saiu enquanto a tela ainda não recarregou.
+      MODO_API = false;
+      state.accounts = []; state.cards = []; state.transactions = []; state.categories = [];
+      cartaoSel = null; faturaMes = null; diaAberto = null;
+    }
     if (API_URL) {
       // Encerra a sessão no servidor (e apaga o cookie). Falha de rede não
       // prende a pessoa dentro do app: localmente ela sai de qualquer jeito.
@@ -3010,6 +3154,16 @@
    * só as categorias que já nascem com o app. Perfil e assinatura ficam — é a
    * mesma conta, não um usuário novo. Os primeiros passos reaparecem. */
   function comecarDoZero() {
+    if (MODO_API) {
+      // Apagar tudo de uma vez não existe no servidor de propósito: lá os dados
+      // são história de verdade, e um botão que zera a conta inteira é fácil
+      // demais de apertar sem querer. O caminho é excluir o que não serve.
+      avisar("Isso é do modo demonstração",
+        "Com seus dados no servidor, não existe um botão que apague tudo de uma vez. " +
+        "Exclua o que não quiser mais pelas telas de Contas, Cartões, Categorias e Lançamentos — " +
+        "conta com histórico é arquivada em vez de excluída, para o passado continuar fazendo sentido.");
+      return;
+    }
     pedirConfirmacao({
       titulo: "Começar do zero",
       ctx: "Isso apaga tudo que está cadastrado.",
@@ -3409,7 +3563,7 @@
       linhas.push({
         data: t.data,
         valor: t.tipo === "INCOME" ? t.valor : -t.valor,
-        desc: t.desc || nomeCat,
+        desc: rotuloLancamento(t) || nomeCat,
         categoria: nomeCat,
         origem: origem || "",
         html: linhaLancamentoHTML(t, true)
@@ -3514,8 +3668,7 @@
     document.getElementById("k-pag-head").hidden = !pagamentos.length;
     document.getElementById("k-pag-total").textContent = money(pago);
     document.getElementById("k-pag-lista").innerHTML = pagamentos.map(function (p) {
-      var tp = byId(state.transactions, p.transacaoId);
-      var conta = tp && tp.contaId ? byId(state.accounts, tp.contaId) : null;
+      var conta = contaDoPagamento(p);
       return '<div class="row">' +
         '<span class="row-main"><span class="row-title">' +
         '<span class="dot" style="background:' + (conta ? conta.cor : "var(--fg-subtle)") + '"></span>' +
@@ -3523,8 +3676,8 @@
         '<span class="row-meta">' + fmtDia(p.data) + '</span></span>' +
         '<span class="row-val num">−' + money(p.valor) + '</span>' +
         '<span class="row-acoes">' +
-        botaoIcone("edit", "editar-pagamento", p.transacaoId, "Editar pagamento") +
-        botaoIcone("undo", "desfazer-pagamento", p.transacaoId, "Desfazer pagamento", "danger") +
+        botaoIcone("edit", "editar-pagamento", idDoPagamento(p), "Editar pagamento") +
+        botaoIcone("undo", "desfazer-pagamento", idDoPagamento(p), "Desfazer pagamento", "danger") +
         '</span></div>';
     }).join("");
 
@@ -3752,13 +3905,26 @@
     montarCores("c-cores", a ? a.cor : CORES[0]);
     abrir("dlg-conta");
   }
-  document.getElementById("form-conta").addEventListener("submit", function (e) {
+  document.getElementById("form-conta").addEventListener("submit", async function (e) {
     e.preventDefault();
     var nome = document.getElementById("c-nome").value.trim();
     var erro = document.getElementById("c-erro");
     if (!nome) { erro.textContent = "Informe o nome da instituição."; return; }
     var tipo = document.getElementById("c-tipo").value;
     var cor = corEscolhida("c-cores");
+    if (MODO_API) {
+      var alvo = editandoConta;
+      var inicialApi = alvo ? 0 : (parseFloat(document.getElementById("c-saldo").value) || 0);
+      var ok = await comServidor(alvo ? "salvar a conta" : "criar a conta", function () {
+        return alvo
+          ? api("/bank-accounts/" + alvo, { institutionName: nome, accountType: tipo, color: cor }, "PATCH")
+          : api("/bank-accounts", { institutionName: nome, accountType: tipo, initialBalance: inicialApi, color: cor });
+      });
+      if (!ok) return;
+      editandoConta = null;
+      fechar("dlg-conta");
+      return;
+    }
     if (editandoConta) {
       var a = byId(state.accounts, editandoConta);
       a.nome = nome; a.tipo = tipo; a.cor = cor;
@@ -3785,12 +3951,24 @@
     document.getElementById("s-erro").textContent = "";
     abrir("dlg-saldo");
   }
-  document.getElementById("form-saldo").addEventListener("submit", function (e) {
+  document.getElementById("form-saldo").addEventListener("submit", async function (e) {
     e.preventDefault();
     var novo = parseFloat(document.getElementById("s-valor").value);
     if (isNaN(novo)) { document.getElementById("s-erro").textContent = "Informe um valor válido."; return; }
     var a = byId(state.accounts, saldoContaId);
     if (!a) return;
+    if (MODO_API) {
+      // Duas rotas, a mesma distinção do app: sem histórico, o saldo inicial é
+      // reescrito; com histórico, ele fica como está e só o atual é ajustado.
+      var comHistorico = contaTemHistorico(saldoContaId);
+      var okSaldo = await comServidor("ajustar o saldo", function () {
+        return comHistorico
+          ? api("/bank-accounts/" + saldoContaId + "/adjust-balance", { newBalance: novo }, "PATCH")
+          : api("/bank-accounts/" + saldoContaId + "/initial-balance", { initialBalance: novo }, "PATCH");
+      });
+      if (okSaldo) fechar("dlg-saldo");
+      return;
+    }
     if (contaTemHistorico(saldoContaId)) { a.saldo = novo; }
     else { a.saldoInicial = novo; a.saldo = novo; }
     persist(); renderAll(); fechar("dlg-saldo");
@@ -3799,19 +3977,29 @@
   function alternarArquivo(id) {
     var a = byId(state.accounts, id);
     if (!a) return;
-    if (!a.isActive) { a.isActive = true; persist(); renderAll(); return; }
+    if (!a.isActive) {
+      if (MODO_API) { comServidor("reativar a conta", function () { return api("/bank-accounts/" + id + "/reactivate", {}, "PATCH"); }); return; }
+      a.isActive = true; persist(); renderAll(); return;
+    }
+    // Quem decide entre arquivar e excluir é o servidor, que enxerga o
+    // histórico inteiro (inclusive pagamento de fatura saído desta conta). O
+    // texto daqui é só a expectativa; a resposta dele é que vale.
     if (contaTemHistorico(id)) {
       pedirConfirmacao({
         titulo: "Arquivar conta", ctx: a.nome,
         detalhe: "Esta conta tem histórico, então ela é arquivada em vez de excluída: os lançamentos e o saldo continuam existindo, mas ela sai das listas ativas.",
         acao: "Arquivar", destrutivo: true
-      }, function () { a.isActive = false; persist(); renderAll(); });
+      }, function () {
+        if (MODO_API) { comServidor("arquivar a conta", function () { return api("/bank-accounts/" + id, null, "DELETE"); }); return; }
+        a.isActive = false; persist(); renderAll();
+      });
     } else {
       pedirConfirmacao({
         titulo: "Excluir conta", ctx: a.nome,
         detalhe: "Esta conta não tem nenhum lançamento nem cartão vinculado, então pode ser excluída definitivamente.",
         acao: "Excluir", destrutivo: true
       }, function () {
+        if (MODO_API) { comServidor("excluir a conta", function () { return api("/bank-accounts/" + id, null, "DELETE"); }); return; }
         state.accounts = state.accounts.filter(function (x) { return x.id !== id; });
         persist(); renderAll();
       });
@@ -3820,6 +4008,12 @@
   function alternarOculta(id) {
     var a = byId(state.accounts, id);
     if (!a) return;
+    if (MODO_API) {
+      comServidor(a.oculto ? "mostrar a conta" : "ocultar a conta", function () {
+        return api("/bank-accounts/" + id, { isHidden: !a.oculto }, "PATCH");
+      });
+      return;
+    }
     a.oculto = !a.oculto;
     persist(); renderAll();
   }
@@ -3928,6 +4122,15 @@
 
     montarOpcoes("l-rep-tipo", [{ id: "FIXA", nome: "Fixa" }, { id: "PARCELADA", nome: "Parcelada" }], "FIXA", atualizarRepetirHelp);
 
+    // Com os dados no servidor, editar não troca o sinal nem o destino: virar
+    // uma despesa em receita, ou mudar de conta, mexe em dois saldos de uma vez
+    // e é mais honesto excluir e lançar de novo. Valor, data, categoria,
+    // descrição, fatura e "já confirmado" continuam editáveis.
+    var travado = MODO_API && !!t;
+    document.querySelectorAll("#l-tipo-pills .pill, #l-destino-pills .pill").forEach(function (p) { p.disabled = travado; });
+    document.getElementById("l-conta").disabled = travado;
+    document.getElementById("l-cartao").disabled = travado;
+
     // `opcoes` também pré-preenche o formulário: é por aí que o ditado entrega
     // o que entendeu, para o usuário conferir antes de lançar.
     document.getElementById("l-valor").value = t ? t.valor : (opcoes.valor || "");
@@ -3976,7 +4179,7 @@
     abrirCategoria(null, tipoAtual());
   });
 
-  document.getElementById("form-lancamento").addEventListener("submit", function (e) {
+  document.getElementById("form-lancamento").addEventListener("submit", async function (e) {
     e.preventDefault();
     var erro = document.getElementById("l-erro");
     var valor = parseFloat(document.getElementById("l-valor").value);
@@ -3997,6 +4200,48 @@
     if (!data) { erro.textContent = "Escolha a data do lançamento."; return; }
     var confirmada = document.getElementById("l-confirmado").checked;
     var override = cartaoId ? document.getElementById("l-fatura").value : null;
+
+    if (MODO_API) {
+      var alvoL = editandoLancamento;
+      var repetindo = !alvoL && document.getElementById("l-repetir").checked;
+      var qtdRep = parseInt(document.getElementById("l-rep-qtd").value, 10) || 0;
+      if (repetindo && qtdRep < 2) { erro.textContent = "Informe pelo menos 2 ocorrências."; return; }
+      var okL = await comServidor(alvoL ? "salvar o lançamento" : "lançar", function () {
+        if (alvoL) {
+          // Tipo, conta e cartão não mudam depois de lançado (ver abrirLancamento):
+          // trocar o sinal ou o destino de um lançamento já confirmado mexeria em
+          // dois saldos ao mesmo tempo. Para isso, exclua e lance de novo.
+          return api("/transactions/" + alvoL, {
+            categoryId: categoriaId, amount: valor, description: desc,
+            transactionDate: data, isConfirmed: confirmada,
+            invoiceMonth: cartaoId ? override : null
+          }, "PATCH");
+        }
+        var corpo = {
+          type: tipo, amount: valor, categoryId: categoriaId, description: desc || undefined,
+          transactionDate: data, isConfirmed: confirmada
+        };
+        if (contaId) corpo.bankAccountId = contaId; else corpo.creditCardId = cartaoId;
+        if (cartaoId && override) corpo.invoiceMonth = override;
+        if (repetindo) {
+          corpo.repeat = {
+            kind: (opcaoEscolhida("l-rep-tipo") || "FIXA") === "PARCELADA" ? "INSTALLMENT" : "FIXED",
+            frequency: FREQ_API[document.getElementById("l-rep-freq").value] || "MONTHLY",
+            count: qtdRep
+          };
+        }
+        return api("/transactions", corpo);
+      });
+      if (!okL) return;
+      editandoLancamento = null;
+      if (e.submitter && e.submitter.id === "l-lancar-novo") {
+        abrirLancamento({ cartaoId: destino === "cartao" ? cartaoId : null });
+        document.getElementById("l-valor").focus();
+      } else {
+        fechar("dlg-lancamento");
+      }
+      return;
+    }
 
     if (editandoLancamento) {
       var atual = byId(state.transactions, editandoLancamento);
@@ -4286,10 +4531,21 @@
     abrirLancamento(opcoesDaFala(falaAtual));
   });
 
-  document.getElementById("voz-lancar").addEventListener("click", function () {
+  document.getElementById("voz-lancar").addEventListener("click", async function () {
     if (!falaAtual || falaAtual.faltando.length) return;
     if (bloqueado()) return;
     var r = falaAtual;
+    if (MODO_API) {
+      var corpoVoz = {
+        type: r.tipo, amount: r.valor, categoryId: r.categoriaId,
+        description: r.desc || undefined, transactionDate: r.data, isConfirmed: r.confirmada
+      };
+      if (r.contaId) corpoVoz.bankAccountId = r.contaId; else corpoVoz.creditCardId = r.cartaoId;
+      if (r.cartaoId && r.faturaMes) corpoVoz.invoiceMonth = r.faturaMes;
+      var okVoz = await comServidor("lançar", function () { return api("/transactions", corpoVoz); });
+      if (okVoz) fechar("dlg-voz");
+      return;
+    }
     var nova = {
       id: uid("t"), tipo: r.tipo, valor: r.valor, categoriaId: r.categoriaId,
       desc: r.desc, data: r.data, contaId: r.contaId, cartaoId: r.cartaoId,
@@ -4376,7 +4632,7 @@
       ? movidas.map(function (x) {
           var p = periodoDaTransacao(x, anteciparCard);
           return '<div class="row"><span class="row-main"><span class="row-title">' +
-            '<span class="row-name">' + esc(x.desc || "Parcela") + '</span></span>' +
+            '<span class="row-name">' + esc(rotuloLancamento(x) || "Parcela") + '</span></span>' +
             '<span class="row-meta">' + rotuloMes(p) + ' → ' + rotuloMes(destino) + '</span></span>' +
             '<span class="row-val num">' + money(x.valor) + '</span></div>';
         }).join("") +
@@ -4389,11 +4645,28 @@
 
   document.getElementById("ant-destino").addEventListener("change", atualizarAntecipar);
   document.getElementById("ant-qtd").addEventListener("change", atualizarAntecipar);
-  document.getElementById("form-antecipar").addEventListener("submit", function (e) {
+  document.getElementById("form-antecipar").addEventListener("submit", async function (e) {
     e.preventDefault();
     var destino = parseMonthKey(document.getElementById("ant-destino").value);
     var qtd = parseInt(document.getElementById("ant-qtd").value, 10) || 0;
     if (!qtd) { document.getElementById("ant-erro").textContent = "Escolha quantas parcelas antecipar."; return; }
+    if (MODO_API) {
+      var serieAlvo = anteciparSerie, cardAlvo = anteciparCard, movidasApi = 0;
+      var okAnt = await comServidor("antecipar as parcelas", async function () {
+        var r = await api("/transactions/series/" + serieAlvo + "/anticipate", {
+          destinationMonth: monthKey(destino), quantity: qtd,
+          confirm: document.getElementById("ant-confirmar").checked
+        });
+        movidasApi = r ? r.anticipated : 0;
+      });
+      if (!okAnt) return;
+      cartaoSel = cardAlvo.id; faturaMes = destino;
+      anteciparSerie = null; anteciparCard = null;
+      renderAll(); fechar("dlg-antecipar");
+      avisar(movidasApi === 1 ? "1 parcela antecipada" : movidasApi + " parcelas antecipadas",
+        "Elas agora entram na fatura de " + rotuloMes(destino) + ". A data da compra não mudou.");
+      return;
+    }
     var movidas = anteciparParcelas(anteciparSerie, anteciparCard, destino,
       qtd, document.getElementById("ant-confirmar").checked);
     // A fatura vista passa a ser a de destino, senão o usuário fica olhando
@@ -4434,7 +4707,7 @@
       : "";
     abrir("dlg-cartao");
   }
-  document.getElementById("form-cartao").addEventListener("submit", function (e) {
+  document.getElementById("form-cartao").addEventListener("submit", async function (e) {
     e.preventDefault();
     var erro = document.getElementById("k-erro");
     var nome = document.getElementById("k-nome").value.trim();
@@ -4446,6 +4719,29 @@
     if (!(fecha >= 1 && fecha <= 31) || !(vence >= 1 && vence <= 31)) { erro.textContent = "Fechamento e vencimento devem estar entre 1 e 31."; return; }
     var cor = corEscolhida("k-cores");
     var contaId = document.getElementById("k-conta").value || null;
+
+    if (MODO_API) {
+      var alvoK = editandoCartao;
+      var podeCiclo = !document.getElementById("k-fecha").disabled;
+      var okK = await comServidor(alvoK ? "salvar o cartão" : "criar o cartão", async function () {
+        if (!alvoK) {
+          var criado = await api("/credit-cards", {
+            name: nome, limitAmount: limite, closingDay: fecha, dueDay: vence,
+            bankAccountId: contaId || undefined, color: cor
+          });
+          cartaoSel = criado.id; faturaMes = null;
+          return criado;
+        }
+        await api("/credit-cards/" + alvoK, { name: nome, limitAmount: limite, bankAccountId: contaId || undefined, color: cor }, "PATCH");
+        // Ciclo tem rota própria: o servidor só aceita enquanto não houver
+        // fatura gerada, senão os períodos já calculados virariam mentira.
+        if (podeCiclo) await api("/credit-cards/" + alvoK + "/billing-cycle", { closingDay: fecha, dueDay: vence }, "PATCH");
+      });
+      if (!okK) return;
+      editandoCartao = null;
+      fechar("dlg-cartao");
+      return;
+    }
 
     if (editandoCartao) {
       var k = byId(state.cards, editandoCartao);
@@ -4512,7 +4808,7 @@
   document.getElementById("g-pai").addEventListener("change", function () {
     document.getElementById("g-erro").textContent = "";
   });
-  document.getElementById("form-categoria").addEventListener("submit", function (e) {
+  document.getElementById("form-categoria").addEventListener("submit", async function (e) {
     e.preventDefault();
     var nome = document.getElementById("g-nome").value.trim();
     var erro = document.getElementById("g-erro");
@@ -4520,6 +4816,34 @@
     var atual = editandoCategoria ? byId(state.categories, editandoCategoria) : null;
     var tipo = atual ? atual.tipo : (opcaoEscolhida("g-tipo-pills") || "EXPENSE");
     var paiId = document.getElementById("g-pai").value || null;
+
+    if (MODO_API) {
+      var corApi = corEscolhida("g-cores");
+      // A mesma conferência de nome repetido existe no servidor, e é a dele
+      // que vale: aqui ela só evita uma ida à rede no caso óbvio.
+      if (nomeDuplicado(nome, tipo, paiId, editandoCategoria)) {
+        erro.textContent = 'Já existe uma categoria com esse nome no mesmo lugar.';
+        return;
+      }
+      var idAntes = editandoCategoria;
+      var okCat = await comServidor(idAntes ? "salvar a categoria" : "criar a categoria", function () {
+        return idAntes
+          ? api("/categories/" + idAntes, { name: nome, color: corApi, parentId: paiId }, "PATCH")
+          : api("/categories", { name: nome, type: tipo, color: corApi, parentId: paiId || undefined });
+      });
+      if (!okCat) return;
+      editandoCategoria = null;
+      fechar("dlg-categoria");
+      // Criada a partir do "+" do lançamento: repõe a lista e já seleciona.
+      var dlg = document.getElementById("dlg-lancamento");
+      if (!idAntes && dlg.open && tipo === tipoAtual()) {
+        var nova = state.categories.filter(function (c) {
+          return !c.padrao && c.tipo === tipo && normalizarNome(c.nome) === normalizarNome(nome);
+        })[0];
+        atualizarCategorias(nova ? nova.id : null);
+      }
+      return;
+    }
 
     if (nomeDuplicado(nome, tipo, paiId, editandoCategoria)) {
       var pai = paiId ? byId(state.categories, paiId) : null;
@@ -4568,6 +4892,7 @@
         detalhe: "Nenhum lançamento usa esta categoria.",
         acao: "Excluir", destrutivo: true
       }, function () {
+        if (MODO_API) { comServidor("excluir a categoria", function () { return api("/categories/" + id, null, "DELETE"); }); return; }
         state.categories = state.categories.filter(function (x) { return x.id !== id; });
         persist(); renderAll();
       });
@@ -4585,9 +4910,21 @@
     document.getElementById("re-erro").textContent = "";
     abrir("dlg-reatribuir");
   }
-  document.getElementById("re-confirmar").addEventListener("click", function () {
+  document.getElementById("re-confirmar").addEventListener("click", async function () {
     var destino = document.getElementById("re-destino").value;
     if (!destino) { document.getElementById("re-erro").textContent = "Escolha a categoria de destino."; return; }
+    if (MODO_API) {
+      // Mover os lançamentos e excluir acontecem na MESMA transação de banco:
+      // nenhum lançamento fica órfão no meio do caminho.
+      var alvo = categoriaExcluindo;
+      var okDel = await comServidor("excluir a categoria", function () {
+        return api("/categories/" + alvo + "?reassignToCategoryId=" + encodeURIComponent(destino), null, "DELETE");
+      });
+      if (!okDel) return;
+      categoriaExcluindo = null;
+      fechar("dlg-reatribuir");
+      return;
+    }
     state.transactions.forEach(function (t) { if (t.categoriaId === categoriaExcluindo) t.categoriaId = destino; });
     state.categories = state.categories.filter(function (x) { return x.id !== categoriaExcluindo; });
     categoriaExcluindo = null;
@@ -4600,6 +4937,21 @@
   function listaContasPagamento(incluirId) {
     return state.accounts.filter(function (a) { return a.isActive || a.id === incluirId; })
       .map(function (a) { return { id: a.id, nome: a.nome + " (" + brl(a.saldo) + ")" }; });
+  }
+
+  /* Um pagamento é identificado de dois jeitos, conforme a origem: no servidor
+   * ele é um registro próprio (pagamentoId); em demonstração, é a transação que
+   * saiu da conta (transacaoId). O resto do app usa estes três helpers e não
+   * precisa saber de qual dos dois mundos veio. */
+  function idDoPagamento(p) { return p.pagamentoId || p.transacaoId; }
+  function acharPagamento(card, id) {
+    return (card.pagamentos || []).filter(function (x) { return idDoPagamento(x) === id; })[0];
+  }
+  function contaDoPagamento(p) {
+    if (!p) return null;
+    if (p.contaId) return byId(state.accounts, p.contaId);
+    var t = byId(state.transactions, p.transacaoId);
+    return t && t.contaId ? byId(state.accounts, t.contaId) : null;
   }
   document.getElementById("k-pagar").addEventListener("click", function () {
     var card = byId(state.cards, cartaoSel);
@@ -4622,17 +4974,17 @@
     abrir("dlg-pagar");
   });
 
-  function abrirEdicaoPagamento(transacaoId) {
+  function abrirEdicaoPagamento(pagamentoId) {
     var card = byId(state.cards, cartaoSel);
     if (!card) return;
-    var p = (card.pagamentos || []).filter(function (x) { return x.transacaoId === transacaoId; })[0];
-    var t = byId(state.transactions, transacaoId);
-    if (!p || !t) return;
-    editandoPagamento = transacaoId;
+    var p = acharPagamento(card, pagamentoId);
+    if (!p) return;
+    var conta = contaDoPagamento(p);
+    editandoPagamento = pagamentoId;
     document.getElementById("pg-titulo").textContent = "Editar pagamento";
     document.getElementById("pg-submit").textContent = "Salvar";
     document.getElementById("pg-ctx").textContent = card.nome + " · " + rotuloMes(parseMonthKey(p.mesKey));
-    preencherSelect(document.getElementById("pg-conta"), listaContasPagamento(t.contaId), t.contaId);
+    preencherSelect(document.getElementById("pg-conta"), listaContasPagamento(conta && conta.id), conta && conta.id);
     document.getElementById("pg-valor").value = p.valor.toFixed(2);
     calPagamento.fechar();
     calPagamento.definir(p.data, true);
@@ -4642,25 +4994,34 @@
 
   /** Desfazer devolve o valor para a conta e reabre a fatura: removerTransacao
    * já reverte o saldo e apaga o registro em card.pagamentos. */
-  function desfazerPagamento(transacaoId) {
+  function desfazerPagamento(pagamentoId) {
     var card = byId(state.cards, cartaoSel);
     if (!card) return;
-    var p = (card.pagamentos || []).filter(function (x) { return x.transacaoId === transacaoId; })[0];
+    var p = acharPagamento(card, pagamentoId);
     if (!p) return;
-    var t = byId(state.transactions, transacaoId);
-    var conta = t && t.contaId ? byId(state.accounts, t.contaId) : null;
+    var conta = contaDoPagamento(p);
     pedirConfirmacao({
       titulo: "Desfazer pagamento",
       ctx: card.nome + " · " + rotuloMes(parseMonthKey(p.mesKey)) + " · " + brl(p.valor),
       detalhe: "O valor volta para " + (conta ? conta.nome : "a conta de origem") + " e a fatura fica em aberto de novo.",
       acao: "Desfazer", destrutivo: true
     }, function () {
+      if (MODO_API) {
+        // O servidor pode recusar: se o resto desta fatura foi transportado e
+        // já foi pago no mês seguinte, desfazer aqui deixaria aquele pagamento
+        // sem lastro. A mensagem dele diz qual pagamento desfazer primeiro.
+        comServidor("desfazer o pagamento", function () {
+          return api("/credit-cards/" + card.id + "/payments/" + pagamentoId, null, "DELETE");
+        });
+        return;
+      }
+      var t = byId(state.transactions, p.transacaoId);
       if (t) removerTransacao(t);
-      else card.pagamentos = card.pagamentos.filter(function (x) { return x.transacaoId !== transacaoId; });
+      else card.pagamentos = card.pagamentos.filter(function (x) { return idDoPagamento(x) !== pagamentoId; });
       persist(); renderAll();
     });
   }
-  document.getElementById("form-pagar").addEventListener("submit", function (e) {
+  document.getElementById("form-pagar").addEventListener("submit", async function (e) {
     e.preventDefault();
     var erro = document.getElementById("pg-erro");
     var contaId = document.getElementById("pg-conta").value;
@@ -4671,9 +5032,24 @@
     var card = byId(state.cards, cartaoSel);
     var dataPg = calPagamento.obter() || isoDate(dataDeHoje());
 
+    if (MODO_API) {
+      var emEdicao = editandoPagamento;
+      var okPg = await comServidor(emEdicao ? "salvar o pagamento" : "registrar o pagamento", function () {
+        return emEdicao
+          ? api("/credit-cards/" + card.id + "/payments/" + emEdicao,
+              { bankAccountId: contaId, amount: valor, paidAt: dataPg }, "PATCH")
+          : api("/credit-cards/" + card.id + "/invoices/" + monthKey(faturaMes) + "/payments",
+              { bankAccountId: contaId, amount: valor, paidAt: dataPg });
+      });
+      if (!okPg) return;
+      editandoPagamento = null;
+      fechar("dlg-pagar");
+      return;
+    }
+
     if (editandoPagamento) {
       var t = byId(state.transactions, editandoPagamento);
-      var p = (card.pagamentos || []).filter(function (x) { return x.transacaoId === editandoPagamento; })[0];
+      var p = acharPagamento(card, editandoPagamento);
       if (!t || !p) { editandoPagamento = null; fechar("dlg-pagar"); return; }
       // Reverte com os valores antigos antes de reaplicar com os novos, para
       // a conta de origem trocada também ser acertada nos dois lados.
@@ -4692,7 +5068,7 @@
       };
       state.transactions.push(pagamento);
       aplicarEfeito(pagamento, 1);
-      card.pagamentos.push({ mesKey: key, valor: valor, data: pagamento.data, transacaoId: pagamento.id });
+      card.pagamentos.push({ mesKey: key, valor: valor, data: pagamento.data, transacaoId: pagamento.id, contaId: contaId });
     }
     persist(); renderAll(); fechar("dlg-pagar");
   });
@@ -4802,34 +5178,32 @@
     });
   }
 
-  ativarOrdenacao("r-cartoes", function (ids) {
-    state.cards = aplicarOrdem(state.cards, ids);
-    persist(); renderAll();
-  });
-  ativarOrdenacao("r-contas", function (ids) {
-    state.accounts = aplicarOrdem(state.accounts, ids);
-    persist(); renderAll();
-  });
-  // Mesma ordem, outras telas. Na de Contas só as ativas se arrastam: as
-  // arquivadas ficam numa lista à parte e não disputam posição com elas.
-  ativarOrdenacao("k-lista", function (ids) {
-    state.cards = aplicarOrdem(state.cards, ids);
-    persist(); renderAll();
-  });
-  ativarOrdenacao("c-lista", function (ids) {
-    state.accounts = aplicarOrdem(state.accounts, ids);
-    persist(); renderAll();
-  });
+  /** A ordem também vive no servidor (cada item tem a sua posição), e a regra
+   * lá é a mesma daqui: os ids enviados vão para a frente, o resto mantém a
+   * ordem relativa atrás deles. A tela já se moveu quando isto roda; se o
+   * servidor recusar, o recarregamento devolve a ordem que ele conhece. */
+  function reordenar(caminho, aplicarLocal) {
+    return function (ids) {
+      if (MODO_API) { comServidor("salvar a ordem", function () { return api(caminho, { ids: ids }, "PUT"); }); return; }
+      aplicarLocal(ids);
+      persist(); renderAll();
+    };
+  }
+  var ordemCartoes = reordenar("/credit-cards/order", function (ids) { state.cards = aplicarOrdem(state.cards, ids); });
+  var ordemContas = reordenar("/bank-accounts/order", function (ids) { state.accounts = aplicarOrdem(state.accounts, ids); });
   // Os ids recebidos são sempre de irmãos (raízes de um tipo, ou filhas de um
   // mesmo pai). `aplicarOrdem` põe esses na frente do array e mantém o resto
   // na ordem em que estava — e como raizesDe/filhasDe filtram por grupo, a
   // ordem relativa de cada grupo é a única coisa que aparece na tela.
-  ["g-despesas", "g-receitas"].forEach(function (id) {
-    ativarOrdenacao(id, function (ids) {
-      state.categories = aplicarOrdem(state.categories, ids);
-      persist(); renderAll();
-    });
-  });
+  var ordemCategorias = reordenar("/categories/order", function (ids) { state.categories = aplicarOrdem(state.categories, ids); });
+
+  ativarOrdenacao("r-cartoes", ordemCartoes);
+  ativarOrdenacao("r-contas", ordemContas);
+  // Mesma ordem, outras telas. Na de Contas só as ativas se arrastam: as
+  // arquivadas ficam numa lista à parte e não disputam posição com elas.
+  ativarOrdenacao("k-lista", ordemCartoes);
+  ativarOrdenacao("c-lista", ordemContas);
+  ["g-despesas", "g-receitas"].forEach(function (id) { ativarOrdenacao(id, ordemCategorias); });
 
   function acoesDeLista(e) {
     // A alça fica dentro da linha do cartão, que navega para a fatura no
@@ -4996,11 +5370,19 @@
   function abrirMeuPerfil() {
     document.getElementById("pf-nome").value = state.perfil.nome;
     document.getElementById("pf-email").value = state.perfil.email;
-    document.getElementById("pf-erro").textContent = "";
+    // Nome e e-mail são a identidade da conta no servidor, e trocar e-mail sem
+    // confirmar o novo endereço é como se perde o acesso. Enquanto essa rota
+    // não existe, os campos ficam só de leitura em vez de prometer algo falso.
+    document.getElementById("pf-nome").disabled = MODO_API;
+    document.getElementById("pf-email").disabled = MODO_API;
+    document.getElementById("pf-erro").textContent = MODO_API
+      ? "Alterar nome e e-mail ainda não está disponível: eles identificam sua conta no servidor."
+      : "";
     abrir("dlg-meu-perfil");
   }
   document.getElementById("form-perfil").addEventListener("submit", function (e) {
     e.preventDefault();
+    if (MODO_API) { fechar("dlg-meu-perfil"); return; }
     var nome = document.getElementById("pf-nome").value.trim();
     var email = document.getElementById("pf-email").value.trim();
     if (!nome || !email) { document.getElementById("pf-erro").textContent = "Preencha nome e e-mail."; return; }
@@ -5155,7 +5537,7 @@
     renovarSessao().then(function (ok) {
       if (!ok) { document.getElementById("ent-email").value = state.perfil.email || ""; return; }
       state.sessao = { entrou: true };
-      entrarNoApp();
+      entrarComServidor();
     });
   } else {
     aplicarSessao();

@@ -20,7 +20,9 @@ async function bootstrap() {
   app.enableCors({
     origin: origens,
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    // PUT entra por causa das rotas de ordem (/bank-accounts/order e irmãs):
+    // fora desta lista, o navegador nem chega a enviar o pedido.
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Client'],
   });
   await app.listen(process.env.PORT ?? 3000);

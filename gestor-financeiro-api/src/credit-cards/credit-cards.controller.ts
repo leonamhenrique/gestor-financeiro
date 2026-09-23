@@ -60,6 +60,12 @@ export class CreditCardsController {
     return this.paymentsService.pagar(req.user.id, id, month, dto);
   }
 
+  // Pagamentos do cartão, um a um (o extrato só traz o total por fatura).
+  @Get(':id/payments')
+  listPayments(@Req() req: any, @Param('id') id: string) {
+    return this.paymentsService.listar(req.user.id, id);
+  }
+
   @Patch(':id/payments/:paymentId')
   updatePayment(
     @Req() req: any,

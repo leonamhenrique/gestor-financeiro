@@ -72,6 +72,12 @@ export class UpdateBankAccountDto {
 // um saldo depois que a conta já tem transações: um ajuste manual,
 // que fica registrado como uma transação de ajuste (auditável), em
 // vez de simplesmente sobrescrever o número.
+// Saldo com que a conta nasceu. Só aceito enquanto ela não tem histórico.
+export class UpdateInitialBalanceDto {
+  @IsNumber({ maxDecimalPlaces: 2 })
+  initialBalance: number;
+}
+
 export class AdjustBalanceDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   newBalance: number;
