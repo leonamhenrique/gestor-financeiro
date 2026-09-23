@@ -17,7 +17,10 @@ services:
     region: oregon
     plan: free
     rootDir: gestor-financeiro-api
-    buildCommand: npm ci && npx prisma generate && npm run build
+    # `--include=dev` não é enfeite: o Render roda com NODE_ENV=production, e
+    # nesse modo o npm pula as devDependencies — sem elas não existe `nest`
+    # para compilar nem `prisma` para migrar no start.
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
     startCommand: npm run start:prod
     healthCheckPath: /
     envVars:
