@@ -10,7 +10,8 @@
 // só na primeira vez.
 // ============================================================
 
-import { PrismaClient, TransactionType, BillingInterval } from '@prisma/client';
+import { PrismaClient, BillingInterval } from '@prisma/client';
+import { garantirCategoriasPadrao } from '../src/categories/default-categories';
 
 const prisma = new PrismaClient();
 
@@ -60,66 +61,12 @@ async function seedPlanos() {
   }
 }
 
-const DEFAULT_EXPENSE_CATEGORIES = [
-  { name: 'Alimentação', icon: 'utensils', color: '#F97316' },
-  { name: 'Transporte', icon: 'car', color: '#3B82F6' },
-  { name: 'Moradia', icon: 'home', color: '#8B5CF6' },
-  { name: 'Saúde', icon: 'heart-pulse', color: '#EF4444' },
-  { name: 'Educação', icon: 'graduation-cap', color: '#06B6D4' },
-  { name: 'Lazer', icon: 'gamepad-2', color: '#EC4899' },
-  { name: 'Compras', icon: 'shopping-bag', color: '#F59E0B' },
-  { name: 'Assinaturas', icon: 'refresh-cw', color: '#6366F1' },
-  { name: 'Contas e Serviços', icon: 'file-text', color: '#64748B' },
-  { name: 'Cuidados Pessoais', icon: 'sparkles', color: '#D946EF' },
-  { name: 'Pets', icon: 'paw-print', color: '#84CC16' },
-  { name: 'Impostos e Taxas', icon: 'landmark', color: '#78716C' },
-  { name: 'Outros', icon: 'more-horizontal', color: '#9CA3AF' }, // usada como destino padrão de reatribuição
-];
-
-const DEFAULT_INCOME_CATEGORIES = [
-  { name: 'Salário', icon: 'briefcase', color: '#22C55E' },
-  { name: 'Freelance', icon: 'laptop', color: '#14B8A6' },
-  { name: 'Investimentos', icon: 'trending-up', color: '#0EA5E9' },
-  { name: 'Presente', icon: 'gift', color: '#F472B6' },
-  { name: 'Reembolso', icon: 'rotate-ccw', color: '#A3E635' },
-  { name: 'Outros', icon: 'more-horizontal', color: '#9CA3AF' },
-];
-
-async function seedCategories(
-  categories: { name: string; icon: string; color: string }[],
-  type: TransactionType,
-) {
-  for (const category of categories) {
-    // upsert precisa de uma chave única. userId é null aqui, e o
-    // @@unique([userId, name, type]) do schema aceita null em userId
-    // normalmente (Postgres trata múltiplos NULLs como distintos por
-    // padrão), então usamos findFirst + create condicional em vez de
-    // upsert direto, para não correr risco de duplicar categoria
-    // padrão em reexecuções.
-    const existing = await prisma.category.findFirst({
-      where: { userId: null, name: category.name, type },
-    });
-
-    if (!existing) {
-      await prisma.category.create({
-        data: {
-          userId: null,
-          name: category.name,
-          type,
-          icon: category.icon,
-          color: category.color,
-          isDefault: true,
-        },
-      });
-      console.log(`Criada categoria padrão: [${type}] ${category.name}`);
-    }
-  }
-}
-
 async function main() {
   console.log('Iniciando seed de categorias padrão...');
-  await seedCategories(DEFAULT_EXPENSE_CATEGORIES, TransactionType.EXPENSE);
-  await seedCategories(DEFAULT_INCOME_CATEGORIES, TransactionType.INCOME);
+  // Mesma lista que a API confere na subida (src/categories/default-categories):
+  // duas cópias divergiriam no primeiro dia em que alguém mexesse em uma delas.
+  const criadas = await garantirCategoriasPadrao(prisma);
+  console.log(`Categorias padrão criadas: ${criadas}`);
   console.log('Iniciando seed de planos...');
   await seedPlanos();
   console.log('Seed concluído.');

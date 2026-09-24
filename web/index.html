@@ -2722,9 +2722,22 @@
     linhas.push({ rotulo: "Valor", valor: r.valor ? brl(r.valor) : "não identificado", ok: !!r.valor });
     var destino = r.cartaoId ? (byId(state.cards, r.cartaoId) || {}).nome
       : (r.contaId ? (byId(state.accounts, r.contaId) || {}).nome : null);
-    linhas.push({ rotulo: r.cartaoId ? "Cartão" : "Conta", valor: destino || "não identificado", ok: !!destino });
+    // "Não identificado" é ambíguo: pode ser que eu não entendi, ou que não há
+    // nada cadastrado com esse nome. A segunda é a causa mais comum em conta
+    // nova, e é a que o usuário resolve sozinho — então ela é dita.
+    var temOndeLancar = state.accounts.some(function (a) { return a.isActive; }) || state.cards.length > 0;
+    linhas.push({
+      rotulo: r.cartaoId ? "Cartão" : "Conta",
+      valor: destino || (temOndeLancar ? "não identificado" : "nada cadastrado ainda"),
+      ok: !!destino
+    });
     var cat = r.categoriaId ? byId(state.categories, r.categoriaId) : null;
-    linhas.push({ rotulo: "Categoria", valor: cat ? nomeCompleto(cat) : "não identificada", ok: !!cat });
+    var temCategoria = categoriasLancaveis(r.tipo).length > 0;
+    linhas.push({
+      rotulo: "Categoria",
+      valor: cat ? nomeCompleto(cat) : (temCategoria ? "não identificada" : "nada cadastrado ainda"),
+      ok: !!cat
+    });
     if (r.cartaoId) {
       var card = byId(state.cards, r.cartaoId);
 
@@ -4379,9 +4392,27 @@
     var completo = !falaAtual.faltando.length;
     document.getElementById("voz-lancar").disabled = !completo;
     document.getElementById("voz-revisar").disabled = false;
-    document.getElementById("voz-erro").textContent = completo
-      ? ""
-      : "Faltou " + falaAtual.faltando.join(", ") + ". Complete no formulário ou diga de novo.";
+    document.getElementById("voz-erro").textContent = completo ? "" : recadoDoQueFaltou(falaAtual);
+  }
+
+  /** O ditado só reconhece o que existe cadastrado: ele compara a frase com os
+   * nomes das suas contas, cartões e categorias. Quando não há nada para
+   * comparar, o recado precisa dizer isso — senão parece que o microfone
+   * entendeu errado, e a pessoa repete a frase mais devagar sem sucesso. */
+  function recadoDoQueFaltou(r) {
+    var semDestino = !state.accounts.some(function (a) { return a.isActive; }) && !state.cards.length;
+    var semCategoria = !categoriasLancaveis(r.tipo).length;
+    var tipo = r.tipo === "INCOME" ? "receita" : "despesa";
+    if (semDestino && semCategoria) {
+      return "Você ainda não tem conta, cartão nem categoria de " + tipo + " cadastrados. Cadastre pelo menos um de cada antes de lançar por voz.";
+    }
+    if (semDestino) return "Você ainda não tem conta nem cartão cadastrado. Cadastre um antes de lançar.";
+    if (semCategoria) return "Você ainda não tem categoria de " + tipo + ". Crie uma na tela de Categorias.";
+    var falta = r.faltando.join(", ");
+    if (r.faltando.indexOf("destino") >= 0 || r.faltando.indexOf("categoria") >= 0) {
+      return "Faltou " + falta + ". Diga o nome como está cadastrado, ou complete no formulário.";
+    }
+    return "Faltou " + falta + ". Complete no formulário ou diga de novo.";
   }
 
   function estadoVoz(texto, ouvindo) {
