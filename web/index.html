@@ -925,6 +925,9 @@
   </form>
 
   <button type="button" class="link-ghost" id="ent-esqueci">Esqueci minha senha</button>
+  <!-- Só aparece quando dá para instalar: quem já instalou não precisa ver, e
+       num navegador que não instala o convite seria uma porta que não abre. -->
+  <button type="button" class="link-ghost" id="ent-instalar" hidden>Instalar no aparelho</button>
   <!-- Texto preenchido no carregamento: muda se há servidor ou não. -->
   <div class="field-help entrada-aviso" id="ent-aviso"></div>
 </main>
@@ -2882,6 +2885,7 @@
     document.getElementById("ent-submit").textContent = redefinir ? "Salvar senha nova" : (criar ? "Criar conta" : "Entrar");
     document.getElementById("ent-esqueci").hidden = criar || redefinir;
     document.getElementById("ent-erro").textContent = "";
+    atualizarConvitesDeInstalacao();
   }
   function limparSenhas() {
     // A senha só existe no campo enquanto a pessoa digita; nada fica para trás.
@@ -5511,7 +5515,7 @@
     pill.textContent = bloq ? "Pendente" : "Em dia";
     pill.className = "tag " + (bloq ? "danger" : "ok");
     document.getElementById("pf-plano").textContent = "Plano " + planoAtual().nome;
-    atualizarItemInstalar();
+    atualizarConvitesDeInstalacao();
     abrir("dlg-perfil");
   }
 
@@ -5719,26 +5723,42 @@
   function jaInstalado() {
     return matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
   }
-  /** Mostra o item do menu quando dá para instalar: com o convite guardado, ou
-   * no iPhone, onde ele nunca vem e o caminho é explicar o passo a passo. */
-  function atualizarItemInstalar() {
-    var item = document.querySelector('[data-perfil="instalar"]');
-    if (!item) return;
-    var dava = !!convite || (ehIPhoneOuIPad(navigator.userAgent) && !jaInstalado());
-    item.hidden = jaInstalado() || !dava;
-    document.getElementById("pf-instalar-meta").textContent = convite
-      ? "Abre em janela própria, com ícone na tela inicial."
-      : "Pelo Safari: Compartilhar e depois Adicionar à Tela de Início.";
+  /** Dá para instalar quando o navegador avisou (convite guardado) ou quando é
+   * iPhone, onde esse aviso nunca vem e o caminho é o passo a passo do Safari. */
+  function daParaInstalar() {
+    if (jaInstalado()) return false;
+    return !!convite || ehIPhoneOuIPad(navigator.userAgent);
   }
+
+  /** O convite vive em dois lugares, porque são dois momentos: no menu do
+   * perfil, para quem já usa o app, e na tela de entrada — onde quem ainda não
+   * tem conta passa, e onde muita gente decide se aquilo vira um app ou fica
+   * sendo um site. */
+  function atualizarConvitesDeInstalacao() {
+    var item = document.querySelector('[data-perfil="instalar"]');
+    var podeInstalar = daParaInstalar();
+    if (item) {
+      item.hidden = !podeInstalar;
+      document.getElementById("pf-instalar-meta").textContent = convite
+        ? "Abre em janela própria, com ícone na tela inicial."
+        : "Pelo Safari: Compartilhar e depois Adicionar à Tela de Início.";
+    }
+    var naEntrada = document.getElementById("ent-instalar");
+    // Na redefinição de senha ele sai de cena: ali a pessoa veio de um link do
+    // e-mail resolver uma coisa só, e qualquer outra oferta atrapalha.
+    if (naEntrada) naEntrada.hidden = !podeInstalar || modoEntrada === "redefinir";
+  }
+
+  document.getElementById("ent-instalar").addEventListener("click", instalarApp);
 
   window.addEventListener("beforeinstallprompt", function (e) {
     e.preventDefault();   // sem isto o Chrome mostra a barra dele, do jeito dele
     convite = e;
-    atualizarItemInstalar();
+    atualizarConvitesDeInstalacao();
   });
   window.addEventListener("appinstalled", function () {
     convite = null;
-    atualizarItemInstalar();
+    atualizarConvitesDeInstalacao();
   });
 
   async function instalarApp() {
@@ -5751,7 +5771,7 @@
     convite.prompt();
     try { await convite.userChoice; } catch (e) {}
     convite = null;      // o convite serve uma vez só
-    atualizarItemInstalar();
+    atualizarConvitesDeInstalacao();
   }
 
   /* ---------- app instalado ----------

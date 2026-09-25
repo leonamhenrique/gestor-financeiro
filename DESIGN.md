@@ -338,6 +338,14 @@ Regras que não se negociam aqui:
   tela diz em qual modo o app está (servidor local ou demonstração).
 - "Esqueci minha senha" usa o e-mail já digitado e responde sempre a mesma
   coisa ("se houver uma conta com esse e-mail…"), exista a conta ou não.
+- **"Instalar no aparelho"** aparece abaixo de "Esqueci minha senha", com o
+  mesmo tratamento de link (44px de altura). Só existe quando dá para
+  instalar de fato: o navegador avisou que o app é instalável, ou é iPhone,
+  onde esse aviso nunca vem e o texto explica o caminho do Safari. Some quando
+  o app já está instalado e na tela de senha nova — ali a pessoa veio de um
+  link do e-mail resolver uma coisa só. O mesmo convite se repete no menu do
+  perfil, para quem já entrou; são dois momentos de decisão, não dois botões
+  concorrentes.
 
 **Primeiros passos** (onboarding) — primeiro bloco do Resumo (`--i:0`), com
 `.lbl` "Primeiros passos", contador "2 de 5" no `.lbl-row`, barra de progresso
