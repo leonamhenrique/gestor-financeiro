@@ -2657,6 +2657,51 @@
     return null;
   }
 
+  /* ---------- forma de pagamento e destino ----------
+   * Quem fala diz a forma e, em seguida, o nome do banco: "no crédito do
+   * Nubank", "no pix do Inter", "débito em conta C6". A forma é que decide
+   * ONDE procurar esse nome — sem isso, "cartão Nubank" caía na conta Nubank
+   * só porque a conta tinha o nome mais parecido. */
+  var TERMOS_CONTA = /debito|em conta|na conta|da conta|conta corrente|poupanca|dinheiro|especie|\bpix\b|transferencia|\bted\b|\bdoc\b|boleto|carteira/;
+  var TERMOS_CARTAO = /cartao|credito|fatura|parcelad/;
+
+  /** "cartao" | "conta" | null. Débito manda mais que cartão: "cartão de
+   * débito do Nubank" é dinheiro saindo da conta, não fatura. */
+  function formaDePagamentoDaFala(texto) {
+    if (TERMOS_CONTA.test(texto)) return "conta";
+    if (TERMOS_CARTAO.test(texto)) return "cartao";
+    return null;
+  }
+
+  /** O destino do lançamento a partir da frase. Quando a forma foi dita mas o
+   * nome não bate na lista dela, tenta o vínculo entre os dois: o cartão que é
+   * pago por aquela conta, ou a conta que paga aquele cartão. Com um só
+   * cadastrado, dizer a forma já basta. */
+  function destinoDaFala(texto) {
+    var contasAtivas = state.accounts.filter(function (a) { return a.isActive; });
+    var cartao = acharPorNome(state.cards, texto);
+    var conta = acharPorNome(contasAtivas, texto);
+    var forma = formaDePagamentoDaFala(texto);
+
+    if (forma === "cartao") {
+      var k = cartao ||
+        (conta ? state.cards.filter(function (x) { return x.contaId === conta.id; })[0] : null) ||
+        (!cartao && !conta && state.cards.length === 1 ? state.cards[0] : null);
+      return k ? { forma: forma, cartaoId: k.id } : { forma: forma };
+    }
+    if (forma === "conta") {
+      var c = conta ||
+        (cartao && cartao.contaId ? byId(contasAtivas, cartao.contaId) : null) ||
+        (!cartao && !conta && contasAtivas.length === 1 ? contasAtivas[0] : null);
+      return c ? { forma: forma, contaId: c.id } : { forma: forma };
+    }
+    // Sem forma dita, quem manda é o nome. O do cartão tem preferência por ser
+    // mais específico: "Nubank Roxinho" diz mais que "Nubank".
+    if (cartao) return { forma: null, cartaoId: cartao.id };
+    if (conta) return { forma: null, contaId: conta.id };
+    return { forma: null };
+  }
+
   /** Interpreta a frase ditada e devolve o lançamento que ela descreve, mais a
    * lista do que faltou. Nunca lança sozinho: o que sai daqui vai para a tela
    * de conferência e para o formulário. */
@@ -2673,17 +2718,10 @@
     if (!r.valor) r.faltando.push("valor");
 
     // Destino: cartão pelo nome, ou a forma de pagamento (débito, pix, dinheiro).
-    var cartao = acharPorNome(state.cards, texto);
-    var conta = acharPorNome(state.accounts.filter(function (a) { return a.isActive; }), texto);
-    var falaCartao = /cartao de credito|no credito|na fatura|fatura/.test(texto) || !!cartao;
-    var falaConta = /debito|pix|dinheiro|especie|transferencia|boleto|na conta|em conta/.test(texto);
-    if (cartao && !(falaConta && !/(cartao|fatura)/.test(texto))) {
-      r.cartaoId = cartao.id;
-    } else if (falaConta || conta) {
-      r.contaId = conta ? conta.id : (state.accounts.filter(function (a) { return a.isActive; })[0] || {}).id || null;
-    } else if (falaCartao) {
-      r.cartaoId = (state.cards[0] || {}).id || null;
-    }
+    var destino = destinoDaFala(texto);
+    r.forma = destino.forma;
+    r.contaId = destino.contaId || null;
+    r.cartaoId = destino.cartaoId || null;
     if (!r.cartaoId && !r.contaId) r.faltando.push("destino");
 
     // Categoria: só as que recebem lançamento, do tipo certo.
@@ -2727,7 +2765,7 @@
     // nova, e é a que o usuário resolve sozinho — então ela é dita.
     var temOndeLancar = state.accounts.some(function (a) { return a.isActive; }) || state.cards.length > 0;
     linhas.push({
-      rotulo: r.cartaoId ? "Cartão" : "Conta",
+      rotulo: (r.cartaoId || (r.forma === "cartao" && !r.contaId)) ? "Cartão" : "Conta",
       valor: destino || (temOndeLancar ? "não identificado" : "nada cadastrado ainda"),
       ok: !!destino
     });
@@ -4407,6 +4445,13 @@
       return "Você ainda não tem conta, cartão nem categoria de " + tipo + " cadastrados. Cadastre pelo menos um de cada antes de lançar por voz.";
     }
     if (semDestino) return "Você ainda não tem conta nem cartão cadastrado. Cadastre um antes de lançar.";
+    // Disse a forma, mas o nome não bateu: o problema é o nome, não o microfone.
+    if (r.forma === "cartao" && !r.cartaoId) {
+      return "Você falou em cartão, mas não achei nenhum com esse nome. Confira como ele está cadastrado em Cartões.";
+    }
+    if (r.forma === "conta" && !r.contaId) {
+      return "Você falou em pagamento pela conta, mas não achei conta com esse nome. Confira como ela está cadastrada em Contas.";
+    }
     if (semCategoria) return "Você ainda não tem categoria de " + tipo + ". Crie uma na tela de Categorias.";
     var falta = r.faltando.join(", ");
     if (r.faltando.indexOf("destino") >= 0 || r.faltando.indexOf("categoria") >= 0) {
