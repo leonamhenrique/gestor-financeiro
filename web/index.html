@@ -582,6 +582,10 @@
     border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
   }
   .field textarea { height: auto; padding: 10px 12px; resize: vertical; }
+  /* O placeholder é texto e vale a mesma régua: o cinza padrão do navegador dá
+   * 4,33:1 no tema claro, abaixo do mínimo. `opacity: 1` porque o Firefox
+   * aplica uma opacidade própria por cima da cor. */
+  .field input::placeholder, .field textarea::placeholder { color: var(--fg-subtle); opacity: 1; }
   /* O Safari do iPhone dá zoom na página quando o campo focado tem fonte menor
    * que 16px — e depois a tela fica deslocada. 16px só no campo, no telefone:
    * o resto da tipografia não muda. */
@@ -5486,6 +5490,13 @@
     });
     var botoes = [document.getElementById("tema-nav"), document.getElementById("tema-mobile")];
     botoes.forEach(function (b) { if (b) b.title = vaiParaClaro ? "Mudar para o tema claro" : "Mudar para o tema escuro"; });
+    // No app instalado, a barra do sistema usa a cor do <meta theme-color>. Fixa,
+    // ela deixava o topo escuro por cima de um app claro.
+    var metaTema = document.querySelector('meta[name="theme-color"]');
+    if (metaTema) {
+      var corDeFundo = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+      if (corDeFundo) metaTema.setAttribute("content", corDeFundo);
+    }
     // O sparkline é desenhado em pixels, então precisa ser refeito com as cores novas.
     desenharSpark(serieSaldo(), false);
   }
