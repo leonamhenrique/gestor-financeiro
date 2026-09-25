@@ -46,6 +46,7 @@ Consequências práticas:
   --bg:            #070B12;
   --hairline:      rgba(255,255,255,0.06);
   --hairline-strong: rgba(255,255,255,0.08);
+  --campo-borda:     rgba(255,255,255,0.34);   /* 3,03:1 — contorno de campo */
   --track:         rgba(255,255,255,0.05);  /* trilho de barras */
 
   /* texto */
@@ -91,6 +92,7 @@ nenhuma regra de composição muda. Três coisas não são simples inversão:
   --bg:              #F6F8FB;
   --hairline:        rgba(15,23,32,0.10);
   --hairline-strong: rgba(15,23,32,0.16);
+  --campo-borda:     rgba(15,23,32,0.46);      /* 3,00:1 — tinta preta rende menos */
   --track:           rgba(15,23,32,0.08);
 
   --fg:        #14202B;
@@ -802,7 +804,7 @@ blur. O que a separa do conteúdo é uma hairline.
 
 ## 11. Formulários e camadas
 
-Campo também não é caixa. O que desenha um input é a hairline — nunca um fundo
+Campo também não é caixa. O que desenha um input é o contorno — nunca um fundo
 próprio, que reintroduziria o card pela porta dos fundos.
 
 ```css
@@ -810,17 +812,27 @@ próprio, que reintroduziria o card pela porta dos fundos.
 .field input, .field select, .field textarea {
   height: 44px; padding: 0 12px; font: inherit; font-size: 13px;
   color: var(--fg); background: none;
-  border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+  border: 1px solid var(--campo-borda); border-radius: var(--r-sm);
 }
 .field textarea { height: auto; padding: 10px 12px; resize: vertical; }
-.field :focus { outline: none; border-color: rgba(110,231,240,0.45); }
-.field :disabled { color: var(--fg-subtle); border-color: var(--hairline); }
+.field input::placeholder { color: var(--fg-subtle); opacity: 1; }
+.field :focus { outline: none; border-color: var(--accent); }
+.field :disabled { color: var(--fg-subtle); border-color: var(--hairline-strong); }
 .field-help  { font-size: 11px; color: var(--fg-subtle); }
 .field-error { font-size: 11px; color: var(--negative); }
 ```
 
 - Altura 44px — é o alvo de toque da regra 4, não uma escolha estética.
-- Foco é só a borda em acento a 45%: sem glow, sem outline dupla, sem sombra.
+- **A borda do campo tem token próprio, `--campo-borda`, medido em 3:1.** Ela
+  não é a hairline: hairline é divisória de leitura, e o contorno do campo é o
+  que diz "aqui se digita" — a regra 1.4.11 da WCAG pede 3:1 para isso. As
+  hairlines de lista e separador continuam leves, como sempre foram.
+- Foco é só a borda, no **acento cheio**: sem glow, sem outline dupla, sem
+  sombra. Cheio e não a 45%, porque com a borda em repouso a 3:1 o acento
+  translúcido ficava em 1,99:1 no tema claro — o foco apareceria menos que o
+  estado normal.
+- Campo desabilitado afrouxa para `--hairline-strong`: ali não há interação
+  para sinalizar, e o contorno forte prometeria o contrário.
 - Escolha entre **2 e 4 opções** usa `.pill` (seção 5), não `select`. `select`
   só quando a lista é aberta ou longa.
 - Campo travado por regra de negócio fica `disabled` **com `.field-help`

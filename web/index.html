@@ -25,6 +25,10 @@
     --bg: #070B12;
     --hairline: rgba(255,255,255,0.06);
     --hairline-strong: rgba(255,255,255,0.08);
+    /* Borda de campo de formulário. Separada da hairline de propósito: a
+     * hairline é divisória de leitura (3:1 não se aplica), mas o contorno é o
+     * que diz "aqui se digita". Medido: 3,03:1 sobre --bg. */
+    --campo-borda: rgba(255,255,255,0.34);
     --track: rgba(255,255,255,0.05);
 
     --fg: #E2EEF8;
@@ -108,6 +112,8 @@
     --bg: #F6F8FB;
     --hairline: rgba(15,23,32,0.10);
     --hairline-strong: rgba(15,23,32,0.16);
+    /* Tinta preta rende menos que branca: 0,46 aqui para os mesmos 3,00:1. */
+    --campo-borda: rgba(15,23,32,0.46);
     --track: rgba(15,23,32,0.08);
 
     --fg: #14202B;
@@ -579,7 +585,7 @@
   .field input, .field select, .field textarea {
     height: 44px; padding: 0 12px; font: inherit; font-size: 13px;
     color: var(--fg); background: none;
-    border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+    border: 1px solid var(--campo-borda); border-radius: var(--r-sm);
   }
   .field textarea { height: auto; padding: 10px 12px; resize: vertical; }
   /* O placeholder é texto e vale a mesma régua: o cinza padrão do navegador dá
@@ -599,8 +605,13 @@
     .field-data .cal-wrap + .ghost { margin-left: auto; }
     .cal-dia { min-height: 44px; }
   }
-  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent-foco); }
-  .field input:disabled, .field select:disabled { color: var(--fg-subtle); border-color: var(--hairline); }
+  /* Foco no acento cheio, não no acento a 45%: com a borda em repouso agora em
+   * 3:1, o acento translúcido ficava em 1,99:1 no tema claro — o foco apareceria
+   * MENOS que o estado normal, que é o contrário do que ele precisa dizer. */
+  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  /* Desabilitado é o único caso em que a borda pode afrouxar: ali não há
+   * interação para sinalizar, e o contorno forte prometeria o contrário. */
+  .field input:disabled, .field select:disabled { color: var(--fg-subtle); border-color: var(--hairline-strong); }
   .field select option { background: var(--superficie); color: var(--fg); }
   .field-help { font-size: 11px; color: var(--fg-subtle); }
   .field-error { font-size: 11px; color: var(--negative); }
@@ -613,11 +624,11 @@
   .cal-trigger {
     height: 44px; padding: 0 12px; width: 100%;
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+    border: 1px solid var(--campo-borda); border-radius: var(--r-sm);
     background: none; color: var(--fg); font-family: inherit; font-size: 13px; cursor: pointer;
     font-variant-numeric: tabular-nums; transition: border-color 180ms ease-out;
   }
-  .cal-trigger:hover, .cal-trigger.aberto { border-color: var(--accent-foco); }
+  .cal-trigger:hover, .cal-trigger.aberto, .cal-trigger:focus { border-color: var(--accent); }
   .cal-trigger svg { width: 15px; height: 15px; color: var(--fg-subtle); flex-shrink: 0; }
   .cal { border: 1px solid var(--hairline-strong); border-radius: var(--r-md); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .cal[hidden] { display: none; }
