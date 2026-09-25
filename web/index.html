@@ -9,7 +9,14 @@
 <!-- Cor da barra do sistema quando o app roda instalado, fora do navegador. -->
 <meta name="theme-color" content="#070B12">
 <link rel="icon" href="icons/icone-192.png">
-<link rel="apple-touch-icon" href="icons/icone-192.png">
+<link rel="apple-touch-icon" href="icons/icone-180.png">
+<!-- O iPhone ignora o manifesto ao adicionar à tela de início: quem diz que o
+     app abre sem a barra do Safari são estas metas. A barra de status fica
+     preta porque é a cor do topo do app, e "black-translucent" jogaria o
+     conteúdo por baixo dela. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Gestor">
 <script src="config.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap');
@@ -1537,6 +1544,7 @@
         <span class="opt-meta" id="pf-plano"></span>
       </button>
       <button type="button" class="opt" data-perfil="planos">Planos<span class="opt-meta">Comparar e trocar de plano.</span></button>
+      <button type="button" class="opt" data-perfil="instalar" hidden>Instalar no aparelho<span class="opt-meta" id="pf-instalar-meta">Abre em janela própria, com ícone na tela inicial.</span></button>
       <button type="button" class="opt" data-perfil="zerar">Começar do zero<span class="opt-meta">Apaga contas, cartões e lançamentos e refaz os primeiros passos.</span></button>
       <button type="button" class="opt" data-perfil="suporte">Suporte<span class="opt-meta">Relatar um problema.</span></button>
       <button type="button" class="opt" data-perfil="ideias">Ideias e sugestões<span class="opt-meta">Contar o que faria o app melhor.</span></button>
@@ -5503,6 +5511,7 @@
     pill.textContent = bloq ? "Pendente" : "Em dia";
     pill.className = "tag " + (bloq ? "danger" : "ok");
     document.getElementById("pf-plano").textContent = "Plano " + planoAtual().nome;
+    atualizarItemInstalar();
     abrir("dlg-perfil");
   }
 
@@ -5643,6 +5652,7 @@
     if (acao === "meu") abrirMeuPerfil();
     if (acao === "assinatura") abrirAssinatura();
     if (acao === "planos") abrirPlanos();
+    if (acao === "instalar") instalarApp();
     if (acao === "zerar") comecarDoZero();
     if (acao === "sair") sairDaConta();
     if (acao === "suporte") abrirMensagem("suporte");
@@ -5689,6 +5699,59 @@
     // Na primeira abertura, o convite para liberar o microfone — depois da
     // tela pintada, e só com alguém dentro do app.
     if (state.sessao.entrou) setTimeout(convidarMicrofone, 600);
+  }
+
+  /* ---------- instalar o app ----------
+   * O navegador esconde o instalador: no Android ele fica no menu ⋮, e no
+   * iPhone não existe botão nenhum — é "Compartilhar → Adicionar à Tela de
+   * Início". Por isso o convite mora aqui dentro, no menu do perfil, onde a
+   * pessoa consegue achar.
+   *
+   * No Chrome, `beforeinstallprompt` só dispara quando o app é mesmo
+   * instalável (https, manifesto, service worker); guardar o evento é o que
+   * permite abrir a caixa de instalação depois, num clique do usuário — ela
+   * não abre sozinha. */
+  var convite = null;
+
+  function ehIPhoneOuIPad(ua) {
+    return /iphone|ipad|ipod/.test(String(ua || "").toLowerCase());
+  }
+  function jaInstalado() {
+    return matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  }
+  /** Mostra o item do menu quando dá para instalar: com o convite guardado, ou
+   * no iPhone, onde ele nunca vem e o caminho é explicar o passo a passo. */
+  function atualizarItemInstalar() {
+    var item = document.querySelector('[data-perfil="instalar"]');
+    if (!item) return;
+    var dava = !!convite || (ehIPhoneOuIPad(navigator.userAgent) && !jaInstalado());
+    item.hidden = jaInstalado() || !dava;
+    document.getElementById("pf-instalar-meta").textContent = convite
+      ? "Abre em janela própria, com ícone na tela inicial."
+      : "Pelo Safari: Compartilhar e depois Adicionar à Tela de Início.";
+  }
+
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();   // sem isto o Chrome mostra a barra dele, do jeito dele
+    convite = e;
+    atualizarItemInstalar();
+  });
+  window.addEventListener("appinstalled", function () {
+    convite = null;
+    atualizarItemInstalar();
+  });
+
+  async function instalarApp() {
+    if (!convite) {
+      avisar("Instalar no aparelho", ehIPhoneOuIPad(navigator.userAgent)
+        ? "No iPhone, toque no botão Compartilhar (o quadrado com a seta para cima), role a lista e escolha \"Adicionar à Tela de Início\". O app passa a abrir em janela própria."
+        : "Se o seu navegador permite instalar, a opção aparece no menu dele — no Chrome, em \"Transmitir, salvar e compartilhar\", ou pelo ícone de instalar na barra de endereços.");
+      return;
+    }
+    convite.prompt();
+    try { await convite.userChoice; } catch (e) {}
+    convite = null;      // o convite serve uma vez só
+    atualizarItemInstalar();
   }
 
   /* ---------- app instalado ----------
