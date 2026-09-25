@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- Endereço da API (window.GF_API_URL). Só existe no site publicado; no
      artefato do Claude o arquivo não é carregado e o app roda em demonstração. -->
+<link rel="manifest" href="manifest.webmanifest">
+<!-- Cor da barra do sistema quando o app roda instalado, fora do navegador. -->
+<meta name="theme-color" content="#070B12">
+<link rel="icon" href="icons/icone-192.png">
+<link rel="apple-touch-icon" href="icons/icone-192.png">
 <script src="config.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap');
@@ -5684,6 +5689,20 @@
     // Na primeira abertura, o convite para liberar o microfone — depois da
     // tela pintada, e só com alguém dentro do app.
     if (state.sessao.entrou) setTimeout(convidarMicrofone, 600);
+  }
+
+  /* ---------- app instalado ----------
+   * O service worker é o que faz o Chrome oferecer "Instalar app" no Windows,
+   * e o que deixa o app abrir sem internet. Registrado depois da tela pintada:
+   * ele não tem nada a ver com o primeiro desenho, e disputar banda com o
+   * carregamento só atrasaria o que o usuário está esperando ver.
+   *
+   * Só em https ou localhost — é onde o navegador aceita — e falha em silêncio:
+   * no artefato publicado o arquivo não existe, e isso não é um erro. */
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || LOCAL)) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").catch(function () {});
+    });
   }
 
   var redesenho;
