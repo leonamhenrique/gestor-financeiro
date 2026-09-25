@@ -115,6 +115,10 @@ Auditar é mecânico: percorrer os elementos com texto, compor o fundo real
 (inclusive `background-image` de tinte) e comparar com o mínimo — 4,5:1, ou
 3:1 em texto grande. Nenhuma tela, nem as camadas, pode sair com falha.
 
+**Placeholder é texto**, e entra na mesma conta: o cinza padrão do navegador
+dá 4,33:1 no tema claro, abaixo do mínimo. Ele usa `--fg-subtle`, com
+`opacity: 1` — o Firefox aplica uma opacidade própria por cima da cor.
+
 **Tinte translúcido precisa de fundo próprio por baixo.** A célula tingida fica
 sobre o fundo do grid, que é a hairline: sem repintar `--bg` embaixo, o tinte
 compõe sobre o cinza e escurece a célula — foi o que derrubou o rótulo para
