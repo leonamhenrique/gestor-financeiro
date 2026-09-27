@@ -66,11 +66,12 @@ describe('TransactionsService — séries e fatura escolhida', () => {
     },
     bankAccount: {
       findUnique: jest.fn(async () => ({ id: 'acc-1' })),
+      findFirst: jest.fn(async () => ({ id: 'acc-1' })),
       update: jest.fn(async ({ data }: any) => {
         saldo += data.currentBalance.increment ?? -data.currentBalance.decrement;
       }),
     },
-    creditCard: { findUnique: jest.fn(async () => CARTAO) },
+    creditCard: { findUnique: jest.fn(async () => CARTAO), findFirst: jest.fn(async () => CARTAO) },
     category: {
       findFirst: jest.fn(async () => ({ id: 'cat-1', name: 'Compras' })),
       count: jest.fn(async () => 0),

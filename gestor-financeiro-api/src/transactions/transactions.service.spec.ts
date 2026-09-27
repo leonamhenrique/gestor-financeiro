@@ -117,10 +117,12 @@ describe('TransactionsService (fluxo com Prisma mockado)', () => {
       },
       bankAccount: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(async () => ({ id: 'acc-1' })),
         update: jest.fn(),
       },
       creditCard: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(async () => ({ id: 'card-1' })),
       },
       category: CATEGORIA_FOLHA(),
       creditCardInvoice: {
@@ -277,7 +279,7 @@ describe('TransactionsService — fatura de cartão', () => {
         }),
         delete: jest.fn(async ({ where }: any) => transacoes.delete(where.id)),
       },
-      creditCard: { findUnique: jest.fn(async () => CARTAO) },
+      creditCard: { findUnique: jest.fn(async () => CARTAO), findFirst: jest.fn(async () => CARTAO) },
       category: CATEGORIA_FOLHA(),
       creditCardInvoice: {
         upsert: jest.fn(async ({ where, create, update }: any) => {
@@ -434,12 +436,13 @@ describe('TransactionsService — previsto × confirmado', () => {
       },
       bankAccount: {
         findUnique: jest.fn(async () => ({ id: 'acc-1' })),
+        findFirst: jest.fn(async () => ({ id: 'acc-1' })),
         update: jest.fn(async ({ data }: any) => {
           const c = data.currentBalance;
           saldo += c.increment ?? -c.decrement;
         }),
       },
-      creditCard: { findUnique: jest.fn(async () => CARTAO) },
+      creditCard: { findUnique: jest.fn(async () => CARTAO), findFirst: jest.fn(async () => CARTAO) },
       category: CATEGORIA_FOLHA(),
       creditCardInvoice: {
         upsert: jest.fn(async ({ create, update }: any) => {
@@ -555,13 +558,13 @@ describe('TransactionsService — categoria e conta oculta', () => {
     isConfirmed: true,
   };
 
-  const lancamento = (categoryId: string) => ({
+  const lancamento = (categoryId: string, bankAccountId = 'acc-1') => ({
     userId: 'user-1',
     categoryId,
     type: TransactionType.EXPENSE,
     amount: 10,
     transactionDate: utc('2026-09-05'),
-    bankAccountId: 'acc-1',
+    bankAccountId,
   });
 
   beforeEach(() => {
@@ -574,7 +577,14 @@ describe('TransactionsService — categoria e conta oculta', () => {
         update: jest.fn(async ({ data }: any) => ({ ...existente, ...data })),
         findMany: jest.fn(async () => []),
       },
-      bankAccount: { findUnique: jest.fn(async () => ({ id: 'acc-1' })), update: jest.fn() },
+      bankAccount: {
+        // Só a conta do usuário existe para ele: o findFirst do service filtra
+        // por userId, e o mock imita isso.
+        findFirst: jest.fn(async ({ where }: any) => (where.id === 'acc-1' && where.userId === 'user-1' ? { id: 'acc-1' } : null)),
+        findUnique: jest.fn(async () => ({ id: 'acc-1' })),
+        update: jest.fn(),
+      },
+      creditCard: { findFirst: jest.fn(async () => null), findUnique: jest.fn(async () => null) },
       category: {
         // Só enxerga o que o where permite: id conhecido (do usuário ou padrão).
         findFirst: jest.fn(async ({ where }: any) => categorias[where.id] ?? null),
@@ -582,6 +592,23 @@ describe('TransactionsService — categoria e conta oculta', () => {
       },
     };
     service = new TransactionsService(prismaMock);
+  });
+
+  it('conta de outro usuário é recusada — e o saldo dela não é tocado', async () => {
+    // O mock só devolve a conta quando o where casa com o userId: é assim que
+    // o banco responde, e é o que impede mexer no saldo dos outros.
+    await expect(service.create(lancamento(MERCADO.id, 'acc-de-outro'))).rejects.toThrow(
+      'Conta bancária não encontrada',
+    );
+    expect(prismaMock.transaction.create).not.toHaveBeenCalled();
+    expect(prismaMock.bankAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('cartão de outro usuário é recusado', async () => {
+    await expect(
+      service.create({ ...lancamento(MERCADO.id), bankAccountId: undefined, creditCardId: 'card-de-outro' }),
+    ).rejects.toThrow('Cartão de crédito não encontrado');
+    expect(prismaMock.transaction.create).not.toHaveBeenCalled();
   });
 
   it('lançamento novo em categoria com subcategorias é recusado', async () => {

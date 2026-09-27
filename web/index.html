@@ -491,7 +491,9 @@
    * toque dos ícones sobe para os 44px da regra 4 por um ::after. */
   .tag-previsto-meta { display: none; }
   @media (max-width: 767px) {
-    .row-title .tag-previsto { display: none; }
+    /* Etiqueta no título rouba a largura do nome: em 320px sobra menos da
+     * metade dele. Elas descem para o metadado, que tem a linha inteira. */
+    .row-title .tag-previsto, .row-title .tag-pendente { display: none; }
     .tag-previsto-meta { display: inline; color: var(--fg-subtle); }
     .icon-btn { width: 36px; height: 36px; position: relative; }
     .icon-btn::after { content: ""; position: absolute; inset: -4px; }
@@ -2397,10 +2399,10 @@
       '<span class="row-main"><span class="row-title">' +
       '<span class="dot" style="background:' + cor + '"></span>' +
       '<span class="row-name">' + esc(rotuloLancamento(t) || nomeCat) + '</span>' +
-      (t.pendente ? '<span class="tag ' + (t.erroSync ? "danger" : "warn") + '">' + (t.erroSync ? "recusado" : "pendente") + '</span>' : "") +
+      (t.pendente ? '<span class="tag tag-pendente ' + (t.erroSync ? "danger" : "warn") + '">' + (t.erroSync ? "recusado" : "pendente") + '</span>' : "") +
       (t.confirmada ? "" : '<span class="tag tag-previsto">prevista</span>') + '</span>' +
       '<span class="row-meta">' + fmtDia(t.data) + ' · ' + esc(nomeCat) + ' · ' + esc(origem || "—") +
-      (t.pendente ? ' · ' + esc(t.erroSync || "aguardando conexão") : "") +
+      (t.pendente ? ' · ' + esc(t.erroSync || "pendente, aguardando conexão") : "") +
       (t.confirmada ? "" : '<span class="tag-previsto-meta"> · prevista</span>') + '</span></span>' +
       '<span class="cell-cat">' + esc(nomeCat) + '</span>' +
       '<span class="cell-org">' + esc(origem || "—") + '</span>' +
@@ -3114,15 +3116,25 @@
   var fila = [];
   var sincronizando = false;
 
+  /** A fila é gravada com o dono junto. O armazenamento é do APARELHO, não da
+   * conta: sem essa marca, o que ficou pendente de uma pessoa subiria na conta
+   * da próxima que entrasse no mesmo celular. Descobri isso testando — entrei
+   * com outro usuário e a fila antiga tentou subir sozinha. */
+  function donoDaFila() {
+    return (state.perfil && state.perfil.email) || "";
+  }
   function carregarFila() {
-    try {
-      var bruto = localStorage.getItem(CHAVE_FILA);
-      fila = bruto ? JSON.parse(bruto) : [];
-    } catch (e) { fila = []; }
-    if (!Array.isArray(fila)) fila = [];
+    var guardado = null;
+    try { guardado = JSON.parse(localStorage.getItem(CHAVE_FILA) || "null"); } catch (e) { guardado = null; }
+    if (!guardado || !Array.isArray(guardado.itens) || guardado.dono !== donoDaFila()) {
+      fila = [];
+      salvarFila();
+      return;
+    }
+    fila = guardado.itens;
   }
   function salvarFila() {
-    try { localStorage.setItem(CHAVE_FILA, JSON.stringify(fila)); } catch (e) {}
+    try { localStorage.setItem(CHAVE_FILA, JSON.stringify({ dono: donoDaFila(), itens: fila })); } catch (e) {}
   }
   function pendentesParaEnviar() {
     return fila.filter(function (f) { return !f.erro; });

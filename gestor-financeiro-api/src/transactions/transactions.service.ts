@@ -99,6 +99,7 @@ export class TransactionsService {
     const override = this.validarEntrada(input);
 
     return this.prisma.$transaction(async (tx) => {
+      await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
       await this.conferirCategoria(tx, input.userId, input.categoryId);
 
       // 1. Cria a transação
@@ -125,6 +126,7 @@ export class TransactionsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
       await this.conferirCategoria(tx, input.userId, input.categoryId);
       const series = await tx.transactionSeries.create({
         data: { userId: input.userId, kind: repeat.kind, frequency: repeat.frequency, count: repeat.count },
@@ -392,6 +394,27 @@ export class TransactionsService {
 
   /** A categoria precisa ser visível ao usuário (dele ou padrão) e não ter
    * subcategorias dele: só folha recebe lançamento novo. */
+  /** A conta ou o cartão do lançamento precisa ser DO usuário. Sem esta
+   * conferência, mandar o id da conta de outra pessoa fazia o saldo dela mudar:
+   * o efeito era aplicado por id, e ninguém perguntava de quem era. Também
+   * transforma violação de chave estrangeira (conta apagada) em 404 com
+   * mensagem, em vez de erro 500. */
+  private async conferirDestino(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    bankAccountId?: string,
+    creditCardId?: string,
+  ) {
+    if (bankAccountId) {
+      const conta = await tx.bankAccount.findFirst({ where: { id: bankAccountId, userId } });
+      if (!conta) throw new NotFoundException('Conta bancária não encontrada');
+    }
+    if (creditCardId) {
+      const cartao = await tx.creditCard.findFirst({ where: { id: creditCardId, userId } });
+      if (!cartao) throw new NotFoundException('Cartão de crédito não encontrado');
+    }
+  }
+
   private async conferirCategoria(tx: Prisma.TransactionClient, userId: string, categoryId: string) {
     const categoria = await tx.category.findFirst({
       where: { id: categoryId, OR: [{ userId }, { isDefault: true }] },
