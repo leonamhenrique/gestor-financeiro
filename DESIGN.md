@@ -115,6 +115,14 @@ em 3,2:1 — legíveis na mesa, invisíveis no celular ao sol. Os pisos medidos 
 que saem os valores acima. Mesma medição vale para o acento do tema claro: o
 ciano anterior (#0E7C86) dava 4,19:1 sobre o próprio tinte no pill ativo.
 
+**`--fg-ghost` não veste texto pequeno.** Ele é medido para 3:1, não 4,5:1,
+porque nasceu para o que é grande ou não é letra: centavos do número herói,
+alça de arraste, marca vazia dos primeiros passos. O dia do mês vizinho no
+calendário usava o fantasma em 13px e ficava em 3,39:1 no claro e 3,61:1 no
+escuro — texto reprovado. Foi para `--fg-subtle` (5,21:1 e 5,31:1) e continua
+nitidamente mais apagado que o dia do mês corrente, que é o trabalho dele.
+Antes de vestir um elemento com o fantasma: é grande, ou não é texto?
+
 Auditar é mecânico: percorrer os elementos com texto, compor o fundo real
 (inclusive `background-image` de tinte) e comparar com o mínimo — 4,5:1, ou
 3:1 em texto grande. Nenhuma tela, nem as camadas, pode sair com falha.
@@ -920,7 +928,7 @@ contêiner; painel em linha nunca é.
 .cal-week, .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 2px; }
 .cal-dia { aspect-ratio: 1; display: grid; place-items: center; font-size: 13px;
            background: none; border: 1px solid transparent; border-radius: var(--r-sm); }
-.cal-dia.fora  { color: var(--fg-ghost); }                  /* mês vizinho */
+.cal-dia.fora  { color: var(--fg-subtle); }                 /* mês vizinho: texto, 4,5:1 */
 .cal-dia.hoje  { border-color: var(--controle-borda); }     /* 3,03:1 */
 .cal-dia:hover { border-color: var(--accent-borda); }       /* depois de .hoje, de propósito */
 .cal-dia.on    { background: var(--accent-fraco); border-color: var(--accent-borda); color: var(--accent); }

@@ -660,7 +660,12 @@
     color: var(--fg); font-family: inherit; cursor: pointer; font-variant-numeric: tabular-nums;
     transition: border-color 160ms ease-out, background-color 160ms ease-out, color 160ms ease-out;
   }
-  .cal-dia.fora { color: var(--fg-ghost); }
+  /* O dia do mês vizinho é texto de 13px, e texto pede 4,5:1. Em --fg-ghost
+   * ele dava 3,39:1 no claro e 3,61:1 no escuro: o fantasma é medido para 3:1
+   * porque nasceu para número grande e alça de arraste, e aqui vestia letra
+   * miúda. Em --fg-subtle fecha 5,21:1 e continua nitidamente mais apagado
+   * que o dia do mês corrente, que é o trabalho que ele tem a fazer. */
+  .cal-dia.fora { color: var(--fg-subtle); }
   /* O dia é botão, e segue o padrão de botão do app: contorno de controle em
    * repouso marcado, acento no hover. "Hoje" e o hover usavam a MESMA hairline
    * (1,19:1 no escuro): a marca não aparecia, e passar o mouse sobre hoje não
