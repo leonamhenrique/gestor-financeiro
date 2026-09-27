@@ -363,6 +363,12 @@ disponível nessa linha é remover da fila: confirmar, editar e antecipar
 dependem de um id que ainda não existe. Um `.banner` no topo diz quantos
 estão esperando e oferece "Tentar agora" quando há rede.
 
+**A fila tenta sozinha de três formas**, porque só uma não cobre a vida real:
+no evento de reconexão do aparelho, ao voltar para a frente
+(`visibilitychange` — o gesto de tirar o celular do bolso) e de minuto em
+minuto enquanto houver algo esperando. O evento de reconexão sozinho não basta:
+servidor que caiu e voltou não avisa ninguém, e o plano grátis do Render dorme.
+
 **O saldo conta o que está na fila.** O número da conta vem do servidor, que
 ainda não viu esses lançamentos; somá-los na exibição é o que evita a tela
 dizer R$ 1.000 depois de a pessoa gastar R$ 97,50 na padaria sem sinal.

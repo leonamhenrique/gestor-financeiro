@@ -3158,12 +3158,32 @@
       .concat(fila.map(lancamentoDaFila));
   }
 
+  /* O evento "online" só dispara quando o APARELHO perde e recupera a rede. Um
+   * servidor que caiu e voltou não avisa ninguém — e o plano grátis do Render
+   * dorme, então isso não é caso raro. Por isso a fila também tenta sozinha:
+   * de tempos em tempos, e sempre que o app volta para a frente, que é o gesto
+   * natural de quem tirou o celular do bolso de novo. */
+  var INTERVALO_DE_TENTATIVA = 60000;
+  var relogioDaFila = null;
+  function agendarNovaTentativa() {
+    if (relogioDaFila || !pendentesParaEnviar().length) return;
+    relogioDaFila = setInterval(function () {
+      if (!pendentesParaEnviar().length) {
+        clearInterval(relogioDaFila);
+        relogioDaFila = null;
+        return;
+      }
+      sincronizarFila(true);
+    }, INTERVALO_DE_TENTATIVA);
+  }
+
   function enfileirar(corpo) {
     fila.push({ id: "fila-" + uid("l"), corpo: corpo, criadoEm: new Date().toISOString(), erro: null });
     salvarFila();
     aplicarFilaNoEstado();
     persist();
     renderAll();
+    agendarNovaTentativa();
   }
   function removerDaFila(id) {
     fila = fila.filter(function (f) { return f.id !== id; });
@@ -3209,6 +3229,7 @@
     aplicarFilaNoEstado();
     persist();
     renderAll();
+    agendarNovaTentativa();
     if (!silencioso && enviados) {
       avisar(enviados === 1 ? "1 lançamento sincronizado" : enviados + " lançamentos sincronizados",
         recusados ? recusados + " não passaram e continuam marcados na lista, com o motivo." : "Eles já estão no servidor.");
@@ -3244,6 +3265,9 @@
       await acao();
       await carregarDoServidor();
       renderAll();
+      // Deu certo agora: o servidor está de pé, então é a hora de tentar o que
+      // ficou para trás. Sem await — quem pediu esta ação não espera pela fila.
+      sincronizarFila(true);
       return true;
     } catch (e) {
       // Sem rede, a mensagem também ensina a regra: lançar espera na fila, o
@@ -6047,6 +6071,11 @@
     sincronizarFila();
   });
   window.addEventListener("offline", atualizarBannerDaFila);
+  // App de volta à frente: é quando a pessoa reabre o celular, e é a hora mais
+  // provável de a rede estar de volta.
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) sincronizarFila(true);
+  });
 
   /* ---------- instalar o app ----------
    * O navegador esconde o instalador: no Android ele fica no menu ⋮, e no
