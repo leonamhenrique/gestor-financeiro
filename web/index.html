@@ -30,7 +30,13 @@
      * aplica), o contorno é o que diz "isto se clica". Com a hairline no
      * lugar dele, o pill e o ghost ficavam em 1,19:1. Medido: 3,03:1. */
     --controle-borda: rgba(255,255,255,0.34);
-    --track: rgba(255,255,255,0.05);
+    /* Trilho da barra. Ele tem DOIS vizinhos e os dois importam: o fundo da
+     * página, que diz onde a barra começa e acaba, e o preenchimento, que diz
+     * quanto dela está cheio. Em 0,05 o trilho ficava em 1,10:1 — a barra não
+     * tinha extensão visível, e sem o "de quanto" a proporção não se lê.
+     * Medido: 3,51:1 contra o fundo, e os preenchimentos seguem acima de 3:1
+     * contra ele (neutro 4,76, acento 3,84, aviso 3,29). */
+    --track: rgba(255,255,255,0.38);
 
     --fg: #E2EEF8;
     /* Medido, não estimado: com 0,38 o metadado ficava em 3,15:1 — o texto
@@ -120,7 +126,14 @@
     --hairline-strong: rgba(15,23,32,0.16);
     /* Tinta preta rende menos que branca: 0,46 aqui para os mesmos 3,00:1. */
     --controle-borda: rgba(15,23,32,0.46);
-    --track: rgba(15,23,32,0.08);
+    /* Aqui existe um teto, e ele é do próprio palette: o aviso ocre rende só
+     * 4,69:1 contra a página clara, então quase não há espaço entre os dois
+     * para o trilho ocupar. Trilho em 3:1 derrubaria a borda do preenchimento
+     * para 1,56:1 — a barra ganharia extensão e perderia a proporção, que é
+     * pior. 0,20 é o máximo com TODO preenchimento ainda acima de 3:1
+     * (neutro 10,14, acento 3,67, aviso 3,07); o trilho sobe de 1,18 para
+     * 1,53:1. Para ir além, o caminho não é o trilho: é escurecer o ocre. */
+    --track: rgba(15,23,32,0.20);
 
     --fg: #14202B;
     /* Tinta preta sobre fundo claro "pesa" menos que tinta branca sobre escuro:
