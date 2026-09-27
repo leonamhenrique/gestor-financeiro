@@ -63,7 +63,9 @@
     --accent-fraco: rgba(110,231,240,0.10);
     --accent-borda: rgba(110,231,240,0.35);
     --accent-foco: rgba(110,231,240,0.45);
-    --warning-borda: rgba(255,184,107,0.35);
+    /* Borda do aviso: 3,06:1 sobre --bg. É o contorno que diz "isto é um
+     * aviso" — a hairline de leitura (0,08) sumia no fundo. */
+    --warning-borda: rgba(255,184,107,0.45);
     --warning-forte: rgba(255,184,107,0.60);
     --negative-borda: rgba(255,107,107,0.40);
     --hover: rgba(255,255,255,0.02);
@@ -137,8 +139,11 @@
     --accent-fraco: rgba(12,110,119,0.08);
     --accent-borda: rgba(12,110,119,0.32);
     --accent-foco: rgba(12,110,119,0.45);
-    --warning-borda: rgba(154,100,16,0.30);
-    --warning-forte: rgba(154,100,16,0.55);
+    /* Tinta ocre sobre claro rende menos: 0,75 para os mesmos 3,01:1. */
+    --warning-borda: rgba(154,100,16,0.75);
+    /* 2,17:1 aqui ficaria MAIS FRACO que a borda em repouso, invertendo o
+     * sinal do hover. Com 0,90 ele sobe para 3,92:1. */
+    --warning-forte: rgba(154,100,16,0.90);
     --negative-borda: rgba(192,57,47,0.35);
     --hover: rgba(15,23,32,0.03);
     --scroll: rgba(15,23,32,0.18);

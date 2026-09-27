@@ -47,6 +47,7 @@ Consequências práticas:
   --hairline:      rgba(255,255,255,0.06);
   --hairline-strong: rgba(255,255,255,0.08);
   --campo-borda:     rgba(255,255,255,0.34);   /* 3,03:1 — contorno de campo */
+  --warning-borda:   rgba(255,184,107,0.45);   /* 3,06:1 — contorno do aviso */
   --track:         rgba(255,255,255,0.05);  /* trilho de barras */
 
   /* texto */
@@ -93,6 +94,7 @@ nenhuma regra de composição muda. Três coisas não são simples inversão:
   --hairline:        rgba(15,23,32,0.10);
   --hairline-strong: rgba(15,23,32,0.16);
   --campo-borda:     rgba(15,23,32,0.46);      /* 3,00:1 — tinta preta rende menos */
+  --warning-borda:   rgba(154,100,16,0.75);    /* 3,01:1 — idem para o aviso */
   --track:           rgba(15,23,32,0.08);
 
   --fg:        #14202B;
@@ -843,6 +845,10 @@ próprio, que reintroduziria o card pela porta dos fundos.
 ```
 
 - Altura 44px — é o alvo de toque da regra 4, não uma escolha estética.
+- **O contorno do aviso (`.banner`) também é medido em 3:1**, por
+  `--warning-borda`: sem ele, o aviso no tema claro ficava em 1,49:1 e parecia
+  texto solto, não um quadro. O hover do botão dentro dele subiu junto — em
+  2,17:1 ele ficaria mais fraco que a borda parada, invertendo o sinal.
 - **A borda do campo tem token próprio, `--campo-borda`, medido em 3:1.** Ela
   não é a hairline: hairline é divisória de leitura, e o contorno do campo é o
   que diz "aqui se digita" — a regra 1.4.11 da WCAG pede 3:1 para isso. As
