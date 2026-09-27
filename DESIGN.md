@@ -284,6 +284,15 @@ conta. Sem ano dito, mês por extenso vira a ocorrência
 que vem); "dia 5" seco só anda para frente quando a frase é de futuro
 ("pagarei dia 5" no dia 20 é o mês seguinte; "gastei dia 5" é este mês).
 
+**O tempo do verbo decide a situação, e os dois lados são simétricos.**
+Passado é dinheiro que já se moveu e nasce **confirmado** — "recebi", "caiu",
+"entrou", "gastei", "comprei", "paguei". Futuro nasce **previsto** — "vou
+receber", "receberei", "a receber", "pagarei", "vou pagar", "vai cair". Falta
+de simetria aqui é defeito: o app entendia "paguei" e não "recebi", e toda
+entrada nascia prevista esperando uma confirmação que a frase já tinha dado.
+Forma de pagamento dita ("no pix", "no débito") também confirma, mas ela é
+reforço, não a única pista.
+
 **Data no futuro manda mais que o verbo**: o lançamento nasce **previsto**,
 mesmo em "pago no pix amanhã" — dinheiro que ainda vai sair não afeta o saldo
 de hoje. Prazo não é valor: em "90 reais em 3 dias", o 3 não vira dinheiro.

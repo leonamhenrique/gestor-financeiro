@@ -2636,8 +2636,16 @@
   /** A frase aponta para o futuro? "Pagarei amanhã", "vence semana que vem",
    * "vou pagar dia 5" — nesses casos a data cai para frente e o lançamento
    * nasce previsto, não confirmado. */
+  /* Passado e futuro em dois pares simétricos — pagar e receber. Sem a metade
+   * de receber, o app entendia "paguei" mas não "recebi", e toda entrada
+   * nascia prevista. `` em recebi para "recebimento" (substantivo, que
+   * costuma vir seguido de "previsto") não entrar como passado. */
+  var PASSADO = /\bpaguei\b|\bpago\b|quitei|\bgastei\b|\bcomprei\b|ja foi|debitado|creditado|\bpix\b|\bdebito\b|confirmad|\brecebi\b|\bcaiu\b|\bentrou\b|\bganhei\b|depositaram|me pagaram|\bveio\b/;
+  var FUTURO = /previst|agendad|vai vencer|vai sair|vai cair|vai entrar|\ba pagar\b|\ba receber\b|pagarei|vou pagar|sera pago|receberei|vou receber|vao me pagar|sera creditado|sera depositado/;
+
   function falaDeFuturo(texto) {
-    return /amanh[ãa]|pagarei|vou pagar|vou lan[çc]ar|pretendo|semana que vem|proxima semana|mes que vem|proximo mes|ano que vem|daqui|dentro de|em \d+ dias|vai vencer|vai sair|vence|vencimento|agendad|previst|a pagar|sera pago/.test(texto);
+    return FUTURO.test(texto) ||
+      /amanh[ãa]|vou lan[çc]ar|pretendo|semana que vem|proxima semana|mes que vem|proximo mes|ano que vem|daqui|dentro de|em \d+ dias|vence|vencimento/.test(texto);
   }
 
   /** Datas faladas, incluindo as do futuro. Devolve ISO ou null.
@@ -2803,8 +2811,15 @@
       if (mf >= 0) r.faturaMes = monthKey({ y: mFat[2] ? parseInt(mFat[2], 10) : hoje.getFullYear(), m: mf });
     }
 
-    if (/paguei|pago|ja foi|debitado|pix|debito|confirmad/.test(texto)) r.confirmada = true;
-    if (/previst|vai vencer|vai sair|agendad|a pagar|pagarei|vou pagar|sera pago/.test(texto)) r.confirmada = false;
+    // Verbo no passado JÁ ACONTECEU: "recebi", "gastei", "comprei" e "paguei"
+    // são dinheiro que entrou ou saiu, não promessa. Antes, só a forma de
+    // pagamento (pix, débito) confirmava, e "recebi 3.000 de freelance" caía
+    // como previsto — o saldo ficava esperando uma confirmação que a frase já
+    // tinha dado.
+    if (PASSADO.test(texto)) r.confirmada = true;
+    // Futuro desmarca, mesmo depois do passado: "recebi o aviso, vou receber
+    // dia 10" é promessa.
+    if (FUTURO.test(texto)) r.confirmada = false;
     // Data no futuro manda mais que o verbo: dinheiro que ainda vai sair é
     // previsto, mesmo numa frase como "pago no pix amanhã".
     if (r.data > isoDate(hoje)) r.confirmada = false;
