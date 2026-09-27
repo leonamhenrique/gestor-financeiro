@@ -461,7 +461,13 @@
    * marcado como a aba ativa — filete de acento na borda de cima — e não por
    * caixa com fundo e contorno próprios. */
   .meses {
-    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(84px, 1fr);
+    /* A largura da coluna é piso, não medida final: `renderFaixaMeses` mede o
+     * número mais largo do período e sobe esta variável se ele não couber.
+     * Com 84px fixos, um resultado de cinco dígitos ("+12.330,05" = 74px de
+     * texto em 60px úteis) vazava por cima da coluna vizinha e escondia a
+     * hairline — três meses seguidos viravam uma fileira de dígitos colados. */
+    --mes-larg: 84px;
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(var(--mes-larg), 1fr);
     overflow-x: auto; overscroll-behavior-x: contain;
     scroll-snap-type: x proximity; max-width: var(--read-max);
     /* O movimento é esmaecido: quem entra e sai da vista desaparece num
@@ -502,7 +508,7 @@
   .mes-out { color: var(--negative); }
   .mes-par .vazio { color: var(--fg-subtle); }
   @media (max-width: 380px) {
-    .meses { grid-auto-columns: minmax(76px, 1fr); }
+    .meses { --mes-larg: 76px; }
     .mes-res { font-size: 14px; }
   }
 
@@ -3791,6 +3797,27 @@
       '</button>';
   }
 
+  /** A coluna se mede pelo número mais largo do período. O piso vem do CSS
+   * (muda com a largura da tela), então é lido de lá em vez de repetido aqui:
+   * dois lugares com o mesmo número divergem na primeira mudança. Sem isto o
+   * resultado vaza — `nowrap` nunca quebra a linha —, e um valor de cinco
+   * dígitos passa por cima da coluna vizinha e apaga a hairline.
+   *
+   * Roda de novo no `resize` porque a fonte da coluna muda em 380px: medida no
+   * retrato de um celular de 375 e não refeita, ela ficaria estreita demais
+   * para a mesma faixa na paisagem. */
+  function ajustarLarguraDosMeses() {
+    var faixa = document.getElementById("r-meses");
+    if (!faixa || !faixa.firstChild) return;
+    faixa.style.removeProperty("--mes-larg");
+    var piso = parseFloat(getComputedStyle(faixa).getPropertyValue("--mes-larg")) || 84;
+    var maior = 0;
+    Array.prototype.forEach.call(faixa.querySelectorAll(".mes-res"), function (el) {
+      maior = Math.max(maior, el.getBoundingClientRect().width);
+    });
+    faixa.style.setProperty("--mes-larg", Math.max(piso, Math.ceil(maior) + 18) + "px");
+  }
+
   function renderFaixaMeses() {
     var faixa = document.getElementById("r-meses");
     var meses = janelaDeMeses(resumoMes);
@@ -3803,6 +3830,8 @@
     }).join("");
     document.getElementById("r-meses-total").textContent =
       comMovimento ? sinal(soma) + " em " + comMovimento + (comMovimento === 1 ? " mês" : " meses") : "";
+    ajustarLarguraDosMeses();
+
     // Máscara só quando há o que rolar, e o mês escolhido no centro da vista.
     faixa.classList.toggle("inteira", faixa.scrollWidth <= faixa.clientWidth + 1);
     var col = faixa.querySelector(".mes-col.on");
@@ -6411,7 +6440,10 @@
   var redesenho;
   window.addEventListener("resize", function () {
     clearTimeout(redesenho);
-    redesenho = setTimeout(function () { desenharSpark(serieSaldo(), false); }, 160);
+    redesenho = setTimeout(function () {
+      desenharSpark(serieSaldo(), false);
+      ajustarLarguraDosMeses();
+    }, 160);
   });
 })();
 </script>

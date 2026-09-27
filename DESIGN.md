@@ -471,6 +471,17 @@ separa por hairline horizontal (regra 1), e o mês escolhido é marcado como a
 aba ativa — filete de `--accent` na borda de cima, nome em `--accent` — nunca
 por caixa com fundo e contorno próprios.
 
+**A largura da coluna é medida, não escolhida.** O CSS dá um piso (84px, 76px
+abaixo de 380) e `renderFaixaMeses` sobe esse piso até caber o resultado mais
+largo do período. Com largura fixa, um valor de cinco dígitos — `+12.330,05`,
+74px de texto em 60px úteis — vazava por cima da coluna vizinha e apagava a
+hairline entre as duas: três meses seguidos viravam uma fileira de dígitos
+colados. O número não pode quebrar linha (`nowrap`) nem encolher, então quem
+cede é a coluna; a faixa rola de qualquer jeito, e uma coluna mais larga não
+custa nada. A medida é refeita no `resize` porque a fonte da coluna muda em
+380px: medida no retrato de um celular de 375 e não refeita, ela ficaria curta
+demais na paisagem do mesmo aparelho.
+
 **O movimento é esmaecido**: a faixa tem máscara de gradiente nas duas pontas,
 então o mês que entra e sai da vista desaparece em vez de ser cortado por uma
 borda dura. É também o que conta que há mais mês para os lados, sem gastar uma
