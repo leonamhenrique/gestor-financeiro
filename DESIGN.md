@@ -460,6 +460,13 @@ miúdos, os dois totais que o formam (receitas em cima, despesas embaixo, em
 `valorCurto`). Mês sem nenhum lançamento mostra `—` em `--fg-subtle`: **não
 inventa `R$ 0,00`**, porque zero é um resultado e "não houve nada" é outro.
 
+**E contam o pendente de sincronização**, pela mesma razão que o saldo conta:
+para quem lançou, o dinheiro já se moveu — a fila é problema do app, não do
+usuário. O lançamento offline entra em `state.transactions` como qualquer
+outro, então a faixa o soma sem saber que ele é especial. O aviso de que algo
+ainda não subiu é do `.banner` no topo e da etiqueta na linha do extrato, não
+da faixa: repetir o recado em cada coluna seria ruído.
+
 **Os totais contam o previsto.** Receitas e despesas do mês inteiro, confirmadas
 ou não — é a pergunta "como vai fechar este mês", não "como fechou até agora".
 E saem de `totaisDoMes`, **a mesma fonte do bloco de Receitas/Despesas logo
