@@ -2646,10 +2646,14 @@
    * nasce previsto, não confirmado. */
   /* Passado e futuro em dois pares simétricos — pagar e receber. Sem a metade
    * de receber, o app entendia "paguei" mas não "recebi", e toda entrada
-   * nascia prevista. `` em recebi para "recebimento" (substantivo, que
+   * nascia prevista. `\b` em recebi para "recebimento" (substantivo, que
    * costuma vir seguido de "previsto") não entrar como passado. */
   var PASSADO = /\bpaguei\b|\bpago\b|quitei|\bgastei\b|\bcomprei\b|ja foi|debitado|creditado|\bpix\b|\bdebito\b|confirmad|\brecebi\b|\bcaiu\b|\bentrou\b|\bganhei\b|depositaram|me pagaram|\bveio\b/;
   var FUTURO = /previst|agendad|vai vencer|vai sair|vai cair|vai entrar|\ba pagar\b|\ba receber\b|pagarei|vou pagar|sera pago|receberei|vou receber|vao me pagar|sera creditado|sera depositado/;
+  /* Entrada de dinheiro. Vale no passado e no futuro: quem diz "recebi" e quem
+   * diz "vou receber" descrevem a mesma receita — muda a situação, não o tipo.
+   * Por isso esta lista fica ao lado de PASSADO/FUTURO: as três crescem juntas. */
+  var ENTRADA = /receita|\brecebi\b|recebimento|\ba receber\b|vou receber|vao receber|receberei|\bentrou\b|vai entrar|\bcaiu\b|vai cair|\bganhei\b|salario|rendimento|reembolso|estorno|depositaram|sera depositado|me pagaram|vao me pagar|me pagarao|creditado/;
 
   function falaDeFuturo(texto) {
     return FUTURO.test(texto) ||
@@ -2789,8 +2793,8 @@
       cartaoId: null, faturaMes: null, data: null, confirmada: false, desc: "", faltando: [] };
     if (!texto) { r.faltando = ["valor", "destino", "categoria"]; return r; }
 
-    if (/receita|recebi|recebimento|entrou|salario|ganhei|rendimento|reembolso|estorno/.test(texto)) r.tipo = "INCOME";
-    if (/despesa|gastei|paguei|comprei|pagamento de|gasto/.test(texto) && !/receita|recebi/.test(texto)) r.tipo = "EXPENSE";
+    if (ENTRADA.test(texto)) r.tipo = "INCOME";
+    if (/despesa|gastei|paguei|comprei|pagamento de|gasto/.test(texto) && !ENTRADA.test(texto)) r.tipo = "EXPENSE";
 
     r.valor = valorDaFala(texto);
     if (!r.valor) r.faltando.push("valor");

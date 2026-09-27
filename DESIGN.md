@@ -293,6 +293,14 @@ entrada nascia prevista esperando uma confirmação que a frase já tinha dado.
 Forma de pagamento dita ("no pix", "no débito") também confirma, mas ela é
 reforço, não a única pista.
 
+**Receita ou despesa é outra pergunta, e ela também é simétrica.** Quem recebe
+registra receita tendo o dinheiro chegado ou não: "recebi", "caiu", "entrou",
+"ganhei" e, do outro lado, "vou receber", "receberei", "a receber", "vão me
+pagar", "vai cair", "vai entrar". O tempo do verbo muda a *situação*, nunca o
+*tipo* — tratar o futuro como despesa jogava a receita prevista para o lado
+errado do saldo. As duas listas moram juntas no código pelo mesmo motivo:
+separadas, uma cresce e a outra fica para trás.
+
 **Data no futuro manda mais que o verbo**: o lançamento nasce **previsto**,
 mesmo em "pago no pix amanhã" — dinheiro que ainda vai sair não afeta o saldo
 de hoje. **Prazo não é valor**, e o descarte olha a vizinhança de cada número,
