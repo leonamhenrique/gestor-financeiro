@@ -496,6 +496,12 @@ seta nova na tela — as do bloco de baixo continuam servindo ao teclado. Quando
 tudo cabe, a máscara sai (`.inteira`): senão ela apagaria o primeiro e o último
 mês sem haver nada para rolar.
 
+**A barra de rolagem fica** — a regra de rolagem vale aqui como em toda área
+que rola. Escondê-la parecia limpeza e era perda: no celular ela é sobreposta e
+não custa altura nenhuma, mas no desktop é a única alça que o mouse tem para
+correr a faixa sem trocar de mês. Ela reserva 10px embaixo, fina e sem trilho,
+como no resto do app.
+
 **A faixa também navega**: tocar numa coluna troca o mês do bloco abaixo, do
 mapa de calor e das categorias, e a faixa rola sozinha para deixar o mês
 escolhido no centro. A janela vai de onze meses atrás até o mês que vem, e

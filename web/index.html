@@ -475,11 +475,7 @@
      * conta que há mais mês para os lados — sem seta nova na tela. */
     -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
     mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
-    /* A barra de rolagem é ruído numa faixa de 80px de altura: o gesto e as
-     * setas do mês já fazem o trabalho. */
-    scrollbar-width: none;
   }
-  .meses::-webkit-scrollbar { display: none; }
   /* Sem gradiente quando tudo cabe na tela: a máscara apagaria o primeiro e o
    * último mês sem haver nada para rolar. */
   .meses.inteira { -webkit-mask-image: none; mask-image: none; }
