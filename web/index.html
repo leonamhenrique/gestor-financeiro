@@ -3246,6 +3246,13 @@
       renderAll();
       return true;
     } catch (e) {
+      // Sem rede, a mensagem também ensina a regra: lançar espera na fila, o
+      // resto não. Dizer só "sem conexão" deixaria a pessoa tentando de novo.
+      if (e && e.semRede) {
+        avisar("Sem conexão agora",
+          "Isto precisa de internet e não ficou guardado. Tente de novo quando a conexão voltar — só lançar funciona offline, esperando na fila.");
+        return false;
+      }
       avisar("Não deu para " + oQue, (e && e.message) || "Tente de novo em instantes.");
       return false;
     }
