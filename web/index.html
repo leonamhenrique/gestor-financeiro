@@ -455,6 +455,57 @@
   .bar > i.accent { background: var(--accent); }
   .bar > i.warn { background: var(--warning); }
 
+  /* ---------- faixa de meses (resultado mês a mês) ----------
+   * Sem card: as colunas se separam por hairline vertical, do mesmo jeito que
+   * a lista se separa por hairline horizontal (regra 1). O mês escolhido é
+   * marcado como a aba ativa — filete de acento na borda de cima — e não por
+   * caixa com fundo e contorno próprios. */
+  .meses {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(84px, 1fr);
+    overflow-x: auto; overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity; max-width: var(--read-max);
+    /* O movimento é esmaecido: quem entra e sai da vista desaparece num
+     * gradiente, em vez de ser cortado por uma borda dura. É também o que
+     * conta que há mais mês para os lados — sem seta nova na tela. */
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+    /* A barra de rolagem é ruído numa faixa de 80px de altura: o gesto e as
+     * setas do mês já fazem o trabalho. */
+    scrollbar-width: none;
+  }
+  .meses::-webkit-scrollbar { display: none; }
+  /* Sem gradiente quando tudo cabe na tela: a máscara apagaria o primeiro e o
+   * último mês sem haver nada para rolar. */
+  .meses.inteira { -webkit-mask-image: none; mask-image: none; }
+  .mes-col {
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    padding: 10px 8px 12px; min-height: 44px; scroll-snap-align: center;
+    background: none; border: none; border-left: 1px solid var(--hairline);
+    border-top: 2px solid transparent;
+    font-family: inherit; color: inherit; cursor: pointer; text-align: center;
+    transition: border-color 180ms ease-out;
+  }
+  .mes-col:first-child { border-left: none; }
+  .mes-col:hover { border-top-color: var(--hairline-strong); }
+  .mes-col.on { border-top-color: var(--accent); }
+  .mes-nome { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--fg-subtle); white-space: nowrap; }
+  .mes-col.on .mes-nome { color: var(--accent); }
+  /* O resultado é o que a faixa tem a dizer: é ele que fica no meio da coluna,
+   * grande, e os dois totais que o formam ficam embaixo, miúdos. */
+  .mes-res { font-size: 15px; font-weight: 500; white-space: nowrap; }
+  .mes-res.pos { color: var(--positive); }
+  .mes-res.neg { color: var(--negative); }
+  .mes-res.vazio { color: var(--fg-subtle); }
+  .mes-par { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+  .mes-par span { white-space: nowrap; }
+  .mes-in { color: var(--positive); }
+  .mes-out { color: var(--negative); }
+  .mes-par .vazio { color: var(--fg-subtle); }
+  @media (max-width: 380px) {
+    .meses { grid-auto-columns: minmax(76px, 1fr); }
+    .mes-res { font-size: 14px; }
+  }
+
   /* ---------- listas ---------- */
   .tabela { display: flex; flex-direction: column; }
   .list-head { display: none; }
@@ -1099,7 +1150,15 @@
             <svg class="spark" id="spark" aria-hidden="true"></svg>
           </div>
 
+          <!-- Resultado mês a mês. É também o navegador de mês: tocar numa
+               coluna troca o mês do bloco abaixo, do mapa de calor e das
+               categorias. As setas continuam ali para quem usa teclado. -->
           <div class="blk" style="--i:2">
+            <div class="lbl-row"><div class="lbl">Resultado mês a mês</div><div class="lbl-total num" id="r-meses-total"></div></div>
+            <div class="meses" id="r-meses" role="group" aria-label="Resultado de cada mês"></div>
+          </div>
+
+          <div class="blk" style="--i:3">
             <div class="month-nav">
               <button class="icon-btn" type="button" id="r-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
               <span class="month-label num" id="r-mes-label"></span>
@@ -1119,7 +1178,7 @@
             </div>
           </div>
 
-          <div class="blk" style="--i:3">
+          <div class="blk" style="--i:4">
             <div class="lbl-row"><div class="lbl">Mapa de calor</div><div class="lbl-total num" id="r-t-calor"></div></div>
             <!-- Um mapa só, com filtro: dois mapas empilhados na mesma tela
                  obrigavam o usuário a descobrir qual cor era qual. -->
@@ -1130,12 +1189,12 @@
             <div class="calor" id="r-calor"></div>
           </div>
 
-          <div class="blk" style="--i:4">
+          <div class="blk" style="--i:5">
             <div class="lbl-row"><div class="lbl">Maiores despesas</div><div class="lbl-total num" id="r-t-despesas"></div></div>
             <div class="cats" id="r-cats"></div>
           </div>
 
-          <div class="blk" style="--i:5">
+          <div class="blk" style="--i:6">
             <div class="lbl-row"><div class="lbl">Maiores receitas</div><div class="lbl-total num" id="r-t-receitas"></div></div>
             <div class="cats" id="r-receitas"></div>
           </div>
@@ -1143,11 +1202,11 @@
 
         <aside class="rail">
           <div class="rail-fixo">
-            <div class="blk" style="--i:6">
+            <div class="blk" style="--i:7">
               <div class="lbl-row"><div class="lbl">Cartões</div><div class="lbl-total num" id="r-t-cartoes"></div></div>
               <div class="list" id="r-cartoes"></div>
             </div>
-            <div class="blk" style="--i:7">
+            <div class="blk" style="--i:8">
               <div class="lbl-row"><div class="lbl">Contas</div><div class="lbl-total num" id="r-t-contas"></div></div>
               <div class="list" id="r-contas"></div>
             </div>
@@ -3684,6 +3743,72 @@
       return t.data.slice(0, 7) === mk && transacaoVisivel(t);
     });
   }
+  /* ---------- faixa de meses ---------- */
+  /** Mês como número inteiro, para somar e comparar sem cair em Date. */
+  function indiceMes(vm) { return vm.y * 12 + vm.m; }
+  function mesDoIndice(i) { return { y: Math.floor(i / 12), m: i - Math.floor(i / 12) * 12 }; }
+
+  /** A janela que a faixa mostra: onze meses atrás até o mês que vem, e
+   * sempre esticada o bastante para conter o mês escolhido — quem navegar
+   * para longe pelas setas continua se vendo na faixa. */
+  function janelaDeMeses(vm) {
+    var hoje = indiceMes({ y: HOJE.getFullYear(), m: HOJE.getMonth() });
+    var sel = indiceMes(vm);
+    var de = Math.min(hoje - 11, sel), ate = Math.max(hoje + 1, sel);
+    var lista = [];
+    for (var i = de; i <= ate; i++) lista.push(mesDoIndice(i));
+    return lista;
+  }
+
+  /** Resultado de um mês: receitas menos despesas, **previstas incluídas**.
+   * Sai de `totaisDoMes`, a mesma fonte do bloco de Receitas/Despesas logo
+   * abaixo — somar por fora aqui faria a faixa e o detalhe do mês dizerem
+   * números diferentes sobre o mesmo mês, que é o bug que a regra do total
+   * existe para evitar. */
+  function resultadoDoMes(vm) {
+    var tot = totaisDoMes(vm);
+    return { entradas: tot.entradas, saidas: tot.saidas, resultado: tot.entradas - tot.saidas,
+             vazio: tot.entradas === 0 && tot.saidas === 0 };
+  }
+
+  function colunaMesHTML(vm, r, ligado) {
+    var classe = r.vazio ? "vazio" : (r.resultado < 0 ? "neg" : "pos");
+    var texto = r.vazio ? "—" : sinal(r.resultado);
+    // O rótulo do leitor de tela diz por extenso o que a cor diz no olho: cor
+    // nunca é o único sinal, e aqui o próprio número já carrega o − ou o +.
+    var titulo = rotuloMes(vm) + (r.vazio ? ": sem movimento"
+      : ": resultado " + (r.resultado < 0 ? "negativo" : "positivo") + " de " + brl(Math.abs(r.resultado)) +
+        ", receitas " + brl(r.entradas) + ", despesas " + brl(r.saidas));
+    return '<button type="button" class="mes-col' + (ligado ? " on" : "") + '"' +
+      ' data-mes="' + monthKey(vm) + '" aria-pressed="' + (ligado ? "true" : "false") + '"' +
+      ' title="' + esc(titulo) + '" aria-label="' + esc(titulo) + '">' +
+      '<span class="mes-nome">' + MESES[vm.m].slice(0, 3) + "/" + String(vm.y).slice(2) + '</span>' +
+      '<span class="mes-res num ' + classe + '">' + texto + '</span>' +
+      '<span class="mes-par num">' +
+        '<span class="' + (r.entradas ? "mes-in" : "vazio") + '">' + (r.entradas ? valorCurto(r.entradas) : "—") + '</span>' +
+        '<span class="' + (r.saidas ? "mes-out" : "vazio") + '">' + (r.saidas ? valorCurto(r.saidas) : "—") + '</span>' +
+      '</span>' +
+      '</button>';
+  }
+
+  function renderFaixaMeses() {
+    var faixa = document.getElementById("r-meses");
+    var meses = janelaDeMeses(resumoMes);
+    var mkSel = monthKey(resumoMes);
+    var soma = 0, comMovimento = 0;
+    faixa.innerHTML = meses.map(function (vm) {
+      var r = resultadoDoMes(vm);
+      if (!r.vazio) { soma += r.resultado; comMovimento++; }
+      return colunaMesHTML(vm, r, monthKey(vm) === mkSel);
+    }).join("");
+    document.getElementById("r-meses-total").textContent =
+      comMovimento ? sinal(soma) + " em " + comMovimento + (comMovimento === 1 ? " mês" : " meses") : "";
+    // Máscara só quando há o que rolar, e o mês escolhido no centro da vista.
+    faixa.classList.toggle("inteira", faixa.scrollWidth <= faixa.clientWidth + 1);
+    var col = faixa.querySelector(".mes-col.on");
+    if (col) faixa.scrollLeft = col.offsetLeft - (faixa.clientWidth - col.offsetWidth) / 2;
+  }
+
   function rankingCategorias(vm, tipo) {
     var acc = {};
     movimentoDoMes(vm).forEach(function (t) {
@@ -3931,6 +4056,7 @@
     document.getElementById("r-saidas").textContent = brl(tot.saidas);
     document.getElementById("r-m-entradas").textContent = (tot.avulsos.length + tot.faturas.length) + " lançamentos";
     document.getElementById("r-m-saidas").textContent = "resultado " + sinal(tot.entradas - tot.saidas);
+    renderFaixaMeses();
     renderCalor(resumoMes, calorTipo);
 
     var desp = rankingCategorias(resumoMes, "EXPENSE");
@@ -5875,6 +6001,13 @@
     if (vm.m < 0) { vm.m = 11; vm.y--; }
     if (vm.m > 11) { vm.m = 0; vm.y++; }
   }
+  document.getElementById("r-meses").addEventListener("click", function (ev) {
+    var col = ev.target.closest(".mes-col");
+    if (!col) return;
+    var vm = parseMonthKey(col.getAttribute("data-mes"));
+    resumoMes.y = vm.y; resumoMes.m = vm.m;
+    renderResumo(); renderCategorias();
+  });
   document.getElementById("r-mes-ant").addEventListener("click", function () { passoMes(resumoMes, -1); renderResumo(); renderCategorias(); });
   document.getElementById("r-mes-prox").addEventListener("click", function () { passoMes(resumoMes, 1); renderResumo(); renderCategorias(); });
   document.getElementById("l-mes-ant").addEventListener("click", function () { passoMes(extratoMes, -1); renderExtrato(); });

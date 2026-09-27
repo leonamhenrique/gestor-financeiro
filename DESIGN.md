@@ -452,6 +452,38 @@ apagar a única conta devolve o passo para pendente, que é a verdade da tela.
 não contam, senão o passo nasceria feito. **Cumpridos os cinco, o bloco some**
 sozinho e o Resumo volta ao normal.
 
+**Faixa de meses** (resultado mês a mês, no Resumo) — uma coluna por mês, em
+rolagem horizontal. Cada coluna tem, de cima para baixo: o mês em escala de
+`.lbl` (`SET/26`), **o resultado do mês no meio, que é o que a faixa tem a
+dizer** — `+3.000,00` em `--positive`, `−600,00` em `--negative` — e embaixo,
+miúdos, os dois totais que o formam (receitas em cima, despesas embaixo, em
+`valorCurto`). Mês sem nenhum lançamento mostra `—` em `--fg-subtle`: **não
+inventa `R$ 0,00`**, porque zero é um resultado e "não houve nada" é outro.
+
+**Os totais contam o previsto.** Receitas e despesas do mês inteiro, confirmadas
+ou não — é a pergunta "como vai fechar este mês", não "como fechou até agora".
+E saem de `totaisDoMes`, **a mesma fonte do bloco de Receitas/Despesas logo
+abaixo**: somar por fora aqui faria a faixa e o detalhe do mês dizerem números
+diferentes sobre o mesmo mês, que é exatamente o que a regra do total proíbe.
+
+**Sem card.** As colunas se separam por hairline vertical, como a lista se
+separa por hairline horizontal (regra 1), e o mês escolhido é marcado como a
+aba ativa — filete de `--accent` na borda de cima, nome em `--accent` — nunca
+por caixa com fundo e contorno próprios.
+
+**O movimento é esmaecido**: a faixa tem máscara de gradiente nas duas pontas,
+então o mês que entra e sai da vista desaparece em vez de ser cortado por uma
+borda dura. É também o que conta que há mais mês para os lados, sem gastar uma
+seta nova na tela — as do bloco de baixo continuam servindo ao teclado. Quando
+tudo cabe, a máscara sai (`.inteira`): senão ela apagaria o primeiro e o último
+mês sem haver nada para rolar.
+
+**A faixa também navega**: tocar numa coluna troca o mês do bloco abaixo, do
+mapa de calor e das categorias, e a faixa rola sozinha para deixar o mês
+escolhido no centro. A janela vai de onze meses atrás até o mês que vem, e
+estica para conter o mês escolhido — quem navegar para longe pelas setas
+continua se vendo nela.
+
 **Mapa de calor** (gastos ou receitas por dia do mês) — grade de 7 colunas começando na
 **segunda** (S T Q Q S S D, cabeçalho no estilo do `.lbl`), gap de 2px, uma
 célula por dia do mês e células vazias invisíveis antes do dia 1. Cada célula
