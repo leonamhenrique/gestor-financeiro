@@ -444,7 +444,12 @@ de baixo em tela estreita (`flex-wrap`), mas a legenda nunca encolhe.
 **Abaixo de 380px** a célula fica com ~36px e o valor sai cortado com o padding
 e a fonte do desktop: lá o padding cai para 5/4px e a fonte para 10px. Valor
 cortado é pior que valor pequeno. O total do mês vai no `.lbl-row`.
-Hoje ganha borda `--hairline-strong`, como no calendário.
+Hoje ganha borda `--controle-borda`, como no calendário. Nessa borda o que
+conta é o lado de **fora**: por dentro ela encosta no tinte da célula, e no
+degrau cheio nenhum neutro fecha 3:1 ali — nem `--fg`, que é o hover. Por
+fora ela encosta na fresta de 2px que mostra `--bg`, e é lá que ela rende de
+3,8:1 a 13:1. O caso que estava cego era o oposto: **dia sem gasto**, sem
+tinte nenhum, onde a hairline dava 1,19:1 e a marca simplesmente não existia.
 
 Comportamento: só o dia com gasto é focável (`tabindex=0`). Passar o mouse ou
 focar mostra uma dica flutuante (fundo `--superficie`, borda
@@ -916,14 +921,23 @@ contêiner; painel em linha nunca é.
 .cal-dia { aspect-ratio: 1; display: grid; place-items: center; font-size: 13px;
            background: none; border: 1px solid transparent; border-radius: var(--r-sm); }
 .cal-dia.fora  { color: var(--fg-ghost); }                  /* mês vizinho */
-.cal-dia.hoje  { border-color: var(--hairline-strong); }
-.cal-dia.on    { background: rgba(110,231,240,0.10); border-color: rgba(110,231,240,0.35); color: var(--accent); }
+.cal-dia.hoje  { border-color: var(--controle-borda); }     /* 3,03:1 */
+.cal-dia:hover { border-color: var(--accent-borda); }       /* depois de .hoje, de propósito */
+.cal-dia.on    { background: var(--accent-fraco); border-color: var(--accent-borda); color: var(--accent); }
 ```
 
 - Célula quadrada (`aspect-ratio: 1`) em grid de 7 colunas: a 390px cada célula
   passa de 44px sozinha, sem truque de alvo de toque.
 - Dia selecionado usa **a mesma linguagem do pill ativo**. Não invente um
   destaque só para o calendário.
+- O dia é botão e segue o padrão de botão: `--controle-borda` no repouso
+  marcado (hoje), `--accent-borda` no hover. Hover e "hoje" já foram a mesma
+  hairline, e o resultado era duplo: a marca de hoje não aparecia (1,19:1) e
+  o dia de hoje era o único que não respondia ao mouse.
+- **A ordem das três regras é a regra.** `:hover` vem depois de `.hoje` e `.on`
+  depois das duas: mesma especificidade, então quem vem por último ganha. Dia
+  apontado vence dia de hoje; dia escolhido vence dia apontado. Trocar a ordem
+  no arquivo troca o comportamento sem trocar uma linha de valor.
 - Cabeçalho de dias da semana usa a escala de `.lbl`.
 - Marcador de fronteira (fechamento de fatura, fim de competência) é a **borda
   inferior da própria célula** em `--fg-muted` — nunca uma cor nova, nunca

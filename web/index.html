@@ -400,7 +400,13 @@
    * do meio): em célula com valor ele usa a tinta cheia. */
   .calor-dia.n1 .calor-n, .calor-dia.n2 .calor-n, .calor-dia.n3 .calor-n { color: var(--fg); }
   .calor-dia.n4 .calor-n, .calor-dia.n5 .calor-n { color: inherit; opacity: 0.72; }
-  .calor-dia.hoje { border-color: var(--hairline-strong); }
+  /* Em célula tingida a borda encosta no tinte por dentro e na fresta de 2px
+   * (que mostra --bg) por fora, e é por fora que ela é vista: 3,8:1 no degrau
+   * mais fraco, 13:1 no mais forte. Nenhum neutro fecha 3:1 por dentro do
+   * degrau cheio — nem --fg, que é o hover. O caso cego era o outro: dia SEM
+   * gasto, sem tinte, onde a hairline dava 1,19:1 e a marca de hoje não
+   * existia. Com o contorno de controle ela fecha 3,03:1 ali. */
+  .calor-dia.hoje { border-color: var(--controle-borda); }
   .calor-dia[tabindex] { cursor: pointer; }
   .calor-dia[tabindex]:hover, .calor-dia:focus-visible { border-color: var(--fg); }
   .calor-rodape { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--fg-subtle); }
@@ -656,8 +662,14 @@
     transition: border-color 160ms ease-out, background-color 160ms ease-out, color 160ms ease-out;
   }
   .cal-dia.fora { color: var(--fg-ghost); }
-  .cal-dia:hover { border-color: var(--hairline-strong); }
-  .cal-dia.hoje { border-color: var(--hairline-strong); }
+  /* O dia é botão, e segue o padrão de botão do app: contorno de controle em
+   * repouso marcado, acento no hover. "Hoje" e o hover usavam a MESMA hairline
+   * (1,19:1 no escuro): a marca não aparecia, e passar o mouse sobre hoje não
+   * mudava nada. O hover vem depois de .hoje de propósito — precisa ganhar
+   * dele na cascata, senão o dia de hoje é o único que não responde ao mouse.
+   * .on continua por último: dia escolhido vence dia apontado. */
+  .cal-dia.hoje { border-color: var(--controle-borda); }
+  .cal-dia:hover { border-color: var(--accent-borda); }
   .cal-dia.fechamento { border-bottom-color: var(--fg-muted); }
   .cal-dia.on { background: var(--accent-fraco); border-color: var(--accent-borda); color: var(--accent); }
   .cal-foot { font-size: 11px; color: var(--fg-subtle); }
