@@ -46,7 +46,7 @@ Consequências práticas:
   --bg:            #070B12;
   --hairline:      rgba(255,255,255,0.06);
   --hairline-strong: rgba(255,255,255,0.08);
-  --campo-borda:     rgba(255,255,255,0.34);   /* 3,03:1 — contorno de campo */
+  --controle-borda:  rgba(255,255,255,0.34);   /* 3,03:1 — contorno de controle */
   --warning-borda:   rgba(255,184,107,0.45);   /* 3,06:1 — contorno do aviso */
   --track:         rgba(255,255,255,0.05);  /* trilho de barras */
 
@@ -93,7 +93,7 @@ nenhuma regra de composição muda. Três coisas não são simples inversão:
   --bg:              #F6F8FB;
   --hairline:        rgba(15,23,32,0.10);
   --hairline-strong: rgba(15,23,32,0.16);
-  --campo-borda:     rgba(15,23,32,0.46);      /* 3,00:1 — tinta preta rende menos */
+  --controle-borda:  rgba(15,23,32,0.46);      /* 3,00:1 — tinta preta rende menos */
   --warning-borda:   rgba(154,100,16,0.75);    /* 3,01:1 — idem para o aviso */
   --track:           rgba(15,23,32,0.08);
 
@@ -534,9 +534,10 @@ Três regras de comportamento:
   para virar raiz. Mudar de pai é edição, não arraste. No bloco, o hover acende
   só a alça da linha sob o mouse, não a do pai e de todas as filhas juntas.
 
-**Pill de filtro** — 12px, padding 7/14, raio pill, borda `--hairline-strong`,
-texto `--fg-muted`. Ativa: fundo `rgba(110,231,240,0.10)`, borda
-`rgba(110,231,240,0.35)`, texto `--accent`.
+**Pill de filtro** — 12px, padding 7/14, raio pill, borda `--controle-borda`,
+texto `--fg-muted`. Ativa: fundo `--accent-fraco`, borda `--accent-borda`,
+texto `--accent`. As duas bordas são medidas (seção de contraste): o pill é
+controle, não rótulo.
 
 **Botão primário** — altura 52px, raio 14px, fundo `--accent`, texto
 `--accent-ink` 15px/600. Um por tela.
@@ -854,7 +855,7 @@ próprio, que reintroduziria o card pela porta dos fundos.
 .field input, .field select, .field textarea {
   height: 44px; padding: 0 12px; font: inherit; font-size: 13px;
   color: var(--fg); background: none;
-  border: 1px solid var(--campo-borda); border-radius: var(--r-sm);
+  border: 1px solid var(--controle-borda); border-radius: var(--r-sm);
 }
 .field textarea { height: auto; padding: 10px 12px; resize: vertical; }
 .field input::placeholder { color: var(--fg-subtle); opacity: 1; }
@@ -869,10 +870,22 @@ próprio, que reintroduziria o card pela porta dos fundos.
   `--warning-borda`: sem ele, o aviso no tema claro ficava em 1,49:1 e parecia
   texto solto, não um quadro. O hover do botão dentro dele subiu junto — em
   2,17:1 ele ficaria mais fraco que a borda parada, invertendo o sinal.
-- **A borda do campo tem token próprio, `--campo-borda`, medido em 3:1.** Ela
-  não é a hairline: hairline é divisória de leitura, e o contorno do campo é o
-  que diz "aqui se digita" — a regra 1.4.11 da WCAG pede 3:1 para isso. As
-  hairlines de lista e separador continuam leves, como sempre foram.
+- **O contorno de controle tem token próprio, `--controle-borda`, medido em
+  3:1** — e veste tudo que se clica: campo, pill, `.ghost`, botão de ícone, X
+  da camada, opção de lista. Ele não é a hairline: hairline é divisória de
+  leitura, e o contorno é o que diz "isto se opera" — a regra 1.4.11 da WCAG
+  pede 3:1 para isso. Vestidos de hairline, o pill e o botão secundário
+  ficavam em 1,19:1 no escuro e 1,40:1 no claro: a forma do alvo só existia
+  para quem já sabia que ela estava ali. As hairlines de lista, separador,
+  moldura de grid e superfície continuam leves, como sempre foram — quem não
+  recebe clique não precisa dos 3:1.
+- **O contorno do controle ligado encosta em duas cores e precisa dos 3:1 nos
+  dois lados.** O pill ativo tem `--bg` por fora e o tinte de acento por
+  dentro; medir só contra o fundo deixa o lado de dentro em 2,5:1. Daí
+  `--accent-borda` a 0,47 no escuro (3,63:1 fora, 3,04:1 dentro) e a 0,74 no
+  claro (3,38:1 e 3,02:1) em vez dos 0,41 e 0,68 que bastariam contra o fundo.
+  Era o pior contorno da tela — 1,61:1 no claro — justo no controle que
+  carrega estado.
 - Foco é só a borda, no **acento cheio**: sem glow, sem outline dupla, sem
   sombra. Cheio e não a 45%, porque com a borda em repouso a 3:1 o acento
   translúcido ficava em 1,99:1 no tema claro — o foco apareceria menos que o
@@ -884,7 +897,9 @@ próprio, que reintroduziria o card pela porta dos fundos.
 - Campo travado por regra de negócio fica `disabled` **com `.field-help`
   explicando o porquê**. Campo desabilitado e mudo é defeito.
 - Botão secundário: mesma altura do primário no contexto, borda
-  `--hairline-strong`, texto `--fg-muted`, sem fundo.
+  `--controle-borda`, texto `--fg-muted`, sem fundo. No hover a borda passa
+  para `--accent-borda`, que é mais forte que a de repouso — hover que
+  enfraquece o contorno inverte o sinal.
 - Ação destrutiva é **texto em `--negative`**, nunca fundo vermelho. Vermelho
   cheio é para valor negativo, não para botão.
 

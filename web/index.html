@@ -25,10 +25,11 @@
     --bg: #070B12;
     --hairline: rgba(255,255,255,0.06);
     --hairline-strong: rgba(255,255,255,0.08);
-    /* Borda de campo de formulário. Separada da hairline de propósito: a
-     * hairline é divisória de leitura (3:1 não se aplica), mas o contorno é o
-     * que diz "aqui se digita". Medido: 3,03:1 sobre --bg. */
-    --campo-borda: rgba(255,255,255,0.34);
+    /* Contorno de controle: campo, pill, botão secundário. Separado da
+     * hairline de propósito — a hairline é divisória de leitura (3:1 não se
+     * aplica), o contorno é o que diz "isto se clica". Com a hairline no
+     * lugar dele, o pill e o ghost ficavam em 1,19:1. Medido: 3,03:1. */
+    --controle-borda: rgba(255,255,255,0.34);
     --track: rgba(255,255,255,0.05);
 
     --fg: #E2EEF8;
@@ -61,8 +62,11 @@
     /* Derivados: tudo que antes era rgba fixo no CSS. Sem isso o tema claro
      * herdaria os tons pensados para fundo escuro. */
     --accent-fraco: rgba(110,231,240,0.10);
-    --accent-borda: rgba(110,231,240,0.35);
-    --accent-foco: rgba(110,231,240,0.45);
+    /* Contorno do controle ligado (pill selecionado, dia escolhido) e do
+     * hover. Ele encosta em duas cores: --bg por fora e o tinte por dentro,
+     * e precisa dos 3:1 nos dois lados — por isso 0,47 e não os 0,41 que
+     * bastariam contra o fundo. Medido: 3,63:1 fora, 3,04:1 dentro. */
+    --accent-borda: rgba(110,231,240,0.47);
     /* Borda do aviso: 3,06:1 sobre --bg. É o contorno que diz "isto é um
      * aviso" — a hairline de leitura (0,08) sumia no fundo. */
     --warning-borda: rgba(255,184,107,0.45);
@@ -115,7 +119,7 @@
     --hairline: rgba(15,23,32,0.10);
     --hairline-strong: rgba(15,23,32,0.16);
     /* Tinta preta rende menos que branca: 0,46 aqui para os mesmos 3,00:1. */
-    --campo-borda: rgba(15,23,32,0.46);
+    --controle-borda: rgba(15,23,32,0.46);
     --track: rgba(15,23,32,0.08);
 
     --fg: #14202B;
@@ -137,8 +141,10 @@
     --warning: #9A6410;
 
     --accent-fraco: rgba(12,110,119,0.08);
-    --accent-borda: rgba(12,110,119,0.32);
-    --accent-foco: rgba(12,110,119,0.45);
+    /* 0,74 para 3,38:1 fora e 3,02:1 dentro do tinte. Era 0,32 = 1,61:1: o
+     * pill ligado, que é quem carrega o estado, tinha o contorno mais fraco
+     * da tela justo no tema onde ele mais faz falta. */
+    --accent-borda: rgba(12,110,119,0.74);
     /* Tinta ocre sobre claro rende menos: 0,75 para os mesmos 3,01:1. */
     --warning-borda: rgba(154,100,16,0.75);
     /* 2,17:1 aqui ficaria MAIS FRACO que a borda em repouso, invertendo o
@@ -259,7 +265,7 @@
   .pills { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .pill {
     position: relative; font-family: inherit; font-size: 12px; padding: 7px 14px;
-    border-radius: var(--r-pill); border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-pill); border: 1px solid var(--controle-borda);
     background: none; color: var(--fg-muted); cursor: pointer;
     transition: color 180ms ease-out, background-color 180ms ease-out, border-color 180ms ease-out;
   }
@@ -271,7 +277,7 @@
   .month-label { font-size: 12px; color: var(--fg-muted); min-width: 118px; }
   .icon-btn {
     width: 32px; height: 32px; display: grid; place-items: center; flex-shrink: 0;
-    background: none; border: 1px solid var(--hairline-strong); border-radius: var(--r-pill);
+    background: none; border: 1px solid var(--controle-borda); border-radius: var(--r-pill);
     color: var(--fg-muted); cursor: pointer; transition: color 180ms ease-out, border-color 180ms ease-out;
   }
   .icon-btn:hover { color: var(--fg); border-color: var(--accent-borda); }
@@ -545,7 +551,7 @@
   .primary svg { width: 16px; height: 16px; }
   .ghost {
     height: 44px; padding: 0 18px; border-radius: var(--r-sm);
-    border: 1px solid var(--hairline-strong); background: none; color: var(--fg-muted);
+    border: 1px solid var(--controle-borda); background: none; color: var(--fg-muted);
     font-family: inherit; font-size: 13px; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     transition: color 180ms ease-out, border-color 180ms ease-out;
@@ -592,7 +598,7 @@
   .field input, .field select, .field textarea {
     height: 44px; padding: 0 12px; font: inherit; font-size: 13px;
     color: var(--fg); background: none;
-    border: 1px solid var(--campo-borda); border-radius: var(--r-sm);
+    border: 1px solid var(--controle-borda); border-radius: var(--r-sm);
   }
   .field textarea { height: auto; padding: 10px 12px; resize: vertical; }
   /* O placeholder é texto e vale a mesma régua: o cinza padrão do navegador dá
@@ -631,7 +637,7 @@
   .cal-trigger {
     height: 44px; padding: 0 12px; width: 100%;
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    border: 1px solid var(--campo-borda); border-radius: var(--r-sm);
+    border: 1px solid var(--controle-borda); border-radius: var(--r-sm);
     background: none; color: var(--fg); font-family: inherit; font-size: 13px; cursor: pointer;
     font-variant-numeric: tabular-nums; transition: border-color 180ms ease-out;
   }
@@ -678,7 +684,7 @@
   .layer-x {
     position: absolute; top: 14px; right: 14px;
     width: 44px; height: 44px; border-radius: 50%;
-    border: 1px solid var(--hairline-strong); background: none; color: var(--fg-muted);
+    border: 1px solid var(--controle-borda); background: none; color: var(--fg-muted);
     display: grid; place-items: center; cursor: pointer;
     transition: color 180ms ease-out, border-color 180ms ease-out;
   }
@@ -693,7 +699,7 @@
   .layer-foot .esquerda { margin-right: auto; }
   .opt-list { display: flex; flex-direction: column; gap: 10px; }
   .opt {
-    text-align: left; padding: 14px 16px; border: 1px solid var(--hairline-strong);
+    text-align: left; padding: 14px 16px; border: 1px solid var(--controle-borda);
     border-radius: var(--r-md); background: none; color: var(--fg); font-family: inherit;
     font-size: 13px; cursor: pointer; transition: border-color 180ms ease-out;
   }
