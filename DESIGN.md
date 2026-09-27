@@ -926,8 +926,23 @@ contêiner; painel em linha nunca é.
 .cal-dia.on    { background: var(--accent-fraco); border-color: var(--accent-borda); color: var(--accent); }
 ```
 
-- Célula quadrada (`aspect-ratio: 1`) em grid de 7 colunas: a 390px cada célula
-  passa de 44px sozinha, sem truque de alvo de toque.
+- Célula quadrada (`aspect-ratio: 1`) em grid de 7 colunas. **A conta da
+  largura é a da coluna, não a da tela**: o calendário mora dentro da camada,
+  que come 24px de cada lado, e o painel come mais um tanto. Num aparelho de
+  375 isso deixava a coluna em 41px — abaixo do alvo mínimo. No telefone o
+  painel cede folga (`padding: 10px 4px`) e a fresta cai para 1px, e a coluna
+  sobe para 44,1px.
+- **Abaixo de 380 o quadrado sai** (`aspect-ratio: auto`). Ali a coluna tem
+  ~36px e o quadrado deixa de ser enfeite e vira defeito: com `aspect-ratio` e
+  `min-height: 44px` juntos, o dia deriva a **largura** da altura, passa por
+  cima da coluna do grid, sobrepõe o vizinho, vaza o painel e cria uma rolagem
+  lateral dentro do calendário. Com ele fora, o dia fica ~37x44 — estreito,
+  mas inteiro. Acima de 380 o quadrado fica: sem ele o dia viraria um
+  retângulo deitado de 67x44.
+- O bloco de telefone do calendário vem **depois** das regras base dele no
+  arquivo. `@media` não soma especificidade: um override de `.cal` declarado
+  antes da própria `.cal` perde para ela, e o media query parece simplesmente
+  não funcionar.
 - Dia selecionado usa **a mesma linguagem do pill ativo**. Não invente um
   destaque só para o calendário.
 - O dia é botão e segue o padrão de botão: `--controle-borda` no repouso

@@ -622,7 +622,6 @@
     .field-data { flex-wrap: wrap; }
     .field-data .cal-wrap { flex: 1 1 100%; }
     .field-data .cal-wrap + .ghost { margin-left: auto; }
-    .cal-dia { min-height: 44px; }
   }
   /* Foco no acento cheio, não no acento a 45%: com a borda em repouso agora em
    * 3:1, o acento translúcido ficava em 1,99:1 no tema claro — o foco apareceria
@@ -674,6 +673,28 @@
   .cal-dia.on { background: var(--accent-fraco); border-color: var(--accent-borda); color: var(--accent); }
   .cal-foot { font-size: 11px; color: var(--fg-subtle); }
   .cal-foot[hidden] { display: none; }
+  /* Celular. Este bloco precisa vir DEPOIS das regras acima: `@media` não soma
+   * especificidade, então um override de `.cal` declarado antes da própria
+   * `.cal` perde para ela — foi o que aconteceu na primeira tentativa. */
+  @media (max-width: 767px) {
+    /* O painel cede as sobras para o dia: 4px de folga lateral e fresta de 1px
+     * levam a coluna de 41px para 44px num aparelho de 375. */
+    .cal { padding: 10px 4px; }
+    .cal-week, .cal-grid { gap: 1px; }
+    /* A 375 a coluna já sai com 44,1px, então o quadrado cabe e o min-height
+     * abaixo não briga com ele. */
+    .cal-dia { min-height: 44px; }
+  }
+  /* Abaixo de 380 a coluna fica menor que o alvo mínimo, e aí o quadrado vira
+   * defeito: com `aspect-ratio`, o dia deriva a LARGURA da altura de 44px e
+   * passa por cima da coluna do grid — os dias se sobrepõem, o último da
+   * semana vaza o painel e o grid ganha uma rolagem lateral que ninguém pediu.
+   * Aqui a altura continua nos 44px e a largura passa a ser a da coluna: dia
+   * de ~37x44, estreito, mas inteiro e sem vizinho por cima. Acima de 380 o
+   * quadrado fica, senão o dia viraria um retângulo deitado de 67x44. */
+  @media (max-width: 379px) {
+    .cal-dia { aspect-ratio: auto; }
+  }
   .check { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg-muted); cursor: pointer; }
   .check input { width: 16px; height: 16px; accent-color: var(--accent); }
 
