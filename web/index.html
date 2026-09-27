@@ -1919,7 +1919,7 @@
         f.previsto += transporte;
         f.pago = totalPagoFatura(card, key);
         var restante = f.confirmado - f.pago;
-        var venceu = HOJE > new Date(cursor.y, cursor.m, diaValido(cursor.y, cursor.m, card.vencimento));
+        var venceu = HOJE > vencimentoDaFatura(card, cursor.y, cursor.m);
         f.levado = (f.pago > 0 && restante > 0 && venceu) ? restante : 0;
         f.emAberto = f.levado ? 0 : Math.max(0, restante);
         transporte = f.levado;
@@ -1944,8 +1944,8 @@
     var pago = totalPagoFatura(card, key);
     if (f.levado > 0) return "CARRIED";
     if (f.confirmado > 0 && pago >= f.confirmado) return "PAID";
-    var fechamento = new Date(y, m, card.fechamento);
-    var vencimento = new Date(y, m, card.vencimento);
+    var fechamento = fechamentoDaFatura(card, y, m);
+    var vencimento = vencimentoDaFatura(card, y, m);
     if (HOJE < fechamento) return "OPEN";
     if (HOJE > vencimento) return "OVERDUE";
     return "CLOSED";
@@ -2473,6 +2473,28 @@
 
   function diaValido(y, m, dia) { return Math.min(dia, new Date(y, m + 1, 0).getDate()); }
 
+  /** Fechamento e vencimento da fatura de referência (y, m). Espelha
+   * `datasDoCiclo` do backend, que já estava certo: o vencimento só fica no
+   * mês da referência se cair DEPOIS do fechamento; senão é o do mês seguinte.
+   *
+   * Num cartão que fecha dia 25 e vence dia 5 — arranjo comuníssimo — supor os
+   * dois no mesmo mês punha o vencimento 20 dias ANTES do fechamento. A fatura
+   * então nascia vencida: pulava de Aberta direto para Atrasada, nunca passava
+   * por Fechada, e o rotativo começava a transportar saldo cedo demais.
+   *
+   * Os dois dias entram já limitados ao último dia do mês — senão "fecha 29 e
+   * vence 30" em fevereiro viraria 28 e 28, e o vencimento cairia no mesmo dia
+   * do fechamento em vez de ir para março. */
+  function fechamentoDaFatura(card, y, m) {
+    return new Date(y, m, diaValido(y, m, card.fechamento));
+  }
+  function vencimentoDaFatura(card, y, m) {
+    var noMes = new Date(y, m, diaValido(y, m, card.vencimento));
+    if (noMes > fechamentoDaFatura(card, y, m)) return noMes;
+    var ay = m === 11 ? y + 1 : y, am = (m + 1) % 12;
+    return new Date(ay, am, diaValido(ay, am, card.vencimento));
+  }
+
   /** Totais do mês: a soma exata das linhas que o extrato mostra.
    *
    * Compra no cartão não entra uma a uma — quem representa o cartão no mês é a
@@ -2559,7 +2581,7 @@
       : x.card.nome;
     var data = quitada && x.dataPagamento
       ? x.dataPagamento
-      : mk + "-" + String(diaValido(vm.y, vm.m, x.card.vencimento)).padStart(2, "0");
+      : isoDate(vencimentoDaFatura(x.card, vm.y, vm.m));
     // Mesmo valor que `totaisDoMes` somou para esta fatura — uma fonte só,
     // senão a linha e o total do mês voltam a divergir.
     var valor = x.linha;

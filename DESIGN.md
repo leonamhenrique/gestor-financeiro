@@ -238,6 +238,20 @@ em aberto pelo restante, e o botão da tela de cartões vira "Pagar o restante",
 já sugerindo o saldo. Cada pagamento é uma linha na lista de pagamentos, com
 editar e desfazer próprios. Só some quando não há mais saldo.
 
+**O vencimento pode estar no mês seguinte ao do fechamento, e quase sempre
+está.** A fatura de referência (ano, mês) vence no dia do vencimento *daquele*
+mês **só se esse dia cair depois do fechamento**; senão, vence no mês seguinte.
+Num cartão que fecha dia 25 e vence dia 5 — o arranjo mais comum do mercado —
+supor os dois no mesmo mês põe o vencimento 20 dias antes do fechamento: a
+fatura nasce vencida, pula de `Aberta` direto para `Atrasada` sem nunca passar
+por `Fechada`, e o rotativo começa a transportar saldo cedo demais. Os dois
+dias entram **já limitados ao último dia do mês**, senão "fecha 29 e vence 30"
+em fevereiro vira 28 e 28, e o empate manda o vencimento para o mesmo dia do
+fechamento em vez de março. Essa conta mora num lugar só de cada lado
+(`datasDoCiclo` no backend, `vencimentoDaFatura` no app) e os dois lados têm de
+concordar: quando divergiram, a tela dizia "Atrasada" para uma fatura que a API
+considerava fechada.
+
 **Fatura paga em parte é "Transportada", não "meio aberta".** Depois do
 **vencimento**, o que sobrou vira saldo da fatura seguinte (rotativo, sem juros
 aqui). A etiqueta da fatura de origem é `Transportada` (classe `warn`), a
