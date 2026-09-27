@@ -6058,7 +6058,11 @@
     else texto = recusados === 1
       ? "1 lançamento foi recusado pelo servidor. Ele está marcado na lista, com o motivo."
       : recusados + " lançamentos foram recusados pelo servidor. Eles estão marcados na lista, com o motivo.";
-    if (recusados && esperando) texto += " " + recusados + " recusado(s).";
+    if (recusados && esperando) {
+      texto += recusados === 1
+        ? " Outro foi recusado e está marcado na lista."
+        : " Outros " + recusados + " foram recusados e estão marcados na lista.";
+    }
     document.getElementById("banner-fila-texto").textContent = texto;
     document.getElementById("banner-fila-agora").hidden = !esperando || !navigator.onLine || sincronizando;
   }
