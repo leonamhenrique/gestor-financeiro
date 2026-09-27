@@ -471,6 +471,13 @@ separa por hairline horizontal (regra 1), e o mês escolhido é marcado como a
 aba ativa — filete de `--accent` na borda de cima, nome em `--accent` — nunca
 por caixa com fundo e contorno próprios.
 
+**Os três estados da coluna seguem o padrão de controle do app**: repouso sem
+filete, hover em `--accent-borda`, escolhido no acento cheio e com o nome do
+mês também em `--accent`. O hover nasceu na hairline de leitura e ficava em
+1,40:1 no tema claro — apontar o mês não dizia nada. É a mesma regra do dia do
+calendário e do botão secundário; escrevê-la num lugar não dispensa aplicá-la
+no componente seguinte.
+
 **A largura da coluna é medida, não escolhida.** O CSS dá um piso (84px, 76px
 abaixo de 380) e `renderFaixaMeses` sobe esse piso até caber o resultado mais
 largo do período. Com largura fixa, um valor de cinco dígitos — `+12.330,05`,

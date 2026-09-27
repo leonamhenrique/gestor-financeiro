@@ -492,7 +492,12 @@
     transition: border-color 180ms ease-out;
   }
   .mes-col:first-child { border-left: none; }
-  .mes-col:hover { border-top-color: var(--hairline-strong); }
+  /* Hover em --accent-borda, não na hairline de leitura: em 1,40:1 no tema
+   * claro o filete não aparecia e apontar o mês não dizia nada. Mesma regra do
+   * dia do calendário e do botão secundário. O mês escolhido continua no
+   * acento cheio, mais forte, e ainda leva o nome em acento — os dois estados
+   * não se confundem. */
+  .mes-col:hover { border-top-color: var(--accent-borda); }
   .mes-col.on { border-top-color: var(--accent); }
   .mes-nome { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--fg-subtle); white-space: nowrap; }
   .mes-col.on .mes-nome { color: var(--accent); }
