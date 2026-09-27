@@ -997,6 +997,12 @@
       </button>
     </div>
 
+    <div class="banner" id="banner-fila" hidden>
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/></svg>
+      <span id="banner-fila-texto"></span>
+      <button type="button" class="ghost" id="banner-fila-agora">Tentar agora</button>
+    </div>
+
     <div class="banner" id="banner-bloqueio" hidden>
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4.5M12 17h.01M10.3 3.9 2.7 17.5c-.6 1 .1 2.3 1.3 2.3h16c1.2 0 1.9-1.3 1.3-2.3L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>
       <span>Assinatura com pagamento pendente. Criar conta, lançamento, cartão ou categoria fica bloqueado até a quitação — o que já existe continua editável.</span>
@@ -2050,13 +2056,24 @@
     if (t.contaId) return !contaEstaOculta(t.contaId);
     return true;
   }
+  /** O saldo da conta vem do servidor, que ainda não viu o que está na fila.
+   * Sem somar os pendentes aqui, a pessoa lançaria uma despesa offline e veria
+   * o saldo intacto — o app estaria certo por dentro e mentindo na tela. */
+  function efeitoDosPendentes(ocultas) {
+    return state.transactions.reduce(function (soma, t) {
+      if (!t.pendente || !t.confirmada || !t.contaId) return soma;
+      var conta = byId(state.accounts, t.contaId);
+      if (!conta || !conta.isActive || !!conta.oculto !== !!ocultas) return soma;
+      return soma + (t.tipo === "INCOME" ? t.valor : -t.valor);
+    }, 0);
+  }
   function saldoVisivel() {
     return state.accounts.filter(function (a) { return a.isActive && !a.oculto; })
-      .reduce(function (s, a) { return s + a.saldo; }, 0);
+      .reduce(function (s, a) { return s + a.saldo; }, 0) + efeitoDosPendentes(false);
   }
   function saldoOculto() {
     return state.accounts.filter(function (a) { return a.isActive && a.oculto; })
-      .reduce(function (s, a) { return s + a.saldo; }, 0);
+      .reduce(function (s, a) { return s + a.saldo; }, 0) + efeitoDosPendentes(true);
   }
 
   /* ================= calendário ================= */
@@ -2374,25 +2391,32 @@
     var entrada = t.tipo === "INCOME";
     var origem = t.contaId ? (byId(state.accounts, t.contaId) || {}).nome : (byId(state.cards, t.cartaoId) || {}).nome;
     var cor = cat ? cat.cor : "var(--fg-subtle)";
-    var nomeCat = cat ? cat.nome : "Pagamento de fatura";
+    var nomeCat = cat ? cat.nome : (t.categoriaId ? "Categoria removida" : "Pagamento de fatura");
     return '<div class="row">' +
       '<span class="cell-data num">' + fmtDia(t.data) + '</span>' +
       '<span class="row-main"><span class="row-title">' +
       '<span class="dot" style="background:' + cor + '"></span>' +
       '<span class="row-name">' + esc(rotuloLancamento(t) || nomeCat) + '</span>' +
+      (t.pendente ? '<span class="tag ' + (t.erroSync ? "danger" : "warn") + '">' + (t.erroSync ? "recusado" : "pendente") + '</span>' : "") +
       (t.confirmada ? "" : '<span class="tag tag-previsto">prevista</span>') + '</span>' +
       '<span class="row-meta">' + fmtDia(t.data) + ' · ' + esc(nomeCat) + ' · ' + esc(origem || "—") +
+      (t.pendente ? ' · ' + esc(t.erroSync || "aguardando conexão") : "") +
       (t.confirmada ? "" : '<span class="tag-previsto-meta"> · prevista</span>') + '</span></span>' +
       '<span class="cell-cat">' + esc(nomeCat) + '</span>' +
       '<span class="cell-org">' + esc(origem || "—") + '</span>' +
       '<span class="row-val num' + (entrada ? " pos" : "") + (t.confirmada ? "" : " previsto") + '">' +
       (entrada ? "+" : "−") + money(t.valor) + '</span>' +
-      (comAcoes ? '<span class="row-acoes">' +
+      (comAcoes && t.pendente ? '<span class="row-acoes">' +
+        // Pendente ainda não existe no servidor: confirmar, editar e antecipar
+        // não têm o que tocar. Só dá para tirar da fila.
+        botaoIcone("trash", "remover-da-fila", t.id, "Remover da fila", "danger") +
+        '</span>' : "") +
+      (comAcoes && !t.pendente ? '<span class="row-acoes">' +
         (t.serieId && t.cartaoId ? botaoIcone("antecipar", "antecipar", t.serieId, "Antecipar parcelas") : "") +
         botaoIcone(t.confirmada ? "undo" : "check", t.confirmada ? "desconfirmar" : "confirmar", t.id, t.confirmada ? "Desfazer confirmação" : "Confirmar") +
         botaoIcone("edit", "editar-lancamento", t.id, "Editar") +
         botaoIcone("trash", "excluir-lancamento", t.id, "Excluir", "danger") +
-        '</span>' : '') +
+        '</span>' : "") +
       '</div>';
   }
 
@@ -2954,23 +2978,27 @@
       });
     }
     var r = await tentar();
-    if (r.status === 401 && caminho.indexOf("/auth/") !== 0 && await renovarSessao()) r = await tentar();
+    if (r.status === 401 && caminho.indexOf("/auth/") !== 0 && (await renovarSessao()) === true) r = await tentar();
     var json = null;
     try { json = r.status === 204 ? null : await r.json(); } catch (e) { json = null; }
     return { ok: r.ok, status: r.status, json: json };
   }
 
+  /** true = sessão renovada; false = o servidor disse que não; "sem-rede" = não
+   * cheguei a perguntar. A diferença importa: sessão negada manda para a tela
+   * de entrada, rede ausente não — aí o app abre com o que tem no aparelho. */
   async function renovarSessao() {
+    var r;
     try {
-      var r = await chamarApi("/auth/refresh", {});
-      if (!r.ok) { tokenAcesso = null; return false; }
-      tokenAcesso = r.json.accessToken;
-      state.perfil.nome = r.json.user.name;
-      state.perfil.email = r.json.user.email;
-      return true;
+      r = await chamarApi("/auth/refresh", {});
     } catch (e) {
-      return false;
+      return "sem-rede";
     }
+    if (!r.ok) { tokenAcesso = null; return false; }
+    tokenAcesso = r.json.accessToken;
+    state.perfil.nome = r.json.user.name;
+    state.perfil.email = r.json.user.email;
+    return true;
   }
 
   /* ================= dados no servidor =================
@@ -3029,7 +3057,17 @@
   /** Como chamarApi, mas erro vira exceção com a mensagem que a API escreveu —
    * quem chama só cuida do caminho feliz. */
   async function api(caminho, corpo, metodo) {
-    var r = await chamarApi(caminho, corpo, metodo || (corpo ? "POST" : "GET"));
+    var r;
+    try {
+      r = await chamarApi(caminho, corpo, metodo || (corpo ? "POST" : "GET"));
+    } catch (e) {
+      // Falha de rede é outra categoria de erro: o pedido não chegou a ser
+      // julgado. Quem chama decide se guarda para depois ou desiste — por isso
+      // a marca, e não só a mensagem.
+      var semRede = new Error("Sem conexão com o servidor.");
+      semRede.semRede = true;
+      throw semRede;
+    }
     if (!r.ok) throw new Error(mensagemDaApi(r.json, r.status));
     return r.json;
   }
@@ -3051,7 +3089,140 @@
       return api("/credit-cards/" + k.id + "/payments");
     }));
     state.cards.forEach(function (k, i) { k.pagamentos = pagamentos[i].map(pagamentoDaApi); });
+    // O servidor não sabe da fila: os pendentes voltam para a lista depois de
+    // cada carga, senão sumiriam da tela a cada atualização.
+    aplicarFilaNoEstado();
     persist();
+  }
+
+  /* ================= fila de lançamentos offline =================
+   * Lançar é a única coisa que não pode esperar rede: acontece na fila do
+   * mercado, no posto, no ônibus. Então o lançamento feito sem conexão é
+   * gravado no aparelho, aparece na tela marcado como pendente e sobe sozinho
+   * quando a internet volta.
+   *
+   * A fila guarda o CORPO do pedido, não o lançamento pronto: quem decide
+   * saldo, fatura e status é o servidor, e guardar o resultado seria inventar
+   * uma resposta que ele ainda não deu.
+   *
+   * O que não entra na fila, de propósito: editar, excluir, confirmar, pagar
+   * fatura, criar conta/cartão/categoria e séries. Todas dependem de um id que
+   * só existe no servidor, ou de uma conta que ele precisa fazer na hora — uma
+   * fila dessas daria conflito silencioso, que é pior que um "precisa de
+   * conexão" dito na cara. */
+  var CHAVE_FILA = "gestor-fila-v1";
+  var fila = [];
+  var sincronizando = false;
+
+  function carregarFila() {
+    try {
+      var bruto = localStorage.getItem(CHAVE_FILA);
+      fila = bruto ? JSON.parse(bruto) : [];
+    } catch (e) { fila = []; }
+    if (!Array.isArray(fila)) fila = [];
+  }
+  function salvarFila() {
+    try { localStorage.setItem(CHAVE_FILA, JSON.stringify(fila)); } catch (e) {}
+  }
+  function pendentesParaEnviar() {
+    return fila.filter(function (f) { return !f.erro; });
+  }
+
+  /** O que a fila mostra na tela enquanto não sobe. É um lançamento normal com
+   * `pendente`, para todas as telas (extrato, mapa de calor, totais) contarem
+   * com ele sem saber que existe uma fila. */
+  function lancamentoDaFila(item) {
+    var c = item.corpo;
+    return {
+      id: item.id, tipo: c.type, valor: c.amount, categoriaId: c.categoryId,
+      desc: c.description || "", data: c.transactionDate,
+      contaId: c.bankAccountId || null, cartaoId: c.creditCardId || null,
+      confirmada: !!c.isConfirmed, faturaMesOverride: c.invoiceMonth || null,
+      serieId: null, serieIndex: null, pendente: true, erroSync: item.erro || null
+    };
+  }
+  function aplicarFilaNoEstado() {
+    state.transactions = state.transactions.filter(function (t) { return !t.pendente; })
+      .concat(fila.map(lancamentoDaFila));
+  }
+
+  function enfileirar(corpo) {
+    fila.push({ id: "fila-" + uid("l"), corpo: corpo, criadoEm: new Date().toISOString(), erro: null });
+    salvarFila();
+    aplicarFilaNoEstado();
+    persist();
+    renderAll();
+  }
+  function removerDaFila(id) {
+    fila = fila.filter(function (f) { return f.id !== id; });
+    salvarFila();
+    aplicarFilaNoEstado();
+    persist();
+    renderAll();
+  }
+
+  /** Sobe a fila, do mais antigo para o mais novo — a ordem em que a pessoa
+   * lançou é a ordem em que o saldo faz sentido.
+   *
+   * Duas falhas, dois destinos: rede caindo de novo para a fila (tenta depois),
+   * e recusa do servidor (valor inválido, categoria apagada) fica marcada, sem
+   * repetir para sempre um pedido que nunca vai passar. */
+  async function sincronizarFila(silencioso) {
+    if (sincronizando || !MODO_API || !navigator.onLine) return;
+    var aEnviar = pendentesParaEnviar();
+    if (!aEnviar.length) return;
+    sincronizando = true;
+    atualizarBannerDaFila();
+    var enviados = 0, recusados = 0;
+    try {
+      for (var i = 0; i < aEnviar.length; i++) {
+        var item = aEnviar[i];
+        try {
+          await api("/transactions", item.corpo);
+          fila = fila.filter(function (f) { return f.id !== item.id; });
+          enviados++;
+        } catch (e) {
+          if (e && e.semRede) break;          // a internet caiu de novo
+          item.erro = (e && e.message) || "O servidor recusou este lançamento.";
+          recusados++;
+        }
+        salvarFila();
+      }
+    } finally {
+      sincronizando = false;
+    }
+    if (enviados) {
+      try { await carregarDoServidor(); } catch (e) {}
+    }
+    aplicarFilaNoEstado();
+    persist();
+    renderAll();
+    if (!silencioso && enviados) {
+      avisar(enviados === 1 ? "1 lançamento sincronizado" : enviados + " lançamentos sincronizados",
+        recusados ? recusados + " não passaram e continuam marcados na lista, com o motivo." : "Eles já estão no servidor.");
+    }
+  }
+
+  /** Lançar com rede: vai direto. Sem rede: entra na fila e aparece marcado.
+   * O usuário não escolhe entre os dois — a diferença é só o aviso. */
+  async function lancarComFila(corpo, oQue) {
+    if (navigator.onLine) {
+      try {
+        await api("/transactions", corpo);
+        await carregarDoServidor();
+        aplicarFilaNoEstado();
+        renderAll();
+        return { ok: true };
+      } catch (e) {
+        if (!e || !e.semRede) {
+          avisar("Não deu para " + (oQue || "lançar"), (e && e.message) || "Tente de novo em instantes.");
+          return { ok: false };
+        }
+        // caiu no meio do caminho: segue para a fila
+      }
+    }
+    enfileirar(corpo);
+    return { ok: true, pendente: true };
   }
 
   /** Grava no servidor e recarrega. Se falhar, a tela não muda e a mensagem da
@@ -3085,12 +3256,21 @@
     resumoMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
     extratoMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
     cartaoSel = null; faturaMes = null;
+    carregarFila();
     try {
       await carregarDoServidor();
     } catch (e) {
-      avisar("Não consegui carregar seus dados", (e && e.message) || "Tente entrar de novo.");
+      // Sem rede, o app abre com o que já estava no aparelho da última vez —
+      // dado velho e dito como tal é melhor que tela vazia.
+      if (e && e.semRede) {
+        aplicarFilaNoEstado();
+        avisar("Sem conexão agora", "Estou mostrando os dados da última vez que você abriu com internet. Novos lançamentos ficam guardados e sobem sozinhos quando ela voltar.");
+      } else {
+        avisar("Não consegui carregar seus dados", (e && e.message) || "Tente entrar de novo.");
+      }
     }
     entrarNoApp();
+    sincronizarFila(true);
   }
 
   async function enviarParaApi(d) {
@@ -3206,6 +3386,14 @@
       // sessão, senão a próxima pessoa a abrir o app veria as contas de quem
       // saiu enquanto a tela ainda não recarregou.
       MODO_API = false;
+      // A fila é de quem estava logado: sai junto, senão os lançamentos dela
+      // subiriam na conta de quem entrar depois neste aparelho.
+      if (fila.length) {
+        avisar("Lançamentos não enviados", fila.length === 1
+          ? "1 lançamento ainda não tinha subido e foi descartado ao sair."
+          : fila.length + " lançamentos ainda não tinham subido e foram descartados ao sair.");
+      }
+      fila = []; salvarFila();
       state.accounts = []; state.cards = []; state.transactions = []; state.categories = [];
       cartaoSel = null; faturaMes = null; diaAberto = null;
     }
@@ -3615,7 +3803,7 @@
         '<span class="dot" style="background:' + a.cor + '"></span>' +
         '<span class="row-name">' + esc(a.nome) + '</span></span>' +
         '<span class="row-meta">' + TIPO_CONTA[a.tipo] + '</span></span>' +
-        '<span class="row-val num">' + (a.oculto ? "••••" : money(a.saldo)) + '</span>' +
+        '<span class="row-val num">' + (a.oculto ? "••••" : money(saldoDaConta(a))) + '</span>' +
         '<span class="row-acoes">' + botaoIcone(a.oculto ? "olhoOff" : "olho", "ocultar", a.id, a.oculto ? "Mostrar" : "Ocultar") + '</span>' +
         '</div>';
     }).join("") || '<div class="empty">Nenhuma conta ativa.</div>';
@@ -3697,7 +3885,7 @@
     tot.avulsos.forEach(function (t) {
       if (filtro !== "TODOS" && t.tipo !== filtro) return;
       var cat = t.categoriaId ? byId(state.categories, t.categoriaId) : null;
-      var nomeCat = cat ? cat.nome : "Pagamento de fatura";
+      var nomeCat = cat ? cat.nome : (t.categoriaId ? "Categoria removida" : "Pagamento de fatura");
       var origem = t.contaId
         ? (byId(state.accounts, t.contaId) || {}).nome
         : (byId(state.cards, t.cartaoId) || {}).nome;
@@ -3902,6 +4090,14 @@
   }
 
   /* ================= render: contas ================= */
+  /** Saldo de UMA conta, já com o que está na fila para ela. */
+  function saldoDaConta(a) {
+    return a.saldo + state.transactions.reduce(function (soma, t) {
+      if (!t.pendente || !t.confirmada || t.contaId !== a.id) return soma;
+      return soma + (t.tipo === "INCOME" ? t.valor : -t.valor);
+    }, 0);
+  }
+
   function renderContas() {
     var ativas = state.accounts.filter(function (a) { return a.isActive; });
     var arquivadas = state.accounts.filter(function (a) { return !a.isActive; });
@@ -3917,7 +4113,7 @@
         '<span class="row-name">' + esc(a.nome) + '</span>' +
         (a.oculto ? '<span class="tag">oculta</span>' : '') + '</span>' +
         '<span class="row-meta">' + TIPO_CONTA[a.tipo] + ' · inicial ' + money(a.saldoInicial) + '</span></span>' +
-        '<span class="row-val num">' + money(a.saldo) + '</span>' +
+        '<span class="row-val num">' + money(saldoDaConta(a)) + '</span>' +
         '<span class="row-acoes">' +
         botaoIcone(a.oculto ? "olhoOff" : "olho", "ocultar", a.id, a.oculto ? "Mostrar" : "Ocultar") +
         botaoIcone("cifrao", "saldo-conta", a.id, "Ajustar saldo") +
@@ -3968,6 +4164,7 @@
 
   function renderAll() {
     renderResumo(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderPerfil();
+    atualizarBannerDaFila();
     // A camada do dia fica aberta enquanto o usuário confirma, edita ou exclui
     // a partir dela, então precisa refletir a mudança na hora.
     renderDia();
@@ -4347,6 +4544,41 @@
       var repetindo = !alvoL && document.getElementById("l-repetir").checked;
       var qtdRep = parseInt(document.getElementById("l-rep-qtd").value, 10) || 0;
       if (repetindo && qtdRep < 2) { erro.textContent = "Informe pelo menos 2 ocorrências."; return; }
+      // Criar lançamento é a única operação que sobrevive sem rede. Editar
+      // depende de um id do servidor e de saber o estado atual dele.
+      if (!alvoL && !navigator.onLine && repetindo) {
+        erro.textContent = "Repetição e parcelamento precisam de conexão: as ocorrências são criadas no servidor.";
+        return;
+      }
+      if (!alvoL) {
+        var corpoNovo = {
+          type: tipo, amount: valor, categoryId: categoriaId, description: desc || undefined,
+          transactionDate: data, isConfirmed: confirmada
+        };
+        if (contaId) corpoNovo.bankAccountId = contaId; else corpoNovo.creditCardId = cartaoId;
+        if (cartaoId && override) corpoNovo.invoiceMonth = override;
+        if (repetindo) {
+          corpoNovo.repeat = {
+            kind: (opcaoEscolhida("l-rep-tipo") || "FIXA") === "PARCELADA" ? "INSTALLMENT" : "FIXED",
+            frequency: FREQ_API[document.getElementById("l-rep-freq").value] || "MONTHLY",
+            count: qtdRep
+          };
+        }
+        var resultado = await lancarComFila(corpoNovo, "lançar");
+        if (!resultado.ok) return;
+        editandoLancamento = null;
+        if (e.submitter && e.submitter.id === "l-lancar-novo") {
+          abrirLancamento({ cartaoId: destino === "cartao" ? cartaoId : null });
+          document.getElementById("l-valor").focus();
+        } else {
+          fechar("dlg-lancamento");
+        }
+        if (resultado.pendente) {
+          avisar("Sem conexão agora", "O lançamento ficou guardado no aparelho, marcado como pendente, e sobe sozinho quando a internet voltar.");
+        }
+        return;
+      }
+
       var okL = await comServidor(alvoL ? "salvar o lançamento" : "lançar", function () {
         if (alvoL) {
           // Tipo, conta e cartão não mudam depois de lançado (ver abrirLancamento):
@@ -4708,8 +4940,12 @@
       };
       if (r.contaId) corpoVoz.bankAccountId = r.contaId; else corpoVoz.creditCardId = r.cartaoId;
       if (r.cartaoId && r.faturaMes) corpoVoz.invoiceMonth = r.faturaMes;
-      var okVoz = await comServidor("lançar", function () { return api("/transactions", corpoVoz); });
-      if (okVoz) fechar("dlg-voz");
+      var resVoz = await lancarComFila(corpoVoz, "lançar");
+      if (!resVoz.ok) return;
+      fechar("dlg-voz");
+      if (resVoz.pendente) {
+        avisar("Sem conexão agora", "O lançamento ficou guardado no aparelho, marcado como pendente, e sobe sozinho quando a internet voltar.");
+      }
       return;
     }
     var nova = {
@@ -5381,6 +5617,15 @@
     if ((el = e.target.closest("[data-desconfirmar]"))) return desconfirmarLancamento(el.dataset.desconfirmar);
     if ((el = e.target.closest("[data-editar-lancamento]"))) return abrirLancamento({ editar: el.dataset.editarLancamento });
     if ((el = e.target.closest("[data-excluir-lancamento]"))) return excluirLancamento(el.dataset.excluirLancamento);
+    if ((el = e.target.closest("[data-remover-da-fila]"))) {
+      var pendente = byId(state.transactions, el.dataset.removerDaFila);
+      return pedirConfirmacao({
+        titulo: "Remover da fila",
+        ctx: (pendente && rotuloLancamento(pendente)) || "Lançamento pendente",
+        detalhe: "Ele ainda não subiu para o servidor. Removendo, o lançamento some do aparelho e não será enviado.",
+        acao: "Remover", destrutivo: true
+      }, function () { removerDaFila(el.dataset.removerDaFila); });
+    }
     if ((el = e.target.closest("[data-antecipar]"))) return abrirAntecipar(el.dataset.antecipar);
     if ((el = e.target.closest("[data-editar-conta]"))) return abrirConta(el.dataset.editarConta);
     if ((el = e.target.closest("[data-saldo-conta]"))) return abrirSaldo(el.dataset.saldoConta);
@@ -5705,8 +5950,9 @@
   montarEntrada("entrar");
   textoDoAvisoDeEntrada();
   if (API_URL) {
-    // Com servidor, quem diz se há sessão é o cookie, não o localStorage:
-    // começa na tela de entrada e tenta renovar em silêncio.
+    // Com servidor, quem diz se há sessão é o cookie, não o localStorage —
+    // exceto sem internet, quando não há como perguntar (ver abaixo).
+    var jaEstavaLogado = !!(state.sessao && state.sessao.entrou);
     state.sessao = { entrou: false };
     aplicarSessao();
     // Veio do link do e-mail: a tela é a de criar senha nova, e nem faz sentido
@@ -5715,7 +5961,28 @@
     if (tokenRedefinicao) {
       montarEntrada("redefinir");
       document.getElementById("ent-senha").focus();
+    } else if (!navigator.onLine && jaEstavaLogado) {
+      // Abrindo sem internet: não dá para renovar a sessão nem buscar nada, mas
+      // os dados da última vez estão no aparelho. O app abre com eles e aceita
+      // lançamentos novos na fila; quando a rede voltar, ele renova a sessão e
+      // sobe tudo. Sem isto, ficar sem sinal jogaria a pessoa na tela de login,
+      // onde ela também não conseguiria entrar.
+      entrarComServidor();
+      window.addEventListener("online", function reconectar() {
+        window.removeEventListener("online", reconectar);
+        renovarSessao().then(function (ok) {
+          if (ok) entrarComServidor(); else sairDaConta();
+        });
+      });
     } else renovarSessao().then(function (ok) {
+      // Servidor fora do ar ou dormindo (o plano grátis do Render demora a
+      // acordar) não é o mesmo que sessão inválida: com dados no aparelho, o
+      // app abre com eles em vez de exigir um login que nem sairia.
+      if (ok === "sem-rede" && jaEstavaLogado) {
+        state.sessao = { entrou: true };
+        entrarComServidor();
+        return;
+      }
       if (!ok) { document.getElementById("ent-email").value = state.perfil.email || ""; return; }
       state.sessao = { entrou: true };
       entrarComServidor();
@@ -5726,6 +5993,41 @@
     // tela pintada, e só com alguém dentro do app.
     if (state.sessao.entrou) setTimeout(convidarMicrofone, 600);
   }
+
+  /** O banner da fila diz três coisas diferentes conforme o caso: esperando
+   * rede, subindo agora, ou parado porque o servidor recusou algo. Sem isso,
+   * "pendente" na linha do extrato seria um mistério. */
+  function atualizarBannerDaFila() {
+    var banner = document.getElementById("banner-fila");
+    if (!banner) return;
+    var esperando = pendentesParaEnviar().length;
+    var recusados = fila.length - esperando;
+    banner.hidden = !fila.length;
+    if (!fila.length) return;
+    var texto;
+    if (sincronizando) texto = "Enviando os lançamentos guardados…";
+    else if (esperando && !navigator.onLine) texto = esperando === 1
+      ? "1 lançamento aguardando conexão. Ele sobe sozinho quando a internet voltar."
+      : esperando + " lançamentos aguardando conexão. Eles sobem sozinhos quando a internet voltar.";
+    else if (esperando) texto = esperando === 1
+      ? "1 lançamento ainda não subiu."
+      : esperando + " lançamentos ainda não subiram.";
+    else texto = recusados === 1
+      ? "1 lançamento foi recusado pelo servidor. Ele está marcado na lista, com o motivo."
+      : recusados + " lançamentos foram recusados pelo servidor. Eles estão marcados na lista, com o motivo.";
+    if (recusados && esperando) texto += " " + recusados + " recusado(s).";
+    document.getElementById("banner-fila-texto").textContent = texto;
+    document.getElementById("banner-fila-agora").hidden = !esperando || !navigator.onLine || sincronizando;
+  }
+
+  document.getElementById("banner-fila-agora").addEventListener("click", function () { sincronizarFila(); });
+
+  // Voltou a internet: sobe o que estava guardado, sem a pessoa pedir.
+  window.addEventListener("online", function () {
+    atualizarBannerDaFila();
+    sincronizarFila();
+  });
+  window.addEventListener("offline", atualizarBannerDaFila);
 
   /* ---------- instalar o app ----------
    * O navegador esconde o instalador: no Android ele fica no menu ⋮, e no

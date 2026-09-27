@@ -353,6 +353,20 @@ Regras que não se negociam aqui:
   perfil, para quem já entrou; são dois momentos de decisão, não dois botões
   concorrentes.
 
+**Lançamento pendente de sincronização** — lançar é a única ação que funciona
+sem internet: ela fica numa fila no aparelho e sobe sozinha quando a conexão
+volta. Na tela, o pendente é um lançamento como os outros — entra no extrato,
+no mapa de calor e nos totais —, com uma `.tag warn` "pendente" ao lado do
+nome e o motivo no metadado ("aguardando conexão"). Recusado pelo servidor
+troca para `.tag danger` "recusado" com a mensagem dele. A única ação
+disponível nessa linha é remover da fila: confirmar, editar e antecipar
+dependem de um id que ainda não existe. Um `.banner` no topo diz quantos
+estão esperando e oferece "Tentar agora" quando há rede.
+
+**O saldo conta o que está na fila.** O número da conta vem do servidor, que
+ainda não viu esses lançamentos; somá-los na exibição é o que evita a tela
+dizer R$ 1.000 depois de a pessoa gastar R$ 97,50 na padaria sem sinal.
+
 **Primeiros passos** (onboarding) — primeiro bloco do Resumo (`--i:0`), com
 `.lbl` "Primeiros passos", contador "2 de 5" no `.lbl-row`, barra de progresso
 e uma linha por passo. Cada linha: marcador redondo de 20px à esquerda
