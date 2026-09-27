@@ -2579,8 +2579,8 @@
   /** Valor falado. A ordem importa: "10 reais" e "R$ 10" ganham de qualquer
    * outro número da frase, senão o ano de "setembro/2026" viraria o valor. */
   function valorDaFala(texto) {
-    var m = texto.match(/r\$\s*([\d.]+(?:,\d{1,2})?)/) ||
-      texto.match(/([\d.]+(?:,\d{1,2})?)\s*(?:reais|real|conto|contos|pila)/) ||
+    var m = texto.match(/(?:r\$|brl)\s*([\d.]+(?:,\d{1,2})?)/) ||
+      texto.match(/([\d.]+(?:,\d{1,2})?)\s*(?:reais|real|brl|conto|contos|pila)/) ||
       texto.match(/(?:valor|quantia|total)\s*(?:de|em)?\s*([\d.]+(?:,\d{1,2})?)/);
     if (m) return numeroBR(m[1]);
     var extenso = texto.match(/([a-z\s]+?)\s*(?:reais|real)\b/);
@@ -2588,15 +2588,23 @@
       var v = valorPorExtenso(extenso[1]);
       if (v) return v;
     }
-    // Último recurso: um número solto que não pareça ano nem dia do mês.
-    var soltos = texto.match(/\b\d+(?:[.,]\d{1,2})?\b/g) || [];
-    for (var i = 0; i < soltos.length; i++) {
-      var n = numeroBR(soltos[i]);
+    // Último recurso: um número solto que não seja ano, dia do mês nem prazo.
+    //
+    // O descarte olha a VIZINHANÇA de cada ocorrência, não o valor solto. Antes
+    // ele procurava o número no texto inteiro, e em "daqui 10 dias 10 BRL" o
+    // segundo 10 era descartado pelo prazo do primeiro: dois números iguais,
+    // um só destino. Foi assim que "10 reais" virou "valor não identificado".
+    var procura = /\b\d+(?:[.,]\d{1,2})?\b/g;
+    var achado;
+    while ((achado = procura.exec(texto)) !== null) {
+      var bruto = achado[0];
+      var n = numeroBR(bruto);
       if (n === null) continue;
-      if (/^\d{4}$/.test(soltos[i]) && n > 1900 && n < 2100) continue;   // ano
-      if (new RegExp("dia\\s*" + soltos[i] + "\\b").test(texto)) continue; // dia do mês
-      // "em 3 dias", "daqui a 2 semanas": é prazo, não dinheiro.
-      if (new RegExp("(?:daqui(?: a)?|em|dentro de)\\s*(?:uns\\s+|umas\\s+)?" + soltos[i] + "\\s*(?:dias?|semanas?|mes)").test(texto)) continue;
+      var antes = texto.slice(Math.max(0, achado.index - 20), achado.index);
+      var depois = texto.slice(achado.index + bruto.length, achado.index + bruto.length + 14);
+      if (/^\d{4}$/.test(bruto) && n > 1900 && n < 2100) continue;              // ano
+      if (/\bdia\s*$/.test(antes)) continue;                                    // "dia 12"
+      if (/^\s*(?:dias?|semanas?|mes(?:es)?|anos?)\b/.test(depois)) continue;    // prazo
       return n;
     }
     return null;

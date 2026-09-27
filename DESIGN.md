@@ -295,7 +295,10 @@ reforço, não a única pista.
 
 **Data no futuro manda mais que o verbo**: o lançamento nasce **previsto**,
 mesmo em "pago no pix amanhã" — dinheiro que ainda vai sair não afeta o saldo
-de hoje. Prazo não é valor: em "90 reais em 3 dias", o 3 não vira dinheiro.
+de hoje. **Prazo não é valor**, e o descarte olha a vizinhança de cada número,
+não o número solto: em "daqui 10 dias 10 BRL" o primeiro 10 é prazo e o
+segundo é dinheiro. Procurar o valor no texto inteiro fazia os dois sumirem
+juntos quando calhavam de ser iguais.
 
 **A permissão é pedida no clique, nunca ao abrir a tela.** O alerta do
 navegador só nasce de um gesto do usuário, em origem segura (https ou
