@@ -263,6 +263,41 @@ metadado. Fatura sem pagamento nenhum não transporta: ela continua atrasada no
 mês em que venceu. O corte é o vencimento, não o fechamento — antes dele o
 usuário ainda está pagando aquela fatura.
 
+**Em que mês uma compra de cartão entra é escolha do usuário, e a escolha vale
+para TODOS os relatórios.** A mesma compra pode ser contada em dois meses
+diferentes, e as duas contagens estão certas — dependem da pergunta:
+
+| modo | a pergunta | a data que vale |
+| --- | --- | --- |
+| `fatura` (padrão) | quando o dinheiro sai? | vencimento da fatura em que a compra caiu |
+| `compra` | quando eu gastei? | a data do próprio lançamento |
+
+Compra de 20/09 numa fatura que vence em 17/10: por fatura ela pesa em outubro
+e **não aparece** em setembro; por compra pesa em setembro e **não aparece** em
+outubro. Nunca nos dois.
+
+**O que não pode é o app responder às duas ao mesmo tempo** — e respondia. O
+total de outubro dizia R$ 80,00 e o mapa de calor do mesmo outubro dizia
+R$ 0,00, porque o total contava pela fatura e o mapa pela data da compra. Uma
+função só decide (`dataDeRelatorio`), e total, extrato, faixa de meses, mapa de
+calor e ranking de categorias leem dela. Regra prática: nenhuma tela de
+relatório lê `t.data` direto.
+
+**Por compra, a fatura deixa de ter linha no extrato** e as compras aparecem
+uma a uma; por fatura é o contrário, a fatura é a linha e as compras moram
+dentro dela. Não há meio-termo: as duas ao mesmo tempo contariam o mesmo
+dinheiro duas vezes.
+
+**O saldo não muda de regime.** Saldo é caixa sempre — o dinheiro sai da conta
+no vencimento, escolha o usuário o que escolher. Por isso as faturas continuam
+sendo calculadas no modo por compra, mesmo sem virar linha: quem precisa delas
+ali é o saldo previsto.
+
+**A fatura entra no mês em que VENCE**, não no mês de referência dela. Num
+cartão que fecha 25 e vence 5, a fatura de setembro sai da conta em outubro, e
+é em outubro que ela pesa — senão a linha apareceria em setembro com data de
+outubro, e o agrupamento por dia do extrato mentiria.
+
 **O total é a soma das linhas listadas.** "Receitas" e "Despesas" somam
 exatamente o que a lista daquele mês mostra — inclusive a fatura em aberto,
 pelo valor da própria linha. Um mês com fatura listada e "Despesas R$ 0,00"

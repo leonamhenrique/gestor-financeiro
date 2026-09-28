@@ -1699,10 +1699,25 @@
       </button>
       <button type="button" class="opt" data-perfil="planos">Planos<span class="opt-meta">Comparar e trocar de plano.</span></button>
       <button type="button" class="opt" data-perfil="instalar" hidden>Instalar no aparelho<span class="opt-meta" id="pf-instalar-meta">Abre em janela própria, com ícone na tela inicial.</span></button>
+      <button type="button" class="opt" data-perfil="config">Configurações<span class="opt-meta" id="pf-config-meta">Em que data os relatórios contam o cartão.</span></button>
       <button type="button" class="opt" data-perfil="zerar">Começar do zero<span class="opt-meta">Apaga contas, cartões e lançamentos e refaz os primeiros passos.</span></button>
       <button type="button" class="opt" data-perfil="suporte">Suporte<span class="opt-meta">Relatar um problema.</span></button>
       <button type="button" class="opt" data-perfil="ideias">Ideias e sugestões<span class="opt-meta">Contar o que faria o app melhor.</span></button>
       <button type="button" class="opt" data-perfil="sair">Sair da conta<span class="opt-meta">Encerrar a sessão neste dispositivo.</span></button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlg-config">
+  <div class="layer-head"><h3>Configurações</h3><div class="ctx">Valem neste aparelho</div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-body">
+    <div class="field">
+      <div class="lbl">Data dos relatórios</div>
+      <div class="pills" id="cfg-relatorio" role="group" aria-label="Data considerada nos relatórios">
+        <button type="button" class="pill" data-relatorio="fatura" aria-pressed="false">Vencimento da fatura</button>
+        <button type="button" class="pill" data-relatorio="compra" aria-pressed="false">Data da compra</button>
+      </div>
+      <div class="field-help" id="cfg-relatorio-ajuda"></div>
     </div>
   </div>
 </dialog>
@@ -2182,6 +2197,50 @@
     var a = byId(state.accounts, contaId);
     return a ? !!a.oculto : false;
   }
+  /* ---------- data de relatório: compra ou vencimento da fatura ----------
+   * A mesma compra pode ser contada em dois meses diferentes, e as duas
+   * contagens estão certas — dependem da pergunta:
+   *
+   *   "compra"  — quando eu gastei? A data do próprio lançamento. Regime de
+   *               competência: comprei dia 20/09, é despesa de setembro,
+   *               mesmo que o dinheiro só saia da conta em outubro.
+   *   "fatura"  — quando o dinheiro sai? A data de vencimento da fatura em
+   *               que a compra caiu. Regime de caixa, que é como o app sempre
+   *               contou e segue sendo o padrão.
+   *
+   * O que não pode é o app responder às duas ao mesmo tempo: era o caso, e
+   * dava para ver — o total de outubro dizia R$ 80,00 e o mapa de calor do
+   * mesmo outubro dizia R$ 0,00, porque o total contava pela fatura e o mapa
+   * pela data da compra. Uma escolha só, e todos os relatórios a seguem. */
+  var CHAVE_RELATORIO = "gestor-relatorio-por";
+  var relatorioPor = "fatura";
+  /** Um caminho só para trocar o modo — a tela e o teste usam este. */
+  function definirRelatorioPor(v, guardar) {
+    if (v !== "compra" && v !== "fatura") return;
+    relatorioPor = v;
+    if (guardar) { try { localStorage.setItem(CHAVE_RELATORIO, v); } catch (e) {} }
+  }
+  try { definirRelatorioPor(localStorage.getItem(CHAVE_RELATORIO), false); } catch (e) {}
+
+  /** Qual mês de referência tem a fatura que VENCE em vm. Num cartão que
+   * vence depois de fechar é o próprio vm; num que vence antes (fecha 25,
+   * vence 5) é o mês anterior, porque a fatura de setembro vence em outubro. */
+  function referenciaQueVenceEm(card, vm) {
+    var v = vencimentoDaFatura(card, vm.y, vm.m);
+    if (v.getFullYear() === vm.y && v.getMonth() === vm.m) return { y: vm.y, m: vm.m };
+    return mesDoIndice(indiceMes(vm) - 1);
+  }
+
+  /** A data com que um lançamento entra nos relatórios. Fora do cartão, é
+   * sempre a data dele: conta não tem fatura. */
+  function dataDeRelatorio(t) {
+    if (relatorioPor === "compra" || !t.cartaoId) return t.data;
+    var card = byId(state.cards, t.cartaoId);
+    if (!card) return t.data;
+    var p = periodoDaTransacao(t, card);
+    return isoDate(vencimentoDaFatura(card, p.y, p.m));
+  }
+
   function transacaoVisivel(t) {
     if (t.contaId) return !contaEstaOculta(t.contaId);
     return true;
@@ -2588,26 +2647,42 @@
    * maior que as compras) conta como receita, pelo sinal. */
   function totaisDoMes(vm) {
     var mk = monthKey(vm);
+    // Por compra, o lançamento de cartão vira uma linha como qualquer outra e
+    // a fatura deixa de ter linha — senão o mesmo dinheiro apareceria duas
+    // vezes, uma na compra e outra na fatura.
+    var porCompra = relatorioPor === "compra";
     var avulsos = state.transactions.filter(function (t) {
-      return !t.cartaoId && !t.pagamentoFaturaCartaoId && t.data.slice(0, 7) === mk && transacaoVisivel(t);
+      if (t.pagamentoFaturaCartaoId) return false;
+      if (!porCompra && t.cartaoId) return false;
+      return t.data.slice(0, 7) === mk && transacaoVisivel(t);
     });
     var entradas = 0, saidas = 0;
     avulsos.forEach(function (t) { if (t.tipo === "INCOME") entradas += t.valor; else saidas += t.valor; });
 
+    // As faturas são sempre calculadas, mesmo no modo por compra: quem precisa
+    // delas ali é o SALDO previsto, que é caixa e não muda de regime — o
+    // dinheiro vai sair da conta no vencimento de qualquer jeito.
+    //
+    // A fatura entra no mês em que VENCE, não no mês de referência dela. Num
+    // cartão que fecha 25 e vence 5, a fatura de setembro sai da conta em
+    // outubro, e é em outubro que ela pesa.
     var faturas = [];
     state.cards.forEach(function (card) {
-      var f = faturasDoCartao(card)[mk];
-      var pago = totalPagoFatura(card, mk);
+      var ref = referenciaQueVenceEm(card, vm);
+      var refKey = monthKey(ref);
+      var f = faturasDoCartao(card)[refKey];
+      var pago = totalPagoFatura(card, refKey);
       if (!f && pago <= 0) return;
       f = f || { confirmado: 0, previsto: 0, transacoes: [] };
-      var pagamentos = (card.pagamentos || []).filter(function (p) { return p.mesKey === mk; });
+      var pagamentos = (card.pagamentos || []).filter(function (p) { return p.mesKey === refKey; });
       var contas = [];
       pagamentos.forEach(function (p) {
         var a = contaDoPagamento(p);
         if (a && contas.indexOf(a.nome) < 0) contas.push(a.nome);
       });
-      var status = statusFatura(card, vm.y, vm.m);
+      var status = statusFatura(card, ref.y, ref.m);
       faturas.push({
+        ref: ref,
         card: card, f: f, pago: pago, contas: contas,
         dataPagamento: pagamentos.length ? pagamentos[pagamentos.length - 1].data : null,
         status: status,
@@ -2616,11 +2691,13 @@
         linha: (status === "PAID" || status === "CARRIED") ? pago : f.previsto
       });
     });
-    faturas.forEach(function (x) {
-      if (x.linha < 0) entradas += -x.linha; else saidas += x.linha;
-    });
+    if (!porCompra) {
+      faturas.forEach(function (x) {
+        if (x.linha < 0) entradas += -x.linha; else saidas += x.linha;
+      });
+    }
     return {
-      avulsos: avulsos, faturas: faturas,
+      avulsos: avulsos, faturas: porCompra ? [] : faturas,
       entradas: entradas, saidas: saidas,
       abertoFaturas: faturas.reduce(function (s, x) { return s + (x.f.emAberto || 0); }, 0)
     };
@@ -2646,6 +2723,9 @@
   /** Uma linha por fatura por mês. Quitada, ela É o pagamento — muda de
    * rótulo e passa a mostrar a conta de onde o dinheiro saiu, em vez de
    * duplicar a fatura com um registro de pagamento separado. */
+  /** `vm` aqui é o mês de REFERÊNCIA da fatura (o que dá nome a ela), que não
+   * é necessariamente o mês em que ela aparece no extrato: quem chama passa
+   * `x.ref`, e o extrato lista a linha no mês do vencimento. */
   function linhaFaturaHTML(x, vm) {
     // Transportada também é "o pagamento do mês": o que saiu da conta foi o
     // valor parcial, e o resto vira linha na fatura seguinte.
@@ -3744,10 +3824,13 @@
   /* ================= render: resumo ================= */
   var resumoMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
 
+  /** O que o mês mostra nos relatórios de categoria e no mapa de calor. Usa a
+   * data de relatório, não a do lançamento: é o que faz o mapa de calor somar
+   * o mesmo que o total do mês. */
   function movimentoDoMes(vm) {
     var mk = monthKey(vm);
     return state.transactions.filter(function (t) {
-      return t.data.slice(0, 7) === mk && transacaoVisivel(t);
+      return dataDeRelatorio(t).slice(0, 7) === mk && transacaoVisivel(t);
     });
   }
   /* ---------- faixa de meses ---------- */
@@ -3852,10 +3935,11 @@
   }
 
   /* ---------- mapas de calor: gastos e receitas por dia ---------- */
-  /** O que cada mapa soma, confirmado ou previsto, pela data do lançamento.
-   * Despesa: compra no cartão cai no dia da compra, não no da fatura — e por
-   * isso o pagamento de fatura fica de fora: ele é o mesmo dinheiro das
-   * compras, e somá-lo contaria tudo duas vezes. Estorno é INCOME, então
+  /** O que cada mapa soma, confirmado ou previsto, pela data de relatório.
+   * Por compra, a compra cai no dia dela; por fatura, cai no dia do
+   * vencimento, junto com as outras compras da mesma fatura. O pagamento de
+   * fatura fica de fora nos dois casos: ele é o mesmo dinheiro das compras,
+   * e somá-lo contaria tudo duas vezes. Estorno é INCOME, então
    * não é gasto; entra nas receitas, como já entra em "Maiores receitas". */
   function entraNoCalor(t, tipo) {
     if (tipo === "INCOME") return t.tipo === "INCOME";
@@ -3867,7 +3951,7 @@
     for (var i = 1; i <= total; i++) dias.push({ dia: i, total: 0, previsto: 0, n: 0 });
     movimentoDoMes(vm).forEach(function (t) {
       if (!entraNoCalor(t, tipo)) return;
-      var d = dias[Number(t.data.slice(8, 10)) - 1];
+      var d = dias[Number(dataDeRelatorio(t).slice(8, 10)) - 1];
       d.total += t.valor; d.n++;
       if (!t.confirmada) d.previsto += t.valor;
     });
@@ -3895,7 +3979,7 @@
    * maior para o menor. */
   function lancamentosDoDia(iso, tipo) {
     return state.transactions.filter(function (t) {
-      return t.data === iso && entraNoCalor(t, tipo) && transacaoVisivel(t);
+      return dataDeRelatorio(t) === iso && entraNoCalor(t, tipo) && transacaoVisivel(t);
     }).sort(function (a, b) { return b.valor - a.valor; });
   }
 
@@ -4209,7 +4293,7 @@
       });
     });
     if (filtro !== "INCOME") {
-      tot.faturas.forEach(function (x) { linhas.push(linhaFaturaHTML(x, extratoMes)); });
+      tot.faturas.forEach(function (x) { linhas.push(linhaFaturaHTML(x, x.ref)); });
     }
     linhas.sort(comparaLinhas);
     renderCabecalhoExtrato();
@@ -6237,6 +6321,7 @@
     if (!b) return;
     fechar("dlg-perfil");
     var acao = b.dataset.perfil;
+    if (acao === "config") abrirConfig();
     if (acao === "meu") abrirMeuPerfil();
     if (acao === "assinatura") abrirAssinatura();
     if (acao === "planos") abrirPlanos();
@@ -6246,6 +6331,32 @@
     if (acao === "suporte") abrirMensagem("suporte");
     if (acao === "ideias") abrirMensagem("ideias");
   });
+  /* ---------- configurações ---------- */
+  var AJUDA_RELATORIO = {
+    fatura: "Uma compra no cartão conta no mês em que a fatura dela vence — é quando o dinheiro sai da conta. Compra de 20/09 numa fatura que vence em outubro pesa em outubro.",
+    compra: "Uma compra no cartão conta no mês em que foi feita, mesmo que a fatura só vença depois. Compra de 20/09 pesa em setembro, e a fatura deixa de ter linha própria no extrato."
+  };
+  function pintarConfig() {
+    document.querySelectorAll("#cfg-relatorio .pill").forEach(function (b) {
+      var ligado = b.dataset.relatorio === relatorioPor;
+      b.classList.toggle("on", ligado);
+      b.setAttribute("aria-pressed", ligado ? "true" : "false");
+    });
+    document.getElementById("cfg-relatorio-ajuda").textContent = AJUDA_RELATORIO[relatorioPor];
+    var meta = document.getElementById("pf-config-meta");
+    if (meta) meta.textContent = relatorioPor === "compra"
+      ? "Relatórios pela data da compra." : "Relatórios pelo vencimento da fatura.";
+  }
+  function abrirConfig() { pintarConfig(); abrir("dlg-config"); }
+  document.getElementById("cfg-relatorio").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-relatorio]");
+    if (!b || b.dataset.relatorio === relatorioPor) return;
+    definirRelatorioPor(b.dataset.relatorio, true);
+    pintarConfig();
+    // Muda o que TODA tela conta, não só a de origem.
+    renderAll();
+  });
+
   document.getElementById("abrir-perfil").addEventListener("click", abrirPerfilMenu);
   document.getElementById("abrir-perfil-nav").addEventListener("click", abrirPerfilMenu);
   document.getElementById("banner-regularizar").addEventListener("click", abrirAssinatura);
