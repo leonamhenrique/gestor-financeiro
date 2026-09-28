@@ -1224,7 +1224,12 @@
 
     <!-- ================= LANÇAMENTOS ================= -->
     <section class="view" data-view="lancamentos">
-      <div class="blk v-head" style="--i:0"><h1>Lançamentos</h1><div class="sub" id="l-sub"></div></div>
+      <div class="blk v-head" style="--i:0"><h1>Lançamentos</h1><div class="sub" id="l-sub"></div>
+        <!-- Só aparece quando os relatórios estão por data da compra: aí esta
+             tela e o Resumo mostram números diferentes para o mesmo mês, e
+             isso precisa estar dito, não descoberto. -->
+        <div class="field-help" id="l-nota-regime" hidden></div>
+      </div>
       <div class="split split--extrato">
         <div class="col-main">
           <div class="blk" style="--i:2">
@@ -2645,12 +2650,19 @@
    * deixava o mês com a fatura em aberto listada e "Despesas R$ 0,00" — a lista
    * dizia uma coisa e o total dizia outra. Fatura com saldo credor (estorno
    * maior que as compras) conta como receita, pelo sinal. */
-  function totaisDoMes(vm) {
+  /** Totais do mês. `modo` força um regime; sem ele, vale o que o usuário
+   * escolheu nas Configurações.
+   *
+   * O extrato passa "fatura" de propósito: aquela tela é o razão de caixa —
+   * o que sai da conta e quando —, e a fatura tem de aparecer no vencimento
+   * dela mesmo para quem lê os relatórios pela data da compra. Mudar o regime
+   * ali apagava a fatura da tela sem colocar nada no lugar. */
+  function totaisDoMes(vm, modo) {
     var mk = monthKey(vm);
     // Por compra, o lançamento de cartão vira uma linha como qualquer outra e
     // a fatura deixa de ter linha — senão o mesmo dinheiro apareceria duas
     // vezes, uma na compra e outra na fatura.
-    var porCompra = relatorioPor === "compra";
+    var porCompra = (modo || relatorioPor) === "compra";
     var avulsos = state.transactions.filter(function (t) {
       if (t.pagamentoFaturaCartaoId) return false;
       if (!porCompra && t.cartaoId) return false;
@@ -3495,7 +3507,27 @@
 
   /** Lançar com rede: vai direto. Sem rede: entra na fila e aparece marcado.
    * O usuário não escolhe entre os dois — a diferença é só o aviso. */
+  /** Chave de idempotência do envio. Nasce UMA vez por intenção de lançar e
+   * acompanha o corpo em todas as tentativas — a de agora e as da fila. Se
+   * nascesse a cada tentativa não serviria para nada, que é o ponto inteiro:
+   * o servidor precisa reconhecer que já viu este lançamento.
+   *
+   * O acaso aqui é caro: duas intenções diferentes com a mesma chave fariam
+   * o servidor devolver o lançamento errado em silêncio. Por isso UUID, e o
+   * plano B é largo — não os 7 caracteres do `uid` do resto do app. */
+  function chaveDeEnvio() {
+    try {
+      if (window.crypto && crypto.randomUUID) return "gf-" + crypto.randomUUID();
+    } catch (e) {}
+    return "gf-" + Date.now().toString(36) + "-" +
+      Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
+  }
+
   async function lancarComFila(corpo, oQue) {
+    // O caso que isto resolve: o servidor GRAVA e a resposta se perde no
+    // caminho. Daqui parece "sem rede", o lançamento vai para a fila e sobe
+    // de novo mais tarde — e sem a chave o mesmo dinheiro entrava duas vezes.
+    if (!corpo.clientKey) corpo.clientKey = chaveDeEnvio();
     if (navigator.onLine) {
       try {
         await api("/transactions", corpo);
@@ -4254,13 +4286,21 @@
 
   function renderExtrato() {
     document.getElementById("l-sub").textContent = rotuloMes(extratoMes);
+    // O aviso existe porque a divergência é real: esta tela conta a fatura no
+    // vencimento e o Resumo conta a compra no dia dela. Esconder isso é que
+    // seria defeito.
+    var nota = document.getElementById("l-nota-regime");
+    nota.hidden = relatorioPor !== "compra";
+    nota.textContent = "Esta tela mostra a fatura no vencimento, sempre. " +
+      "Seus relatórios estão contando pela data da compra, então os totais do Resumo podem diferir dos daqui.";
     document.getElementById("l-mes-label").textContent = rotuloMes(extratoMes);
     var mk = monthKey(extratoMes);
 
     // Compras de cartão entram consolidadas: uma linha por fatura, não uma
     // linha por compra — o que sai da conta é a fatura inteira. Quando a
     // fatura é paga, essa mesma linha vira o pagamento.
-    var tot = totaisDoMes(extratoMes);
+    // Sempre por fatura: ver a nota em `totaisDoMes`.
+    var tot = totaisDoMes(extratoMes, "fatura");
     document.getElementById("l-entradas").textContent = brl(tot.entradas);
     document.getElementById("l-saidas").textContent = brl(tot.saidas);
     // Mesmas cores das duas células acima, escolhidas pelo sinal do mês: mês no

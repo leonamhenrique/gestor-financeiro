@@ -283,10 +283,19 @@ função só decide (`dataDeRelatorio`), e total, extrato, faixa de meses, mapa 
 calor e ranking de categorias leem dela. Regra prática: nenhuma tela de
 relatório lê `t.data` direto.
 
-**Por compra, a fatura deixa de ter linha no extrato** e as compras aparecem
-uma a uma; por fatura é o contrário, a fatura é a linha e as compras moram
-dentro dela. Não há meio-termo: as duas ao mesmo tempo contariam o mesmo
-dinheiro duas vezes.
+**A escolha vale para os relatórios, não para o extrato.** A tela de
+Lançamentos é o razão de caixa — o que sai da conta e quando —, e ali a fatura
+aparece **sempre** no vencimento dela, com as compras dentro. Fazer essa tela
+seguir o regime apagava a fatura de outubro sem colocar nada no lugar: quem
+abria o mês via "nenhum lançamento" e uma fatura que existe.
+
+**A consequência tem de estar escrita, não descoberta.** No modo por compra,
+o Resumo e o extrato mostram despesas diferentes para o mesmo mês — um conta a
+compra no dia dela, o outro conta a fatura no vencimento. São perguntas
+diferentes, e as duas respostas estão certas. Por isso o extrato ganha uma
+linha de ajuda enquanto esse modo está ligado, dizendo exatamente isso. Número
+que diverge sem explicação é defeito; número que diverge com o motivo ao lado
+é informação.
 
 **O saldo não muda de regime.** Saldo é caixa sempre — o dinheiro sai da conta
 no vencimento, escolha o usuário o que escolher. Por isso as faturas continuam
