@@ -360,6 +360,13 @@ model Transaction {
   // Série (repetição fixa ou parcelamento) e a posição nela, começando em 0.
   seriesId        String?           @map("series_id")
   seriesIndex     Int?              @map("series_index")
+  // Chave de idempotência do cliente. A fila offline só tira um item dela
+  // DEPOIS que a resposta chega; se o servidor gravou e a resposta se perdeu
+  // no caminho, o item é reenviado — e sem esta chave o mesmo dinheiro entra
+  // duas vezes. Com ela, o reenvio devolve o lançamento que já existe.
+  // Nula em tudo que foi gravado antes dela e em quem não manda chave: no
+  // Postgres, nulos não colidem entre si num índice único.
+  clientKey       String?           @map("client_key")
   source          TransactionSource @default(APP)
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
@@ -375,6 +382,9 @@ model Transaction {
   // Essa regra é validada na camada de aplicação (Prisma não suporta CHECK constraints
   // condicionais nativamente sem raw SQL / migration customizada).
 
+  // Por usuário, não global: a chave nasce no aparelho de cada um, e duas
+  // pessoas podem gerar a mesma sem nunca terem se visto.
+  @@unique([userId, clientKey])
   @@index([userId, transactionDate])
   @@index([bankAccountId])
   @@index([creditCardId])

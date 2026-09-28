@@ -50,6 +50,7 @@ export class TransactionsController {
       isConfirmed: dto.isConfirmed,
       invoiceMonth: dto.invoiceMonth,
       source: dto.source,
+      clientKey: dto.clientKey,
     };
     return dto.repeat
       ? this.transactionsService.createSeries(input, dto.repeat)

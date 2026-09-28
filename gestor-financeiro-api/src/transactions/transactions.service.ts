@@ -58,6 +58,7 @@ interface CreateTransactionInput {
   isConfirmed?: boolean; // padrão: true (dinheiro que já entrou ou saiu)
   invoiceMonth?: string; // 'AAAA-MM', só para cartão
   source?: TransactionSource;
+  clientKey?: string; // idempotência: ver `create`
 }
 
 interface RepeatInput {
@@ -95,24 +96,60 @@ export class TransactionsService {
   // ----------------------------------------------------------
   // CREATE
   // ----------------------------------------------------------
+  /** Cria um lançamento.
+   *
+   * Com `clientKey`, criar é **idempotente**: mandar a mesma chave de novo
+   * devolve o lançamento que já existe em vez de criar outro. Isso não é
+   * luxo — a fila offline só tira um item dela depois que a resposta chega,
+   * então um servidor que grava e perde a resposta no caminho recebe o mesmo
+   * lançamento de novo, e sem a chave o dinheiro entrava duas vezes.
+   *
+   * Duas defesas, porque uma não basta: a consulta antes de criar resolve o
+   * reenvio normal (o comum), e o índice único resolve a corrida de dois
+   * envios ao mesmo tempo, em que os dois consultariam antes de qualquer um
+   * gravar. No segundo caso o perdedor lê o vencedor e devolve ele. */
   async create(input: CreateTransactionInput) {
     const override = this.validarEntrada(input);
 
-    return this.prisma.$transaction(async (tx) => {
-      await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
-      await this.conferirCategoria(tx, input.userId, input.categoryId);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const repetido = await this.jaGravado(tx, input.userId, input.clientKey);
+        if (repetido) return repetido;
 
-      // 1. Cria a transação
-      const transaction = await tx.transaction.create({
-        data: { ...this.dadosDoLancamento(input), invoiceMonthOverride: override },
+        await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
+        await this.conferirCategoria(tx, input.userId, input.categoryId);
+
+        // 1. Cria a transação
+        const transaction = await tx.transaction.create({
+          data: { ...this.dadosDoLancamento(input), invoiceMonthOverride: override },
+        });
+
+        // 2. Atualiza o saldo (conta) ou a fatura (cartão), dentro da mesma tx
+        //    — só se o lançamento nasceu confirmado.
+        await this.applyEffect(tx, this.efeitoDe(transaction));
+
+        return transaction;
       });
+    } catch (e) {
+      const existente = await this.perdeuACorrida(e, input.userId, input.clientKey);
+      if (existente) return existente;
+      throw e;
+    }
+  }
 
-      // 2. Atualiza o saldo (conta) ou a fatura (cartão), dentro da mesma tx
-      //    — só se o lançamento nasceu confirmado.
-      await this.applyEffect(tx, this.efeitoDe(transaction));
+  /** O lançamento desta chave, se já estiver gravado. */
+  private async jaGravado(tx: Prisma.TransactionClient, userId: string, clientKey?: string) {
+    if (!clientKey) return null;
+    return tx.transaction.findFirst({ where: { userId, clientKey } });
+  }
 
-      return transaction;
-    });
+  /** Violação do índice único = alguém gravou esta chave enquanto eu tentava.
+   * Não é erro do usuário: é o mesmo lançamento, e a resposta certa é ele. */
+  private async perdeuACorrida(e: unknown, userId: string, clientKey?: string) {
+    if (!clientKey) return null;
+    const codigo = (e as { code?: string })?.code;
+    if (codigo !== 'P2002') return null;
+    return this.prisma.transaction.findFirst({ where: { userId, clientKey } });
   }
 
   /** Cria uma série (repetição fixa ou parcelamento) com `count` ocorrências.
@@ -125,7 +162,49 @@ export class TransactionsService {
       throw new BadRequestException(`Informe de ${MIN_OCORRENCIAS} a ${MAX_OCORRENCIAS} ocorrências.`);
     }
 
+    // Uma chave por ocorrência: a série inteira nasce de um pedido só, mas
+    // são N linhas, e a mesma chave nas N colidiria consigo mesma. O sufixo
+    // mantém cada uma única e o reenvio reconhecível pela primeira.
+    const chaveDa = (i: number) => (input.clientKey ? `${input.clientKey}#${i}` : undefined);
+
+    try {
+      return await this.criarSerie(input, repeat, override, chaveDa);
+    } catch (e) {
+      const primeira = await this.perdeuACorrida(e, input.userId, chaveDa(0));
+      if (primeira?.seriesId) return this.serieGravada(input.userId, primeira.seriesId);
+      throw e;
+    }
+  }
+
+  /** A série já gravada desta chave, do jeito que `createSeries` devolve. */
+  private async serieGravada(userId: string, seriesId: string) {
+    const [series, transactions] = await Promise.all([
+      this.prisma.transactionSeries.findFirst({ where: { id: seriesId, userId } }),
+      this.prisma.transaction.findMany({ where: { userId, seriesId }, orderBy: { seriesIndex: 'asc' } }),
+    ]);
+    return { series, transactions };
+  }
+
+  private async criarSerie(
+    input: CreateTransactionInput,
+    repeat: RepeatInput,
+    override: Date | null | undefined,
+    chaveDa: (i: number) => string | undefined,
+  ) {
     return this.prisma.$transaction(async (tx) => {
+      // Reenvio da série inteira: a primeira ocorrência responde por todas.
+      const repetida = await this.jaGravado(tx, input.userId, chaveDa(0));
+      if (repetida?.seriesId) {
+        const [series, transactions] = await Promise.all([
+          tx.transactionSeries.findFirst({ where: { id: repetida.seriesId, userId: input.userId } }),
+          tx.transaction.findMany({
+            where: { userId: input.userId, seriesId: repetida.seriesId },
+            orderBy: { seriesIndex: 'asc' },
+          }),
+        ]);
+        return { series, transactions };
+      }
+
       await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
       await this.conferirCategoria(tx, input.userId, input.categoryId);
       const series = await tx.transactionSeries.create({
@@ -144,6 +223,7 @@ export class TransactionsService {
             isRecurring: true,
             seriesId: series.id,
             seriesIndex: i,
+            clientKey: chaveDa(i) ?? null,
           },
         });
         await this.applyEffect(tx, this.efeitoDe(t));
@@ -454,6 +534,7 @@ export class TransactionsService {
       isRecurring: input.isRecurring ?? false,
       isConfirmed: input.isConfirmed ?? true,
       source: input.source ?? TransactionSource.APP,
+      clientKey: input.clientKey ?? null,
     };
   }
 

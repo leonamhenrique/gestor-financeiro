@@ -12,6 +12,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  Length,
   Matches,
   Min,
   Max,
@@ -40,6 +41,16 @@ export class RepeatDto {
 }
 
 export class CreateTransactionDto {
+  // Chave de idempotência gerada pelo cliente. Mandar a mesma chave duas
+  // vezes devolve o lançamento que já existe, em vez de criar outro — é o
+  // que protege o reenvio da fila offline de dobrar o dinheiro quando a
+  // resposta se perde no caminho. Opcional: quem não manda segue como antes.
+  @IsOptional()
+  @IsString()
+  @Length(8, 64)
+  @Matches(/^[A-Za-z0-9_.:-]+$/, { message: 'clientKey aceita letras, números e _ . : -' })
+  clientKey?: string;
+
   // Fatura em que a compra entra, quando não é a da data (só cartão).
   @IsOptional()
   @Matches(MES, { message: MES_MSG })
