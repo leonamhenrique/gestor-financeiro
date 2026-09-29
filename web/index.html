@@ -1216,7 +1216,17 @@
             </div>
           </div>
 
-          <div class="blk" style="--i:4">
+          <!-- O que falta pagar e receber. Some quando não há nada pendente:
+               lista vazia com título é pior que ausência. -->
+          <div class="blk" id="r-pendencias-bloco" style="--i:4" hidden>
+            <div class="lbl-row"><div class="lbl">Falta pagar e receber</div><div class="lbl-total num" id="r-pend-total"></div></div>
+            <div class="lbl" id="r-vencidas-lbl" hidden></div>
+            <div class="list" id="r-vencidas"></div>
+            <div class="lbl" id="r-a-vencer-lbl" hidden></div>
+            <div class="list" id="r-a-vencer"></div>
+          </div>
+
+          <div class="blk" style="--i:5">
             <div class="lbl-row"><div class="lbl">Mapa de calor</div><div class="lbl-total num" id="r-t-calor"></div></div>
             <!-- Um mapa só, com filtro: dois mapas empilhados na mesma tela
                  obrigavam o usuário a descobrir qual cor era qual. -->
@@ -1227,12 +1237,12 @@
             <div class="calor" id="r-calor"></div>
           </div>
 
-          <div class="blk" style="--i:5">
+          <div class="blk" style="--i:6">
             <div class="lbl-row"><div class="lbl">Maiores despesas</div><div class="lbl-total num" id="r-t-despesas"></div></div>
             <div class="cats" id="r-cats"></div>
           </div>
 
-          <div class="blk" style="--i:6">
+          <div class="blk" style="--i:7">
             <div class="lbl-row"><div class="lbl">Maiores receitas</div><div class="lbl-total num" id="r-t-receitas"></div></div>
             <div class="cats" id="r-receitas"></div>
           </div>
@@ -1240,11 +1250,11 @@
 
         <aside class="rail">
           <div class="rail-fixo">
-            <div class="blk" style="--i:7">
+            <div class="blk" style="--i:8">
               <div class="lbl-row"><div class="lbl">Cartões</div><div class="lbl-total num" id="r-t-cartoes"></div></div>
               <div class="list" id="r-cartoes"></div>
             </div>
-            <div class="blk" style="--i:8">
+            <div class="blk" style="--i:9">
               <div class="lbl-row"><div class="lbl">Contas</div><div class="lbl-total num" id="r-t-contas"></div></div>
               <div class="list" id="r-contas"></div>
             </div>
@@ -3942,6 +3952,120 @@
       return dataDeRelatorio(t).slice(0, 7) === mk && transacaoVisivel(t);
     });
   }
+  /* ---------- o que falta pagar e receber ---------- */
+  /** Tudo que ainda não se resolveu, do mês escolhido para trás.
+   *
+   * Duas fontes, e a separação entre elas é o que impede contar duas vezes:
+   * lançamento de CONTA ainda previsto entra um a um; cartão entra pela
+   * FATURA em aberto, nunca pelas compras dela. É a mesma regra do total do
+   * mês — quem representa o cartão é a fatura.
+   *
+   * "Para trás" e não "só este mês" de propósito. Conta que venceu em
+   * setembro e ninguém pagou continua faltando em outubro: some da lista só
+   * quando for confirmada ou apagada. É a mesma regra do saldo previsto, que
+   * também não esquece dívida velha — e é o contrário do que a palavra
+   * "vencidas" significaria se a lista zerasse na virada do mês. */
+  function pendenciasDoMes(vm) {
+    var hoje = isoDate(HOJE);
+    var limite = monthKey(vm);
+    var itens = [];
+
+    state.transactions.forEach(function (t) {
+      if (t.confirmada || !t.contaId || !transacaoVisivel(t)) return;
+      if (t.data.slice(0, 7) > limite) return;
+      var conta = byId(state.accounts, t.contaId);
+      var cat = t.categoriaId ? byId(state.categories, t.categoriaId) : null;
+      itens.push({
+        id: t.id, tipo: t.tipo, valor: t.valor, data: t.data, fatura: false,
+        nome: rotuloLancamento(t) || (cat ? cat.nome : "Lançamento"),
+        origem: (cat ? cat.nome + " · " : "") + (conta ? conta.nome : "")
+      });
+    });
+
+    state.cards.forEach(function (card) {
+      var porMes = faturasDoCartao(card);
+      Object.keys(porMes).forEach(function (key) {
+        var f = porMes[key];
+        if (!(f.emAberto > 0)) return;
+        var ref = parseMonthKey(key);
+        var venc = vencimentoDaFatura(card, ref.y, ref.m);
+        if (monthKey({ y: venc.getFullYear(), m: venc.getMonth() }) > limite) return;
+        itens.push({
+          id: card.id + ":" + key, tipo: "EXPENSE", valor: f.emAberto, data: isoDate(venc), fatura: true,
+          nome: "Fatura " + card.nome,
+          // O ano só entra quando a fatura vence num ano diferente do de
+          // referência — a data, ali do lado, já diz o ano do vencimento, e
+          // numa tela de 320px cada palavra a mais come o fim da linha.
+          origem: "Fatura de " + MESES[ref.m].toLowerCase() +
+            (venc.getFullYear() === ref.y ? "" : " de " + ref.y)
+        });
+      });
+    });
+
+    itens.forEach(function (x) { x.vencido = x.data < hoje; });
+    // Vencidas do mais antigo (a que mais espera) para o mais novo; a vencer
+    // do mais próximo para o mais distante. Nos dois casos, o mais urgente
+    // primeiro.
+    var vencidas = itens.filter(function (x) { return x.vencido; }).sort(function (a, b) { return a.data < b.data ? -1 : 1; });
+    var aVencer = itens.filter(function (x) { return !x.vencido; }).sort(function (a, b) { return a.data < b.data ? -1 : 1; });
+    var soma = function (lista, tipo) {
+      return lista.reduce(function (s, x) { return s + (x.tipo === tipo ? x.valor : 0); }, 0);
+    };
+    return {
+      vencidas: vencidas, aVencer: aVencer,
+      aPagar: soma(itens, "EXPENSE"), aReceber: soma(itens, "INCOME"),
+      total: itens.length
+    };
+  }
+
+  /** "há 3 dias" / "em 5 dias" — a distância é o que diz a urgência, e ela
+   * não está na data sozinha. */
+  function distanciaEmDias(iso) {
+    var d = new Date(iso + "T00:00:00");
+    var base = new Date(HOJE.getFullYear(), HOJE.getMonth(), HOJE.getDate());
+    var dias = Math.round((d - base) / 86400000);
+    if (dias === 0) return "hoje";
+    if (dias === 1) return "amanhã";
+    if (dias === -1) return "ontem";
+    return dias < 0 ? "há " + (-dias) + " dias" : "em " + dias + " dias";
+  }
+
+  function linhaPendenciaHTML(x) {
+    var entrada = x.tipo === "INCOME";
+    return '<div class="row">' +
+      '<span class="dot" style="background:' + (entrada ? "var(--positive)" : "var(--negative)") + '"></span>' +
+      '<span class="row-main"><span class="row-title">' +
+      '<span class="row-name">' + esc(x.nome) + '</span></span>' +
+      '<span class="row-meta">' + esc(fmtDataBR(x.data)) + " · " + esc(distanciaEmDias(x.data)) +
+      (x.origem ? " · " + esc(x.origem) : "") + '</span></span>' +
+      '<span class="row-val num' + (entrada ? " pos" : "") + '">' +
+      (entrada ? "+" : "−") + money(x.valor) + '</span></div>';
+  }
+
+  function renderPendencias() {
+    var p = pendenciasDoMes(resumoMes);
+    var bloco = document.getElementById("r-pendencias-bloco");
+    // Nada pendente é uma boa notícia, não uma lista vazia: o bloco some.
+    bloco.hidden = p.total === 0;
+    if (!p.total) return;
+
+    document.getElementById("r-pend-total").textContent =
+      (p.aReceber ? "+" + money(p.aReceber) : "") +
+      (p.aReceber && p.aPagar ? " · " : "") +
+      (p.aPagar ? "−" + money(p.aPagar) : "");
+
+    var secao = function (idLista, idRotulo, lista, rotulo) {
+      var host = document.getElementById(idLista);
+      var cab = document.getElementById(idRotulo);
+      host.innerHTML = lista.map(linhaPendenciaHTML).join("");
+      host.hidden = !lista.length;
+      cab.hidden = !lista.length;
+      cab.textContent = rotulo + " · " + lista.length;
+    };
+    secao("r-vencidas", "r-vencidas-lbl", p.vencidas, "Vencidas");
+    secao("r-a-vencer", "r-a-vencer-lbl", p.aVencer, "A vencer");
+  }
+
   /* ---------- faixa de meses ---------- */
   /** Mês como número inteiro, para somar e comparar sem cair em Date. */
   function indiceMes(vm) { return vm.y * 12 + vm.m; }
@@ -4280,6 +4404,7 @@
     document.getElementById("r-m-entradas").textContent = (tot.avulsos.length + tot.faturas.length) + " lançamentos";
     document.getElementById("r-m-saidas").textContent = "resultado " + sinal(tot.entradas - tot.saidas);
     renderFaixaMeses();
+    renderPendencias();
     renderCalor(resumoMes, calorTipo);
 
     var desp = rankingCategorias(resumoMes, "EXPENSE");

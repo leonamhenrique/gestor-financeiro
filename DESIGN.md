@@ -631,6 +631,42 @@ escolhido no centro. A janela vai de onze meses atrás até o mês que vem, e
 estica para conter o mês escolhido — quem navegar para longe pelas setas
 continua se vendo nela.
 
+**Falta pagar e receber** (no Resumo, logo abaixo da faixa) — a lista do que
+ainda está em aberto no mês olhado, separada em **Vencidas** (do mais antigo
+para o mais novo: o atraso maior primeiro) e **A vencer** (do mais próximo para
+o mais distante: o que chega antes primeiro). Cada linha é a `.row` de sempre —
+ponto colorido pelo tipo, nome, meta em `--fg-muted` e valor à direita — e a
+meta diz **data, distância em palavras e origem**: `12/08/2026 · há 48 dias ·
+Fatura de agosto`. A distância é o que a data crua não diz; ler "há 48 dias"
+é imediato, converter "12/08" para dias de atraso é conta.
+
+**Só entra o que não está confirmado**, porque a pergunta do bloco é o que falta
+fazer, e confirmado já foi feito. O total do cabeçalho separa os dois sentidos —
+`+450,00 · −14.755,87` — em vez de somar num líquido: receber R$ 450 não paga a
+fatura de R$ 845, e um número só esconderia as duas obrigações.
+
+**O cartão entra pela fatura, nunca pelas compras.** Somar as compras do cartão
+*e* a fatura contaria o mesmo dinheiro duas vezes; somar só as compras diria um
+vencimento que não existe (a compra de 20/08 não vence em 20/08). Então a
+compra no cartão nunca aparece solta aqui: o que aparece é a fatura em aberto,
+com o valor de `emAberto` e a data do vencimento — a mesma data que a tela de
+Lançamentos mostra, independente da configuração de relatório.
+
+**A lista olha do mês escolhido para trás**, como o saldo previsto: conta de
+setembro que ninguém pagou continua na lista em outubro e em novembro. Some em
+agosto, porque agosto não sabe de setembro; mudar de mês não faz o tempo passar,
+então um lançamento de 25/09 segue em "a vencer" mesmo olhando outubro — vencido
+é o que passou de **hoje**, não do mês na tela.
+
+**Sem nada pendente o bloco some** — como o de primeiros passos. Uma lista vazia
+com título ocuparia a tela para dizer "nada", quando a ausência já diz.
+
+**O ano sai do rótulo da fatura quando é o mesmo do vencimento** (`Fatura de
+agosto`, não `Fatura de agosto 2026`): a data ao lado já carrega o ano, e a
+linha da meta é o primeiro texto a ser cortado numa tela de 320px. Ele volta
+quando muda — fatura de dezembro que vence em janeiro diz `Fatura de dezembro
+de 2026`, senão o rótulo mentiria por omissão.
+
 **Mapa de calor** (gastos ou receitas por dia do mês) — grade de 7 colunas começando na
 **segunda** (S T Q Q S S D, cabeçalho no estilo do `.lbl`), gap de 2px, uma
 célula por dia do mês e células vazias invisíveis antes do dia 1. Cada célula
