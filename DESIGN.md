@@ -683,6 +683,37 @@ agosto`. A distância é o que a data crua não diz; ler "há 48 dias" é imedia
 converter "12/08" para dias de atraso é conta. Seção vazia mostra `.empty`, não
 some: a ausência de vencidas é justamente o que a pessoa quer ver.
 
+**A linha traz as mesmas ações da tela de Lançamentos** — confirmar, editar,
+excluir — e **pelos mesmos `data-*`**: quem trata o clique é o `acoesDeLista` de
+sempre, ouvindo em `.content`, que já cobre esta tela. Handlers próprios aqui
+criariam duas verdades sobre o que "confirmar" faz. Resolver na tela de consulta
+é o ponto: quem veio ver o que falta não devia ter de ir a outro lugar para
+fazer.
+
+**O que muda por tipo de pendência**: lançamento de conta leva as três ações;
+lançamento ainda na fila de envio leva só "remover da fila" (ele não existe no
+servidor, então confirmar e editar não têm o que tocar — mesma regra do
+extrato); e **fatura não se confirma nem se edita: se paga**. O botão dela abre a
+camada de pagamento já apontada para aquela fatura, e a linha inteira continua
+levando para a fatura no cartão, como no extrato.
+
+**`abrirPagarFatura` ajusta `cartaoSel` e `faturaMes` antes de abrir**, porque é
+deles que o envio do formulário tira a fatura a pagar. Chamada de outra tela sem
+mover os dois, ela lançaria o pagamento na fatura que estava selecionada em
+Cartões — outra.
+
+**No celular a linha quebra**, como a de conta e a de fatura já quebram: nome e
+meta na primeira linha, valor e ações na segunda. O critério é o do extrato ao
+contrário — lá a lista é para **varrer**, e alongar a linha custaria caro; aqui
+ela é para **resolver**, e são poucas linhas por vez. Com tudo numa linha só, a
+meta desta tela (data · distância · categoria · conta) mais as três ações
+deixavam **74px** para o nome: "Aluguel receb…", "IPTU parcela …". Quebrando:
+0 de 9 nomes cortados, 0 de 9 metas cortadas, linha de 104px.
+
+**O ponto colorido vai dentro do `.row-title`, não ao lado do `.row-main`.** Como
+irmão dele, na linha que quebra o ponto sobrava sozinho numa primeira linha e a
+altura ia a 118px.
+
 **Só entra o que não está confirmado**, porque a pergunta é o que falta fazer, e
 confirmado já foi feito.
 
@@ -796,6 +827,16 @@ na alça de arraste. Com −5: 34+10 = 44. **O alvo se mede por toque**
 (`elementFromPoint` varrendo a partir do centro), não pela caixa do elemento:
 medida na caixa, a seta diz 36 e some com o `::after`; medida por toque, ela diz
 se o dedo acerta.
+
+**E o halo não pode invadir o vizinho.** Numa fila de ações o vão é de 6px, então
+cabem 3px para cada lado (`.row-acoes .icon-btn::after { inset: -5px -3px }`):
+42 de largura, 44 de altura. **Alvos sobrepostos são piores que alvo curto** — o
+toque no vão acerta o botão errado, e do lado do "excluir" isso apaga o que a
+pessoa não pediu. É a mesma razão pela qual a alça de arraste não estica 11px
+para cada lado. Onde a linha quebra e o vão pode crescer para 10px — as listas de
+Pendências —, o halo volta a `-5px` por todos os lados e o alvo fecha 44×44.
+Medido: nenhum vão ambíguo (um ponto 1px além da borda de um botão nunca cai no
+seguinte).
 
 **Linha de conta no celular** — é a única com **quatro** ações. Com elas e o
 saldo na mesma linha sobram ~40px para o nome ("XP Investimentos" vira "XP

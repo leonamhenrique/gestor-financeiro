@@ -639,6 +639,12 @@
      * prometia 44 estava errado pela mesma conta que já tinha furado na alça de
      * arraste. Com -5: 34+10 = 44. Medido por toque, não estimado. */
     .icon-btn::after { content: ""; position: absolute; inset: -5px; }
+    /* Em fila, o halo não pode invadir o vizinho. O vão entre ações é de 6px,
+     * então cabem 3px para cada lado: 42 de largura, 44 de altura. Sobrepor
+     * alvos é PIOR que alvo curto — o toque no vão acerta o botão errado, e do
+     * lado do "excluir" isso apaga o que a pessoa não pediu. Onde a linha
+     * quebra e o vão cresce, a regra acima devolve os 44. */
+    .row-acoes .icon-btn::after { inset: -5px -3px; }
 
     /* Linhas com QUATRO ações: com elas e o valor na mesma linha sobram ~40px
      * para o nome. Aqui vale quebrar — valor e ações descem juntos para a
@@ -655,6 +661,19 @@
     #c-lista .row, #k-det-lista .row { flex-wrap: wrap; row-gap: 8px; }
     #c-lista .row-main, #k-det-lista .row-main { min-width: 100%; }
     #c-lista .row-acoes, #k-det-lista .row-acoes { margin-left: auto; }
+
+    /* Pendências quebra pelo mesmo motivo, e o critério é o do extrato ao
+     * contrário: lá a lista é para VARRER, e alongar a linha custaria caro;
+     * aqui ela é para RESOLVER — é a tela inteira que existe para isso — e são
+     * poucas linhas por vez. Com tudo numa linha só, a meta desta tela (data ·
+     * distância · categoria · conta) mais as três ações deixavam 74px para o
+     * nome: "Aluguel receb…", "IPTU parcela …". */
+    #p-a-vencer .row, #p-vencidas .row { flex-wrap: wrap; row-gap: 8px; }
+    #p-a-vencer .row-main, #p-vencidas .row-main { min-width: 100%; }
+    /* E, com a linha quebrada, sobra vão para o alvo fechar 44 de verdade. */
+    #p-a-vencer .row-acoes, #p-vencidas .row-acoes { margin-left: auto; gap: 10px; }
+    #p-a-vencer .row-acoes .icon-btn::after,
+    #p-vencidas .row-acoes .icon-btn::after { inset: -5px; }
   }
   .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--fg-subtle); flex-shrink: 0; }
   .tag.warn { color: var(--warning); }
@@ -4136,16 +4155,50 @@
     return dias < 0 ? "há " + (-dias) + " dias" : "em " + dias + " dias";
   }
 
+  /** A linha traz as MESMAS ações da tela de Lançamentos, pelos mesmos
+   * `data-*`: quem trata o clique é o `acoesDeLista` de sempre, ouvindo em
+   * `.content`, que já cobre esta tela. Duplicar os handlers aqui criaria duas
+   * verdades sobre o que "confirmar" faz.
+   *
+   * O que muda por tipo de pendência:
+   *
+   * - Lançamento de conta: confirmar, editar, excluir. É o caso comum, e é o
+   *   que a pessoa veio resolver.
+   * - Lançamento ainda na fila de envio: só "remover da fila". Ele não existe
+   *   no servidor, então confirmar e editar não têm o que tocar — mesma regra
+   *   que o extrato já aplica.
+   * - Fatura: nada disso serve. Fatura não se confirma nem se edita: se paga.
+   *   O botão abre a camada de pagamento já apontada para ela, e a linha
+   *   inteira continua levando para a fatura no cartão, como no extrato. */
   function linhaPendenciaHTML(x) {
     var entrada = x.tipo === "INCOME";
-    return '<div class="row">' +
-      '<span class="dot" style="background:' + (entrada ? "var(--positive)" : "var(--negative)") + '"></span>' +
+    var t = x.fatura ? null : byId(state.transactions, x.id);
+    var acoes;
+    if (x.fatura) {
+      acoes = botaoIcone("cifrao", "pagar-fatura", x.id, "Pagar fatura");
+    } else if (t && t.pendente) {
+      acoes = botaoIcone("trash", "remover-da-fila", x.id, "Remover da fila", "danger");
+    } else {
+      acoes = botaoIcone("check", "confirmar", x.id, "Confirmar") +
+        botaoIcone("edit", "editar-lancamento", x.id, "Editar") +
+        botaoIcone("trash", "excluir-lancamento", x.id, "Excluir", "danger");
+    }
+    return '<div class="row' + (x.fatura ? ' clickable" data-verfatura="' + x.id.split(":")[0] +
+        '" data-verfatura-mes="' + x.id.split(":")[1] + '"' : '"') + '>' +
+      // O ponto vai DENTRO do título, como no extrato, e não ao lado do
+      // `.row-main`. Como irmão dele, na linha que quebra no celular o ponto
+      // sobrava sozinho numa primeira linha e a altura ia a 118px.
       '<span class="row-main"><span class="row-title">' +
-      '<span class="row-name">' + esc(x.nome) + '</span></span>' +
+      '<span class="dot" style="background:' + (entrada ? "var(--positive)" : "var(--negative)") + '"></span>' +
+      '<span class="row-name">' + esc(x.nome) + '</span>' +
+      (t && t.pendente ? '<span class="tag tag-pendente ' + (t.erroSync ? "danger" : "warn") + '">' +
+        (t.erroSync ? "recusado" : "pendente") + '</span>' : "") + '</span>' +
       '<span class="row-meta">' + esc(fmtDataBR(x.data)) + " · " + esc(distanciaEmDias(x.data)) +
-      (x.origem ? " · " + esc(x.origem) : "") + '</span></span>' +
+      (x.origem ? " · " + esc(x.origem) : "") +
+      (t && t.pendente ? ' · ' + esc(t.erroSync || "pendente, aguardando conexão") : "") + '</span></span>' +
       '<span class="row-val num' + (entrada ? " pos" : "") + '">' +
-      (entrada ? "+" : "−") + money(x.valor) + '</span></div>';
+      (entrada ? "+" : "−") + money(x.valor) + '</span>' +
+      '<span class="row-acoes">' + acoes + '</span></div>';
   }
 
   /** O consolidado do Resumo: dois números e o caminho para a lista.
@@ -6200,13 +6253,23 @@
     var t = byId(state.transactions, p.transacaoId);
     return t && t.contaId ? byId(state.accounts, t.contaId) : null;
   }
-  document.getElementById("k-pagar").addEventListener("click", function () {
-    var card = byId(state.cards, cartaoSel);
+  /** Abre a camada de pagamento para uma fatura qualquer, dita por cartão e
+   * mês — e não só para a que está na tela de Cartões.
+   *
+   * Ela AJUSTA `cartaoSel` e `faturaMes` antes de abrir, porque é deles que o
+   * envio do formulário tira a fatura a pagar. Chamar de outra tela sem
+   * mover os dois lançaria o pagamento na fatura errada — a que estava
+   * selecionada em Cartões, que pode ser outra. Mover os dois também deixa a
+   * tela de Cartões já aberta na fatura certa quando a pessoa for até lá. */
+  function abrirPagarFatura(cardId, mesKey) {
+    var card = byId(state.cards, cardId);
     if (!card) return;
-    var key = monthKey(faturaMes);
-    var f = faturasDoCartao(card)[key] || { emAberto: 0 };
+    var f = faturasDoCartao(card)[mesKey] || { emAberto: 0 };
     var restante = f.emAberto || 0;
     if (restante <= 0) return;
+    cartaoSel = cardId;
+    faturaMes = parseMonthKey(mesKey);
+    renderCartoes();
     editandoPagamento = null;
     document.getElementById("pg-titulo").textContent = "Pagar fatura";
     document.getElementById("pg-submit").textContent = "Registrar pagamento";
@@ -6219,6 +6282,9 @@
     calPagamento.definir(isoDate(dataDeHoje()), true);
     document.getElementById("pg-erro").textContent = "";
     abrir("dlg-pagar");
+  }
+  document.getElementById("k-pagar").addEventListener("click", function () {
+    abrirPagarFatura(cartaoSel, monthKey(faturaMes));
   });
 
   function abrirEdicaoPagamento(pagamentoId) {
@@ -6472,6 +6538,11 @@
       }, function () { removerDaFila(el.dataset.removerDaFila); });
     }
     if ((el = e.target.closest("[data-antecipar]"))) return abrirAntecipar(el.dataset.antecipar);
+    if ((el = e.target.closest("[data-pagar-fatura]"))) {
+      // "cartao:2026-09" — o mesmo id que a pendência já carrega.
+      var alvo = el.dataset.pagarFatura.split(":");
+      return abrirPagarFatura(alvo[0], alvo[1]);
+    }
     if ((el = e.target.closest("[data-editar-conta]"))) return abrirConta(el.dataset.editarConta);
     if ((el = e.target.closest("[data-saldo-conta]"))) return abrirSaldo(el.dataset.saldoConta);
     if ((el = e.target.closest("[data-arquivar-conta]"))) return alternarArquivo(el.dataset.arquivarConta);
