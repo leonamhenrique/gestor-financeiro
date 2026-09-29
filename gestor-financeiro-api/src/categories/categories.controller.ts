@@ -12,7 +12,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   Req,
 } from '@nestjs/common';
 import { ReorderDto } from '../common/reorder.dto';
@@ -20,7 +19,6 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto, UpdateCategoryDto, ListCategoriesQueryDto } from './dto/category.dto';
 
-@UseGuards(JwtAuthGuard)
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}

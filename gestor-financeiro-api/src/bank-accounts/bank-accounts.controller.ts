@@ -12,7 +12,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   Req,
 } from '@nestjs/common';
 import { ReorderDto } from '../common/reorder.dto';
@@ -25,7 +24,6 @@ import {
   UpdateInitialBalanceDto,
 } from './dto/bank-account.dto';
 
-@UseGuards(JwtAuthGuard)
 @Controller('bank-accounts')
 export class BankAccountsController {
   constructor(private readonly bankAccountsService: BankAccountsService) {}

@@ -290,13 +290,17 @@ export class TransactionsService {
   // Evita ter que calcular "diffs" propensos a erro (ex: usuário troca
   // valor E também troca de conta/cartão ao mesmo tempo).
   //
-  // `requestingUserId` garante que ninguém edite transação de outro
-  // usuário — validação de posse feita aqui, não só no controller.
-  async update(transactionId: string, input: UpdateTransactionInput, requestingUserId?: string) {
+  // `requestingUserId` garante que ninguém edite transação de outro usuário.
+  // É OBRIGATÓRIO de propósito: opcional, quem esquecesse de passar desligava
+  // a verificação em silêncio, e um `undefined` não faz barulho nenhum. Assim
+  // o compilador recusa a chamada antes de ela existir.
+  async update(transactionId: string, input: UpdateTransactionInput, requestingUserId: string) {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.transaction.findUnique({ where: { id: transactionId } });
       if (!existing) throw new NotFoundException('Transação não encontrada');
-      if (requestingUserId && existing.userId !== requestingUserId) {
+      // Mesma mensagem de "não encontrada" para dono errado: dizer "proibido"
+      // confirmaria que o lançamento existe.
+      if (existing.userId !== requestingUserId) {
         throw new NotFoundException('Transação não encontrada');
       }
       // Só confere quando TROCA de categoria: manter uma que depois ganhou
@@ -345,11 +349,11 @@ export class TransactionsService {
   // ----------------------------------------------------------
   // DELETE
   // ----------------------------------------------------------
-  async delete(transactionId: string, requestingUserId?: string) {
+  async delete(transactionId: string, requestingUserId: string) {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.transaction.findUnique({ where: { id: transactionId } });
       if (!existing) throw new NotFoundException('Transação não encontrada');
-      if (requestingUserId && existing.userId !== requestingUserId) {
+      if (existing.userId !== requestingUserId) {
         throw new NotFoundException('Transação não encontrada');
       }
 

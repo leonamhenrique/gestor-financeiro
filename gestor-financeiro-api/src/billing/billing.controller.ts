@@ -17,9 +17,9 @@ import {
   Post,
   Query,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Public } from '../auth/public.decorator';
 import { BillingService } from './billing.service';
 import { PAYMENT_PROVIDER, PaymentProviderPort } from './payment-provider.port';
 import { Inject } from '@nestjs/common';
@@ -35,7 +35,6 @@ export class BillingController {
     @Inject(PAYMENT_PROVIDER) private readonly gateway: PaymentProviderPort,
   ) {}
 
-  @UseGuards(JwtAuthGuard)
   @Get('subscription')
   async minhaAssinatura(@Req() req: RequisicaoAutenticada) {
     const userId = req.user.id ?? req.user.sub!;
@@ -51,7 +50,6 @@ export class BillingController {
    * cartão não passa por aqui — se algum dia esse corpo aceitar PAN, a API
    * inteira entra no escopo pesado do PCI-DSS.
    */
-  @UseGuards(JwtAuthGuard)
   @Post('subscribe')
   async assinar(
     @Req() req: RequisicaoAutenticada,
@@ -61,7 +59,6 @@ export class BillingController {
     return this.billing.assinar(userId, body.planCode, body.paymentToken);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Delete('subscription')
   async cancelar(
     @Req() req: RequisicaoAutenticada,
@@ -71,6 +68,7 @@ export class BillingController {
     return this.billing.cancelar(userId, imediato !== 'true');
   }
 
+  @Public()
   @Post('webhook')
   async webhook(
     @Req() req: { rawBody?: Buffer },

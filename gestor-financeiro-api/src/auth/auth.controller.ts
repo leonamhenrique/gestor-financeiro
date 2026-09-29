@@ -8,11 +8,10 @@ import {
   Req,
   Res,
   UnauthorizedException,
-  UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService, SessaoEmitida } from './auth.service';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { Public } from './public.decorator';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
@@ -46,17 +45,20 @@ export class AuthController {
     return dto?.refreshToken || lerCookie(req, COOKIE_SESSAO);
   }
 
+  @Public()
   @Post('register')
   async register(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body() dto: RegisterDto) {
     return this.entregar(req, res, await this.auth.register(dto));
   }
 
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body() dto: LoginDto) {
     return this.entregar(req, res, await this.auth.login(dto));
   }
 
+  @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body() dto: RefreshDto) {
@@ -71,6 +73,7 @@ export class AuthController {
     }
   }
 
+  @Public()
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body() dto: RefreshDto) {
@@ -80,18 +83,19 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   me(@Req() req: any) {
     return this.auth.me(req.user.id);
   }
 
   // 204 sempre, exista o e-mail ou não — ver AuthService.forgotPassword.
+  @Public()
   @Post('forgot-password')
   @HttpCode(HttpStatus.NO_CONTENT)
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     await this.auth.forgotPassword(dto.email);
   }
 
+  @Public()
   @Post('reset-password')
   @HttpCode(HttpStatus.NO_CONTENT)
   async resetPassword(@Body() dto: ResetPasswordDto) {
@@ -100,7 +104,6 @@ export class AuthController {
 
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
   async changePassword(
     @Req() req: any,
     @Res({ passthrough: true }) res: Response,

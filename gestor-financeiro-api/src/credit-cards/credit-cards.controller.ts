@@ -12,7 +12,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   Req,
   HttpCode,
 } from '@nestjs/common';
@@ -29,7 +28,6 @@ import {
   UpdateInvoicePaymentDto,
 } from './dto/credit-card.dto';
 
-@UseGuards(JwtAuthGuard)
 @Controller('credit-cards')
 export class CreditCardsController {
   constructor(

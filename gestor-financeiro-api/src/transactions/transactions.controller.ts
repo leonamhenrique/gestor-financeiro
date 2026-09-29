@@ -15,7 +15,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   Req,
   HttpCode,
 } from '@nestjs/common';
@@ -29,7 +28,6 @@ import {
   AnticipateDto,
 } from './dto/transaction.dto';
 
-@UseGuards(JwtAuthGuard)
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
