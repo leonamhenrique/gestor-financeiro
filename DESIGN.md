@@ -298,6 +298,23 @@ linha de ajuda enquanto esse modo está ligado, dizendo exatamente isso. Número
 que diverge sem explicação é defeito; número que diverge com o motivo ao lado
 é informação.
 
+**O saldo previsto é acumulado, não uma fotografia do mês.** Ele soma TODO
+previsto com data até o fim do mês olhado — não só o daquele mês — e desconta
+TODA fatura ainda em aberto que vence até lá. O previsto de um mês tem de
+começar onde o do mês anterior terminou.
+
+Olhando só o mês corrente, a projeção se reinicia a cada virada: quem tinha
+60 previstos em outubro e 50 em novembro via **1.230** em novembro (saldo
+confirmado menos os 50) em vez de **1.170**, porque os 60 de outubro
+evaporavam. Pior: num mês sem nenhum previsto, o "previsto" voltava a ser
+igual ao "atual", como se as dívidas dos meses anteriores tivessem sido
+pagas.
+
+**Previsto que ficou para trás continua contando.** Uma despesa prevista em
+agosto que ninguém confirmou ainda é dinheiro que deve sair — some da
+projeção só quando for confirmada ou apagada. É a mesma regra da fatura sem
+pagamento, que continua atrasada em vez de desaparecer.
+
 **O saldo não muda de regime.** Saldo é caixa sempre — o dinheiro sai da conta
 no vencimento, escolha o usuário o que escolher. Por isso as faturas continuam
 sendo calculadas no modo por compra, mesmo sem virar linha: quem precisa delas

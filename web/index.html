@@ -2730,21 +2730,53 @@
     };
   }
 
-  /** Os dois saldos que fecham o mês. "Atual" é o acumulado de verdade: parte
-   * do saldo anterior ao mês e soma só o que foi confirmado. "Previsto" pega
-   * esse mesmo acumulado e projeta o que ainda deve acontecer — lançamentos
-   * previstos da conta e faturas em aberto, que vão sair da conta depois.
-   * Compra no cartão não entra: quem debita a conta é a fatura. */
-  function saldosDoMes(vm, tot) {
+  /** Faturas ainda em aberto que vencem ATÉ o fim deste mês, de todos os
+   * cartões. Acumulado, não só as do mês: fatura de setembro que ninguém
+   * pagou continua sendo dinheiro que vai sair, e some da projeção de
+   * outubro se a conta olhar só outubro. */
+  function faturasEmAbertoAte(vm) {
+    var limite = new Date(vm.y, vm.m + 1, 0);
+    var soma = 0;
+    state.cards.forEach(function (card) {
+      var porMes = faturasDoCartao(card);
+      Object.keys(porMes).forEach(function (key) {
+        var p = parseMonthKey(key);
+        if (vencimentoDaFatura(card, p.y, p.m) > limite) return;
+        soma += porMes[key].emAberto || 0;
+      });
+    });
+    return soma;
+  }
+
+  /** Os dois saldos que fecham o mês.
+   *
+   * "Atual" é o acumulado de verdade: parte do saldo anterior ao mês e soma
+   * só o que foi confirmado. "Previsto" pega esse mesmo acumulado e projeta o
+   * que ainda deve acontecer.
+   *
+   * **A projeção é acumulada, e isso é o ponto.** Ela soma TODO previsto com
+   * data até o fim deste mês, não só o deste mês. Olhando só o mês corrente,
+   * o previsto de novembro nascia do saldo confirmado de hoje e ignorava a
+   * despesa que outubro já tinha previsto: quem devia 60 em outubro e 50 em
+   * novembro via 1.230 em vez de 1.170. O previsto de um mês tem de começar
+   * onde o do mês anterior terminou — senão ele não é projeção, é uma
+   * fotografia solta.
+   *
+   * Previsto que ficou para trás e nunca foi confirmado continua na conta:
+   * o dinheiro não se moveu e ainda é esperado. É a mesma regra da fatura
+   * sem pagamento, que continua atrasada em vez de sumir.
+   *
+   * Compra no cartão não entra aqui: quem debita a conta é a fatura. */
+  function saldosDoMes(vm) {
     var atual = saldoNoFimDoMes(vm.y, vm.m);
     var mk = monthKey(vm);
     var aPrevisto = 0;
     state.transactions.forEach(function (t) {
       if (t.confirmada || !t.contaId || contaEstaOculta(t.contaId)) return;
-      if (t.data.slice(0, 7) !== mk) return;
+      if (t.data.slice(0, 7) > mk) return;
       aPrevisto += (t.tipo === "INCOME" ? t.valor : -t.valor);
     });
-    return { atual: atual, previsto: atual + aPrevisto - tot.abertoFaturas };
+    return { atual: atual, previsto: atual + aPrevisto - faturasEmAbertoAte(vm) };
   }
 
   /** Uma linha por fatura por mês. Quitada, ela É o pagamento — muda de
@@ -4326,7 +4358,7 @@
     var celResultado = document.getElementById("l-cel-resultado");
     celResultado.classList.toggle("seg-cell--receita", resultado > 0);
     celResultado.classList.toggle("seg-cell--despesa", resultado < 0);
-    var saldos = saldosDoMes(extratoMes, tot);
+    var saldos = saldosDoMes(extratoMes);
     document.getElementById("l-acumulado").textContent = brl(saldos.atual);
     document.getElementById("l-previsto").textContent = brl(saldos.previsto);
 
