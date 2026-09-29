@@ -95,7 +95,8 @@ nenhuma regra de composição muda. Três coisas não são simples inversão:
   --hairline-strong: rgba(15,23,32,0.16);
   --controle-borda:  rgba(15,23,32,0.46);      /* 3,00:1 — tinta preta rende menos */
   --warning-borda:   rgba(154,100,16,0.75);    /* 3,01:1 — idem para o aviso */
-  --track:           rgba(15,23,32,0.20);      /* 1,53:1 — teto do palette, ver abaixo */
+  --bar-aviso:       #84540C;                  /* 6,06:1 — ocre só do preenchimento */
+  --track:           rgba(15,23,32,0.28);      /* 1,85:1 — teto do acento, ver abaixo */
 
   --fg:        #14202B;
   --fg-muted:  rgba(20,32,43,0.78);
@@ -334,16 +335,27 @@ outro, e o valor certo é o que mantém os dois legíveis, não o que maximiza u
 No escuro dá para ter tudo: trilho em **3,51:1** e preenchimentos em 4,76
 (neutro), 3,84 (acento) e 3,29 (aviso) contra ele.
 
-No claro **não existe** esse valor, e o teto é do palette: o ocre `--warning`
-rende só 4,69:1 contra a página, então quase não sobra espaço entre os dois
-para o trilho ocupar. Trilho em 3:1 derrubaria a borda do preenchimento para
-1,56:1 — a barra ganharia extensão e perderia a proporção, que é o pior dos
-dois. O valor é o máximo com **todo** preenchimento ainda acima de 3:1
-(neutro 10,14, acento 3,67, aviso 3,07), e o trilho fica em 1,53:1. Área
-grande e chapada rende mais do que o número sugere: o limiar de 3:1 foi
+No claro **não existe** esse valor, e o teto é do palette. Ele foi levantado
+em duas etapas, e a segunda mostra como se sobe um teto desses: não pelo
+trilho, mas tirando da frente quem limita.
+
+Primeiro o limite era o ocre `--warning`, que rende só 4,69:1 contra a página
+— com o preenchimento tão claro, não sobrava espaço entre os dois. O trilho
+parou em 1,53:1. Depois o ocre **do preenchimento da barra** ganhou token
+próprio (`--bar-aviso`, 6,06:1) e saiu da frente; o limite passou a ser o
+acento da marca, e o trilho subiu para **1,85:1**, com todo preenchimento
+ainda acima de 3:1 contra ele (neutro 8,38, acento 3,03, ocre 3,27).
+
+**O ocre escuro vale só na barra**: em texto, borda e etiqueta o aviso segue
+`--warning`. É o mesmo remédio do verde e do vermelho da célula tingida —
+escurecer um passo, e só no lugar onde o fundo exige.
+
+Daqui em diante quem limita é o **acento**, em 5,62:1. Escurecê-lo só na
+barra deixaria o preenchimento diferente do acento do resto da tela, e isso
+custa mais do que os 0,2 de contraste que se ganharia. É onde a conta para.
+
+Área grande e chapada rende mais do que o número sugere: o limiar de 3:1 foi
 escrito para detalhe fino, e uma faixa de 4px atravessando a coluna se vê.
-Para ir além, o caminho não é mexer no trilho — é escurecer o ocre no
-preenchimento, como já foi feito com o verde e o vermelho da célula tingida.
 
 **Ditado** (lançar por voz) — camada própria, aberta pelo menu do botão
 flutuante. Botão de microfone de 56px (a mesma medida do flutuante), contorno

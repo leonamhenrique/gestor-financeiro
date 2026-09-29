@@ -30,6 +30,10 @@
      * aplica), o contorno é o que diz "isto se clica". Com a hairline no
      * lugar dele, o pill e o ghost ficavam em 1,19:1. Medido: 3,03:1. */
     --controle-borda: rgba(255,255,255,0.34);
+    /* No escuro o ocre da barra é o próprio --warning: 11,56:1 contra o fundo,
+     * sobra espaço. O token existe para a regra do CSS ser uma só nos dois
+     * temas — quem precisa de um ocre próprio é o claro. */
+    --bar-aviso: var(--warning);
     /* Trilho da barra. Ele tem DOIS vizinhos e os dois importam: o fundo da
      * página, que diz onde a barra começa e acaba, e o preenchimento, que diz
      * quanto dela está cheio. Em 0,05 o trilho ficava em 1,10:1 — a barra não
@@ -126,14 +130,20 @@
     --hairline-strong: rgba(15,23,32,0.16);
     /* Tinta preta rende menos que branca: 0,46 aqui para os mesmos 3,00:1. */
     --controle-borda: rgba(15,23,32,0.46);
-    /* Aqui existe um teto, e ele é do próprio palette: o aviso ocre rende só
-     * 4,69:1 contra a página clara, então quase não há espaço entre os dois
-     * para o trilho ocupar. Trilho em 3:1 derrubaria a borda do preenchimento
-     * para 1,56:1 — a barra ganharia extensão e perderia a proporção, que é
-     * pior. 0,20 é o máximo com TODO preenchimento ainda acima de 3:1
-     * (neutro 10,14, acento 3,67, aviso 3,07); o trilho sobe de 1,18 para
-     * 1,53:1. Para ir além, o caminho não é o trilho: é escurecer o ocre. */
-    --track: rgba(15,23,32,0.20);
+    /* O ocre do aviso, só no preenchimento da barra. O --warning de texto
+     * rende 4,69:1 contra a página, e era ELE quem limitava o trilho: com o
+     * preenchimento tão claro, não sobrava espaço entre os dois. Escurecido
+     * para 6,06:1 ele sai da frente, e quem passa a limitar é o acento.
+     * Mesmo remédio que o verde e o vermelho da célula tingida já usam, e
+     * vale só aqui: o aviso em texto, borda e etiqueta não muda. */
+    --bar-aviso: #84540C;
+    /* Trilho: 0,28 é o máximo com TODO preenchimento ainda acima de 3:1
+     * contra ele (neutro 8,38, acento 3,03, ocre 3,27). Sobe de 1,18 no
+     * original, passou por 1,53 quando só o trilho mudou, e agora está em
+     * 1,85:1. O teto que sobra é o próprio acento da marca, em 5,62:1:
+     * escurecê-lo só na barra deixaria o preenchimento diferente do acento
+     * do resto da tela, e isso custa mais do que os 0,2 que se ganharia. */
+    --track: rgba(15,23,32,0.28);
 
     --fg: #14202B;
     /* Tinta preta sobre fundo claro "pesa" menos que tinta branca sobre escuro:
@@ -453,7 +463,7 @@
   .bar { height: var(--bar-h); border-radius: var(--r-pill); background: var(--track); overflow: hidden; }
   .bar > i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--fg); transition: width 200ms ease-out; }
   .bar > i.accent { background: var(--accent); }
-  .bar > i.warn { background: var(--warning); }
+  .bar > i.warn { background: var(--bar-aviso); }
 
   /* ---------- faixa de meses (resultado mês a mês) ----------
    * Sem card: as colunas se separam por hairline vertical, do mesmo jeito que
