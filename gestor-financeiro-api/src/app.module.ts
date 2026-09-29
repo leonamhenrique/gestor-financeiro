@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -11,6 +11,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
 import { BillingModule } from './billing/billing.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
 
 @Module({
   imports: [
@@ -31,6 +32,8 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
     // revisão. Antes o guard era declarado controlador a controlador, e um
     // controlador novo nascia aberto por esquecimento.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Depois do guard: leva o dono da requisição até o banco, onde o RLS o lê.
+    { provide: APP_INTERCEPTOR, useClass: ContextoDoUsuarioInterceptor },
   ],
 })
 export class AppModule {}

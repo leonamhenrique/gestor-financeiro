@@ -27,6 +27,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { comUsuario } from '../prisma/contexto';
 import { InvoiceStatus } from '@prisma/client';
 import { InvoicePaymentsService } from './invoice-payments.service';
 import { cicloDoDia } from './billing-cycle';
@@ -52,7 +53,26 @@ export class InvoiceClosingScheduler {
   // mesma regra da leitura): cron, pagamento e leitura nunca discordam
   // sobre o status. É por cartão, e não por fatura, porque o rotativo liga
   // uma fatura à seguinte — vencer a de setembro muda a de outubro.
+  /** Os donos, um a um.
+   *
+   * A rotina é de sistema, mas o banco tem RLS: uma varredura sem dono no
+   * contexto enxergaria zero cartões e não faria nada — em silêncio, que é o
+   * pior jeito de falhar. Em vez de criar um atalho para ver tudo (uma porta
+   * dos fundos é uma porta, mesmo que só eu use), ela roda de usuário em
+   * usuário, com o dono certo em cada volta. `users` não tem RLS: é a tabela
+   * de identidade, que o login precisa ler antes de saber quem é quem. */
+  private async cadaDono(): Promise<string[]> {
+    const donos = await this.prisma.user.findMany({ select: { id: true } });
+    return donos.map((d) => d.id);
+  }
+
   private async consolidateStatuses() {
+    for (const userId of await this.cadaDono()) {
+      await comUsuario(userId, () => this.consolidarDoDono(userId));
+    }
+  }
+
+  private async consolidarDoDono(userId: string) {
     const cards = await this.prisma.creditCard.findMany({ where: { isActive: true } });
     for (const card of cards) {
       try {
@@ -66,6 +86,12 @@ export class InvoiceClosingScheduler {
 
   // `hoje` é o dia do calendário no fuso do app ('AAAA-MM-DD').
   async ensureNextCycleInvoices(hoje: string) {
+    for (const userId of await this.cadaDono()) {
+      await comUsuario(userId, () => this.garantirCicloDoDono(hoje));
+    }
+  }
+
+  private async garantirCicloDoDono(hoje: string) {
     const cards = await this.prisma.creditCard.findMany({ where: { isActive: true } });
 
     for (const card of cards) {
