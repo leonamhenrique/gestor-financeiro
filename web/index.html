@@ -5156,15 +5156,23 @@
       if (qtd < 2) { erro.textContent = "Informe pelo menos 2 ocorrências."; return; }
       var serieId = uid("serie");
       var corrente = new Date(data + "T00:00:00");
+      // Parcelamento no cartão: a compra aconteceu UMA vez, e as parcelas são
+      // ela repartida. Cada fatura futura já espera a sua, então todas nascem
+      // confirmadas — deixar as seguintes previstas era pedir para confirmar,
+      // mês a mês, uma dívida que já existe. Série de conta (aluguel,
+      // assinatura) segue diferente: as próximas ainda não aconteceram.
+      var parceladoNoCartao = tipoRep === "PARCELADA" && !!cartaoId;
       for (var i = 0; i < qtd; i++) {
         var primeira = i === 0;
         var oc = {
           id: uid("t"), tipo: tipo, valor: valor, categoriaId: categoriaId,
           desc: tipoRep === "PARCELADA" ? (desc || "Compra") + " (Parcela " + (i + 1) + "/" + qtd + ")" : desc,
           data: isoDate(corrente), contaId: contaId, cartaoId: cartaoId,
-          // Só a primeira respeita "já confirmado" e o override manual: as
-          // próximas ainda não aconteceram e caem na fatura da própria data.
-          confirmada: primeira ? confirmada : false,
+          // O override de fatura é só da primeira; as outras caem na fatura
+          // da própria data. Já o "já confirmado" acompanha a compra inteira
+          // quando é parcelamento no cartão (ver acima). Desmarcar vale para
+          // todas: quem planeja uma compra parcelada não quer nada confirmado.
+          confirmada: (primeira || parceladoNoCartao) ? confirmada : false,
           faturaMesOverride: primeira ? override : null,
           serieId: serieId, serieIndex: i
         };

@@ -305,8 +305,20 @@ segunda confirmação é pedir para confirmar duas vezes a mesma coisa. Na conta
 é outra história: "pagar o aluguel dia 10" costuma ser plano, e previsto é o
 estado honesto até o dinheiro sair.
 
+**Parcelamento no cartão segue a mesma lógica até o fim: TODAS as parcelas
+nascem confirmadas.** A compra aconteceu uma vez só; as doze parcelas são ela
+repartida, e cada fatura futura já as espera — é assim que a fatura do cartão
+funciona no mundo real. Deixar as seguintes previstas pedia para confirmar,
+mês a mês, uma dívida que já existe.
+
+A regra é do **cartão**, não do parcelamento em si. Repetição fixa (aluguel,
+assinatura) continua com só a primeira confirmada: a cobrança do mês que vem
+ainda não aconteceu. E parcelamento na conta também — ali o dinheiro sai
+parcela a parcela, e as próximas ainda não saíram.
+
 Continua sendo escolha, não imposição: a caixa está lá para desmarcar a compra
-que ainda vai acontecer (a assinatura que renova semana que vem). E **escolha
+que ainda vai acontecer (a assinatura que renova semana que vem), e desmarcar
+vale para a série inteira. E **escolha
 feita não se desfaz sozinha** — trocar o destino depois de marcar à mão
 respeita a marcação; só reabrir o formulário volta ao padrão.
 

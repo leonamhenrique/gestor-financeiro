@@ -124,7 +124,10 @@ describe('TransactionsService — séries e fatura escolhida', () => {
   afterEach(() => jest.useRealTimers());
 
   describe('criar série', () => {
-    it('parcelado em 3x: a 1ª entra confirmada, as outras nascem previstas nos meses seguintes', async () => {
+    it('parcelado no cartão: TODAS as parcelas nascem confirmadas, uma por fatura', async () => {
+      // A compra aconteceu uma vez só; as parcelas são ela repartida, e cada
+      // fatura futura já as espera. Deixar as seguintes previstas era pedir
+      // para confirmar, mês a mês, uma dívida que já existe.
       const { series, transactions } = await service.createSeries(base(), parcelado(3));
 
       expect(series.count).toBe(3);
@@ -135,13 +138,44 @@ describe('TransactionsService — séries e fatura escolhida', () => {
       ]);
       expect(transactions.map((t) => [t.seriesIndex, t.isConfirmed])).toEqual([
         [0, true],
-        [1, false],
-        [2, false],
+        [1, true],
+        [2, true],
       ]);
       expect(transactions.every((t) => t.seriesId === series.id)).toBe(true);
-      // Só a confirmada ocupa fatura.
+      // Cada parcela ocupa a fatura do próprio mês.
+      expect([totalDe('2026-09'), totalDe('2026-10'), totalDe('2026-11')]).toEqual([100, 100, 100]);
+      expect(faturas.size).toBe(3);
+    });
+
+    it('parcelado no cartão desmarcado: nenhuma nasce confirmada', async () => {
+      // Quem planeja uma compra parcelada para a semana que vem não quer
+      // nada confirmado — o "já confirmado" vale para a série inteira.
+      const { transactions } = await service.createSeries(base({ isConfirmed: false }), parcelado(3));
+      expect(transactions.map((t) => t.isConfirmed)).toEqual([false, false, false]);
+      expect(faturas.size).toBe(0);
+    });
+
+    it('assinatura no cartão (repetição fixa): só a primeira nasce confirmada', async () => {
+      // Repetição fixa é outra coisa: a cobrança do mês que vem ainda não
+      // aconteceu. Só o parcelamento é "uma compra repartida".
+      const { transactions } = await service.createSeries(base(), {
+        kind: SeriesKind.FIXED,
+        frequency: SeriesFrequency.MONTHLY,
+        count: 3,
+      });
+      expect(transactions.map((t) => t.isConfirmed)).toEqual([true, false, false]);
       expect(totalDe('2026-09')).toBe(100);
       expect(faturas.size).toBe(1);
+    });
+
+    it('parcelado na CONTA: só a primeira nasce confirmada', async () => {
+      // Na conta o dinheiro sai parcela a parcela; as próximas ainda não
+      // saíram. A regra é do cartão, não do parcelamento em si.
+      const { transactions } = await service.createSeries(
+        base({ creditCardId: undefined, bankAccountId: 'acc-1' }),
+        parcelado(3),
+      );
+      expect(transactions.map((t) => t.isConfirmed)).toEqual([true, false, false]);
     });
 
     it('repetição na conta: só a primeira mexe no saldo', async () => {
@@ -157,7 +191,9 @@ describe('TransactionsService — séries e fatura escolhida', () => {
       const { transactions } = await service.createSeries(base({ invoiceMonth: '2026-10' }), parcelado(2));
       expect(transactions[0].invoiceMonthOverride).toEqual(utc('2026-10-01'));
       expect(transactions[1].invoiceMonthOverride).toBeNull();
-      expect(totalDe('2026-10')).toBe(100);
+      // As duas parcelas acabam em outubro: a primeira pela fatura escolhida,
+      // a segunda pela própria data — e as duas nascem confirmadas.
+      expect(totalDe('2026-10')).toBe(200);
       expect(totalDe('2026-09')).toBe(0);
     });
 
@@ -254,10 +290,14 @@ describe('TransactionsService — séries e fatura escolhida', () => {
       expect(movidas.map((t) => t.transactionDate.toISOString().slice(0, 10))).toEqual(['2026-10-20', '2026-11-20']);
     });
 
-    it('sem confirmar, antecipa como previstas: nada entra na fatura ainda', async () => {
+    it('antecipar sem `confirm` move as parcelas, que já vieram confirmadas', async () => {
+      // O `confirm` só tem o que fazer em série que nasceu prevista (conta,
+      // repetição fixa, ou parcelado desmarcado). No parcelado do cartão as
+      // parcelas já são confirmadas, então antecipar engorda a fatura de
+      // destino de qualquer jeito.
       const id = await serie4x();
       await service.anticipate('user-1', id, { destinationMonth: '2026-10', quantity: 3 });
-      expect(totalDe('2026-10')).toBe(100);
+      expect(totalDe('2026-10')).toBe(400);
       expect([...transacoes.values()].filter((t) => t.invoiceMonthOverride).length).toBe(3);
     });
 

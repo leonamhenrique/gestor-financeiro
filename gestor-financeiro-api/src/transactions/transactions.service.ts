@@ -153,9 +153,22 @@ export class TransactionsService {
   }
 
   /** Cria uma série (repetição fixa ou parcelamento) com `count` ocorrências.
-   * Como no app: só a PRIMEIRA respeita "já confirmado" e a fatura escolhida;
-   * as seguintes ainda não aconteceram — nascem previstas, na fatura da
-   * própria data. */
+   * A fatura escolhida vale só para a PRIMEIRA: as seguintes caem na fatura
+   * da própria data.
+   *
+   * Já o "já confirmado" depende do que a série é:
+   *
+   *   parcelamento no cartão  TODAS nascem confirmadas. A compra aconteceu
+   *                           uma vez só; as 12 parcelas são a mesma compra
+   *                           repartida, e cada fatura futura já as espera.
+   *                           Deixar as seguintes previstas era pedir para
+   *                           confirmar, mês a mês, uma dívida que já existe.
+   *   qualquer outra série    só a primeira. Aluguel todo mês, assinatura
+   *                           que renova: as próximas ainda não aconteceram,
+   *                           e previsto é o estado honesto.
+   *
+   * Desmarcar "já confirmado" vale para todas nos dois casos: quem planeja
+   * uma compra parcelada para a semana que vem não quer nada confirmado. */
   async createSeries(input: CreateTransactionInput, repeat: RepeatInput) {
     const override = this.validarEntrada(input);
     if (!Number.isInteger(repeat.count) || repeat.count < MIN_OCORRENCIAS || repeat.count > MAX_OCORRENCIAS) {
@@ -211,6 +224,11 @@ export class TransactionsService {
         data: { userId: input.userId, kind: repeat.kind, frequency: repeat.frequency, count: repeat.count },
       });
 
+      // A compra parcelada no cartão já aconteceu inteira — ver o cabeçalho.
+      const parceladoNoCartao =
+        repeat.kind === SeriesKind.INSTALLMENT && !!input.creditCardId;
+      const confirmadaEscolhida = input.isConfirmed ?? true;
+
       const transactions = [];
       for (let i = 0; i < repeat.count; i++) {
         const primeira = i === 0;
@@ -218,7 +236,7 @@ export class TransactionsService {
           data: {
             ...this.dadosDoLancamento(input),
             transactionDate: dataDaOcorrencia(input.transactionDate, repeat.frequency, i),
-            isConfirmed: primeira ? input.isConfirmed ?? true : false,
+            isConfirmed: primeira || parceladoNoCartao ? confirmadaEscolhida : false,
             invoiceMonthOverride: primeira ? override : null,
             isRecurring: true,
             seriesId: series.id,
