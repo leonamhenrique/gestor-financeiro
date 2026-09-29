@@ -633,7 +633,12 @@
     .row-title .tag-previsto, .row-title .tag-pendente { display: none; }
     .tag-previsto-meta { display: inline; color: var(--fg-subtle); }
     .icon-btn { width: 36px; height: 36px; position: relative; }
-    .icon-btn::after { content: ""; position: absolute; inset: -4px; }
+    /* -5 e não -4. O `.icon-btn` é `display: grid` com borda de 1px, e o bloco
+     * de contenção de um filho absoluto é a caixa de PADDING — 34px, não os 36
+     * da caixa de borda. Com -4 o alvo saía 34+8 = 42, e o comentário que
+     * prometia 44 estava errado pela mesma conta que já tinha furado na alça de
+     * arraste. Com -5: 34+10 = 44. Medido por toque, não estimado. */
+    .icon-btn::after { content: ""; position: absolute; inset: -5px; }
 
     /* Linhas com QUATRO ações: com elas e o valor na mesma linha sobram ~40px
      * para o nome. Aqui vale quebrar — valor e ações descem juntos para a
@@ -1329,7 +1334,7 @@
         <div class="sub" id="p-sub"></div>
       </div>
 
-      <div class="blk" style="--i:1">
+      <div class="blk v-cta" style="--i:0">
         <div class="month-nav">
           <button class="icon-btn" type="button" id="p-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <span class="month-label num" id="p-mes-label"></span>
@@ -1337,18 +1342,30 @@
         </div>
       </div>
 
-      <!-- Mesma ordem do par no Resumo, e não a da urgência: quem tocou na
-           célula da esquerda tem que cair na seção da esquerda. Dentro de cada
-           uma a ordem é a da urgência — o atraso maior primeiro, o vencimento
-           mais próximo primeiro. -->
-      <div class="blk" style="--i:2">
-        <div class="lbl-row"><div class="lbl">A vencer</div><div class="lbl-total num" id="p-av-total"></div></div>
-        <div class="list" id="p-a-vencer"></div>
-      </div>
+      <!-- As duas seções são um par de mesmo peso: `split--par` dá uma coluna
+           igual para cada no desktop e empilha as duas no celular. Sem um
+           `.split`, os blocos caíam na auto-colocação do grid de duas colunas
+           da `.view` — a navegação de mês ia parar no canto do cabeçalho por
+           acidente, e a segunda coluna, dimensionada por `auto`, estourava a
+           página em 1,6px num celular deitado de 812. -->
+      <div class="split split--par">
+        <div class="col-main">
+          <!-- Mesma ordem do par no Resumo, e não a da urgência: quem tocou na
+               célula da esquerda tem que cair na seção da esquerda. Dentro de
+               cada uma a ordem é a da urgência — o atraso maior primeiro, o
+               vencimento mais próximo primeiro. -->
+          <div class="blk" style="--i:1">
+            <div class="lbl-row"><div class="lbl">A vencer</div><div class="lbl-total num" id="p-av-total"></div></div>
+            <div class="list" id="p-a-vencer"></div>
+          </div>
+        </div>
 
-      <div class="blk" style="--i:3">
-        <div class="lbl-row"><div class="lbl">Vencidas</div><div class="lbl-total num" id="p-ve-total"></div></div>
-        <div class="list" id="p-vencidas"></div>
+        <aside class="rail">
+          <div class="blk" style="--i:2">
+            <div class="lbl-row"><div class="lbl">Vencidas</div><div class="lbl-total num" id="p-ve-total"></div></div>
+            <div class="list" id="p-vencidas"></div>
+          </div>
+        </aside>
       </div>
     </section>
 

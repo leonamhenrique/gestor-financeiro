@@ -659,6 +659,16 @@ baixo: entra pelo bloco consolidado e volta pelo botão do topo, e enquanto
 está aberta **a aba acesa é a do pai** (`TELA_PAI`), senão as cinco apagariam e
 a pessoa ficaria sem saber de onde veio.
 
+**O conteúdo mora num `.split--par`.** No desktop a `.view` é um grid de duas
+colunas com o cabeçalho na linha 1 e o `.split` na linha 2: uma tela cujos
+blocos ficam soltos cai na auto-colocação desse grid, e foi o que aconteceu na
+primeira versão — a navegação de mês foi parar no canto do cabeçalho por
+acidente e a segunda coluna, dimensionada por `auto`, estourava a página em
+1,6px num celular deitado de 812. Com `split--par` as duas seções têm colunas
+iguais, separadas pela hairline do `.rail`, e a navegação de mês vira `.v-cta` de
+propósito. No celular o `.split` volta a ser coluna única e tudo empilha na
+ordem de leitura: voltar, título, mês, A vencer, Vencidas.
+
 **O mês é o mesmo objeto do Resumo** (`resumoMes`), não uma cópia: as setas das
 duas telas e a faixa de meses passam todas por `mudarMesDoResumo`, que redesenha
 as duas. Espalhar a lista de telas a redesenhar por cada handler foi como a tela
@@ -777,6 +787,15 @@ Cliente XPTO"; "Alimentação" para de ser cortado). Não saem as ações, e ela
 (60px → 102px por linha) numa tela feita para varrer. O ícone de ação vai a
 36px com `::after` de 44px — desenho pequeno, alvo grande. Etiqueta de status
 de fatura (`Fechada`, `Atrasada`) **fica**: ali ela é o dado da linha.
+
+**O `inset` do `::after` é −5px, não −4.** O `.icon-btn` é `display: grid` com
+borda de 1px, e o bloco de contenção de um filho absoluto é a caixa de
+**padding** — 34px, não os 36 da caixa de borda. Com −4 o alvo saía 34+8 = 42, e
+o comentário que prometia 44 estava errado pela mesma conta que já tinha furado
+na alça de arraste. Com −5: 34+10 = 44. **O alvo se mede por toque**
+(`elementFromPoint` varrendo a partir do centro), não pela caixa do elemento:
+medida na caixa, a seta diz 36 e some com o `::after`; medida por toque, ela diz
+se o dedo acerta.
 
 **Linha de conta no celular** — é a única com **quatro** ações. Com elas e o
 saldo na mesma linha sobram ~40px para o nome ("XP Investimentos" vira "XP
