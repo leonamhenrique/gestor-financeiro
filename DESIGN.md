@@ -298,6 +298,28 @@ linha de ajuda enquanto esse modo está ligado, dizendo exatamente isso. Número
 que diverge sem explicação é defeito; número que diverge com o motivo ao lado
 é informação.
 
+**Compra no cartão nasce confirmada; lançamento de conta nasce previsto.** A
+diferença é o que já aconteceu. Passar o cartão **é** o gasto: quando a pessoa
+registra, o dinheiro já foi comprometido e a fatura já o espera — pedir uma
+segunda confirmação é pedir para confirmar duas vezes a mesma coisa. Na conta
+é outra história: "pagar o aluguel dia 10" costuma ser plano, e previsto é o
+estado honesto até o dinheiro sair.
+
+Continua sendo escolha, não imposição: a caixa está lá para desmarcar a compra
+que ainda vai acontecer (a assinatura que renova semana que vem). E **escolha
+feita não se desfaz sozinha** — trocar o destino depois de marcar à mão
+respeita a marcação; só reabrir o formulário volta ao padrão.
+
+O ditado segue a mesma regra e pela mesma razão, senão a mesma compra nasceria
+confirmada digitada e prevista falada. Indício de futuro ainda manda mais:
+"vou comprar no cartão" é previsto. Isso exige que as listas de passado e
+futuro tenham os mesmos verbos — foi ao aplicar este padrão que apareceu a
+falta de "vou gastar" e "vou comprar", que existiam só no passado.
+
+**O texto da caixa muda com o destino**: na conta o confirmado mexe no saldo,
+no cartão mexe na fatura. Dizer "afeta o saldo" nos dois casos ensinava errado
+metade das vezes.
+
 **O saldo previsto é acumulado, não uma fotografia do mês.** Ele soma TODO
 previsto com data até o fim do mês olhado — não só o daquele mês — e desconta
 TODA fatura ainda em aberto que vence até lá. O previsto de um mês tem de

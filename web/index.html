@@ -1526,7 +1526,13 @@
       <div class="field"><label class="lbl" for="l-categoria">Categoria</label>
         <div class="field-data"><select id="l-categoria"></select><button type="button" class="ghost" id="l-nova-cat" title="Nova categoria">+</button></div>
       </div>
-      <label class="check"><input type="checkbox" id="l-confirmado"> Já confirmado (afeta o saldo agora)</label>
+      <div class="field">
+        <label class="check"><input type="checkbox" id="l-confirmado"> Já confirmado</label>
+        <!-- O texto muda com o destino: na conta o confirmado mexe no saldo,
+             no cartão mexe na fatura. Dizer "saldo" nos dois casos ensinava
+             errado metade das vezes. -->
+        <div class="field-help" id="l-confirmado-ajuda"></div>
+      </div>
       <label class="check"><input type="checkbox" id="l-repetir"> Repetir este lançamento</label>
       <div id="l-repetir-wrap" style="display:none;flex-direction:column;gap:16px">
         <div class="field"><label class="lbl">Tipo de repetição</label><div class="pills" id="l-rep-tipo"></div></div>
@@ -2933,7 +2939,7 @@
    * nascia prevista. `\b` em recebi para "recebimento" (substantivo, que
    * costuma vir seguido de "previsto") não entrar como passado. */
   var PASSADO = /\bpaguei\b|\bpago\b|quitei|\bgastei\b|\bcomprei\b|ja foi|debitado|creditado|\bpix\b|\bdebito\b|confirmad|\brecebi\b|\bcaiu\b|\bentrou\b|\bganhei\b|depositaram|me pagaram|\bveio\b/;
-  var FUTURO = /previst|agendad|vai vencer|vai sair|vai cair|vai entrar|\ba pagar\b|\ba receber\b|pagarei|vou pagar|sera pago|receberei|vou receber|vao me pagar|sera creditado|sera depositado/;
+  var FUTURO = /previst|agendad|vai vencer|vai sair|vai cair|vai entrar|\ba pagar\b|\ba receber\b|pagarei|vou pagar|sera pago|receberei|vou receber|vao me pagar|sera creditado|sera depositado|vou gastar|gastarei|vou comprar|comprarei|vou quitar|quitarei|vamos gastar|vamos comprar/;
   /* Entrada de dinheiro. Vale no passado e no futuro: quem diz "recebi" e quem
    * diz "vou receber" descrevem a mesma receita — muda a situação, não o tipo.
    * Por isso esta lista fica ao lado de PASSADO/FUTURO: as três crescem juntas. */
@@ -3116,6 +3122,12 @@
     // Futuro desmarca, mesmo depois do passado: "recebi o aviso, vou receber
     // dia 10" é promessa.
     if (FUTURO.test(texto)) r.confirmada = false;
+    // Compra no cartão nasce confirmada mesmo sem verbo no passado: passar o
+    // cartão É o gasto, e "80 no cartão em alimentação" descreve algo que já
+    // aconteceu. O mesmo padrão do formulário — indício de futuro ainda
+    // desmarca, logo abaixo. Sem isto, a mesma compra nasceria confirmada
+    // digitada e prevista falada, que é o app discordando de si mesmo.
+    if (r.cartaoId && !FUTURO.test(texto)) r.confirmada = true;
     // Data no futuro manda mais que o verbo: dinheiro que ainda vai sair é
     // previsto, mesmo numa frase como "pago no pix amanhã".
     if (r.data > isoDate(hoje)) r.confirmada = false;
@@ -4867,11 +4879,40 @@
   function atualizarCategorias(valor) {
     preencherSelectCategorias(document.getElementById("l-categoria"), tipoAtual(), valor);
   }
+  /** Marcado à mão nesta abertura do formulário? Enquanto não for, o padrão
+   * acompanha o destino; depois de ser, a escolha da pessoa manda. */
+  var confirmadoTocado = false;
+  document.getElementById("l-confirmado").addEventListener("change", function () {
+    confirmadoTocado = true;
+  });
+
+  /** Compra no cartão nasce CONFIRMADA; lançamento de conta nasce previsto.
+   *
+   * A diferença é o que já aconteceu. Passar o cartão é o gasto: quando a
+   * pessoa registra, o dinheiro já foi comprometido e a fatura já o espera —
+   * pedir uma segunda confirmação é pedir para confirmar duas vezes a mesma
+   * coisa. Na conta é diferente: "pagar o aluguel dia 10" costuma ser plano,
+   * e previsto é o estado honesto até o dinheiro sair.
+   *
+   * Continua sendo escolha: a caixa está lá para desmarcar uma compra que
+   * ainda vai acontecer (uma assinatura que renova semana que vem). */
+  function padraoDeConfirmado() {
+    return destinoAtual() === "cartao";
+  }
+
   function atualizarDestino() {
     var conta = destinoAtual() === "conta";
     document.getElementById("l-conta-wrap").style.display = conta ? "" : "none";
     document.getElementById("l-cartao-wrap").style.display = conta ? "none" : "";
     document.getElementById("l-fatura-wrap").style.display = conta ? "none" : "";
+    // Trocar o destino troca o padrão — a não ser que a pessoa já tenha
+    // dito o que quer nesta abertura. Escolha feita não se desfaz sozinha.
+    if (!confirmadoTocado && !editandoLancamento) {
+      document.getElementById("l-confirmado").checked = padraoDeConfirmado();
+    }
+    document.getElementById("l-confirmado-ajuda").textContent = conta
+      ? "Marque quando o dinheiro já entrou ou saiu da conta."
+      : "Compra no cartão já entra confirmada. Desmarque se ela ainda vai acontecer.";
     if (!conta) atualizarFatura();
   }
   /** Monta as faturas candidatas do cartão e sugere a que a data indica.
@@ -4959,6 +5000,10 @@
     preencherSelect(document.getElementById("l-conta"), state.accounts.filter(function (a) { return a.isActive; }), t ? t.contaId : (opcoes.contaId || null));
     preencherSelect(document.getElementById("l-cartao"), state.cards, t ? t.cartaoId : opcoes.cartaoId);
     atualizarCategorias(t ? t.categoriaId : (opcoes.categoriaId || null));
+    // `opcoes.confirmada` vem do ditado, que leu o tempo do verbo e sabe mais
+    // que qualquer padrão. Sem ela, quem decide é o destino (ver
+    // `padraoDeConfirmado`), aplicado no `atualizarDestino()` abaixo.
+    confirmadoTocado = t != null || opcoes.confirmada !== undefined;
     document.getElementById("l-confirmado").checked = t ? !!t.confirmada : !!opcoes.confirmada;
 
     // Repetir só existe na criação: editar não refaz uma série.
