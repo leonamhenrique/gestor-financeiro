@@ -305,6 +305,15 @@ segunda confirmação é pedir para confirmar duas vezes a mesma coisa. Na conta
 é outra história: "pagar o aluguel dia 10" costuma ser plano, e previsto é o
 estado honesto até o dinheiro sair.
 
+**Controle que não faz nada some.** Na antecipação de parcelas, a caixa
+"lançar como confirmadas" só aparece quando **alguma das parcelas que vão se
+mover** ainda está prevista. Como parcelamento no cartão nasce confirmado, na
+maior parte das vezes ela era um controle sem efeito — e controle sem efeito
+ensina a ignorar os que têm. A decisão é por seleção, não por série: mudar a
+quantidade pode fazer a caixa voltar, porque a próxima parcela pode ser
+prevista. A frase da ajuda que falava dela some junto, senão sobra explicação
+sem objeto.
+
 **Parcelamento no cartão segue a mesma lógica até o fim: TODAS as parcelas
 nascem confirmadas.** A compra aconteceu uma vez só; as doze parcelas são ela
 repartida, e cada fatura futura já as espera — é assim que a fatura do cartão

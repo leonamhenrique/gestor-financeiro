@@ -1722,8 +1722,10 @@
         <label class="lbl">Parcelas que serão movidas</label>
         <div class="list" id="ant-previa"></div>
       </div>
-      <label class="check"><input type="checkbox" id="ant-confirmar" checked> Lançar como confirmadas nessa fatura</label>
-      <div class="field-help">Antecipar não muda a data da compra, só a fatura em que ela entra. Confirmando, o valor passa a contar no total a pagar dessa fatura.</div>
+      <!-- A caixa e a segunda frase da ajuda somem quando todas as parcelas
+           que vão se mover já estão confirmadas: ver `atualizarAntecipar`. -->
+      <label class="check" id="ant-confirmar-linha"><input type="checkbox" id="ant-confirmar" checked> Lançar como confirmadas nessa fatura</label>
+      <div class="field-help" id="ant-ajuda"></div>
       <div class="field-error" id="ant-erro"></div>
     </div>
     <div class="layer-foot"><button type="submit" class="primary" id="ant-submit">Antecipar</button></div>
@@ -5592,6 +5594,20 @@
         '<span class="row-name">Total antecipado</span></span></span>' +
         '<span class="row-val num">' + money(total) + '</span></div>'
       : '<div class="empty">Nada a mover.</div>';
+    // A caixa só tem o que fazer se alguma das parcelas que vão se mover ainda
+    // estiver prevista. Parcelamento no cartão nasce confirmado, então na maior
+    // parte das vezes ela era um controle que não fazia nada — e controle que
+    // não faz nada ensina a ignorar os que fazem. Some junto a frase da ajuda
+    // que falava dele, senão sobraria explicação sem objeto.
+    var todasConfirmadas = movidas.length > 0 && movidas.every(function (x) { return x.confirmada; });
+    document.getElementById("ant-confirmar-linha").hidden = todasConfirmadas;
+    // Escondida, ela vai marcada: confirmar o que já está confirmado não muda
+    // nada, e deixá-la desmarcada por baixo desconfirmaria sem ninguém pedir.
+    if (todasConfirmadas) document.getElementById("ant-confirmar").checked = true;
+    document.getElementById("ant-ajuda").textContent = todasConfirmadas
+      ? "Antecipar não muda a data da compra, só a fatura em que ela entra — o valor já conta no total a pagar."
+      : "Antecipar não muda a data da compra, só a fatura em que ela entra. Confirmando, o valor passa a contar no total a pagar dessa fatura.";
+
     document.getElementById("ant-submit").disabled = !movidas.length;
   }
 
