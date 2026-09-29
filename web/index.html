@@ -601,14 +601,21 @@
     .icon-btn { width: 36px; height: 36px; position: relative; }
     .icon-btn::after { content: ""; position: absolute; inset: -4px; }
 
-    /* Conta é a única linha com QUATRO ações: com elas e o saldo na mesma
-     * linha sobram ~40px para o nome ("XP Investimentos" virava "XP I…").
-     * Aqui vale quebrar — saldo e ações descem juntos para a segunda linha.
-     * São poucas contas por usuário, então a altura extra não pesa como
-     * pesaria no extrato. */
-    #c-lista .row { flex-wrap: wrap; row-gap: 8px; }
-    #c-lista .row-main { min-width: 100%; }
-    #c-lista .row-acoes { margin-left: auto; }
+    /* Linhas com QUATRO ações: com elas e o valor na mesma linha sobram ~40px
+     * para o nome. Aqui vale quebrar — valor e ações descem juntos para a
+     * segunda linha, e o nome fica com a largura inteira.
+     *
+     * Conta: "XP Investimentos" virava "XP I…".
+     * Lançamento da fatura: a parcela ganha uma quinta ação ("Antecipar
+     *   parcelas"), e "Notebook (Parcela 2/6)" virava "Noteboo…" em 58px —
+     *   sumindo justamente com o número da parcela, que é a única coisa que
+     *   distingue uma linha da outra numa compra parcelada.
+     *
+     * Nos dois casos são poucas linhas por tela, então a altura extra não
+     * pesa como pesaria no extrato. */
+    #c-lista .row, #k-det-lista .row { flex-wrap: wrap; row-gap: 8px; }
+    #c-lista .row-main, #k-det-lista .row-main { min-width: 100%; }
+    #c-lista .row-acoes, #k-det-lista .row-acoes { margin-left: auto; }
   }
   .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--fg-subtle); flex-shrink: 0; }
   .tag.warn { color: var(--warning); }
@@ -788,6 +795,15 @@
   }
   .check { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg-muted); cursor: pointer; }
   .check input { width: 16px; height: 16px; accent-color: var(--accent); }
+  /* No telefone a linha inteira é o alvo, e ela media 22px — metade da regra
+   * 4. Aqui o `::after` dos outros controles não serve: duas caixas vizinhas
+   * ficam a 16px uma da outra, e esticar 11px para cada lado faria os alvos
+   * se sobreporem, o que é pior que alvo pequeno (o toque na borda pega a
+   * caixa errada). Então a linha cresce de verdade, e o texto continua
+   * centrado nela pelo `align-items`. */
+  @media (max-width: 767px) {
+    .check { min-height: 44px; }
+  }
 
   /* ---------- camada (seção 11) ---------- */
   /* A rolagem é da camada inteira, não do corpo: cabeçalho, campos e rodapé

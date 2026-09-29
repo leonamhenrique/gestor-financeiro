@@ -1118,6 +1118,19 @@ próprio, que reintroduziria o card pela porta dos fundos.
   `--controle-borda`, texto `--fg-muted`, sem fundo. No hover a borda passa
   para `--accent-borda`, que é mais forte que a de repouso — hover que
   enfraquece o contorno inverte o sinal.
+- **Caixa de seleção: a linha inteira é o alvo, e no telefone ela cresce para
+  44px.** O desenho continua com 16px; quem cresce é o rótulo, e o texto segue
+  centrado. Aqui o `::after` dos outros controles não serve: duas caixas
+  vizinhas ficam a 16px uma da outra, e esticar 11px para cada lado faria os
+  alvos se sobreporem — toque na borda pegando a caixa errada é pior que alvo
+  pequeno.
+- **Linha com QUATRO ações quebra no telefone**: valor e ações descem para a
+  segunda linha e o nome fica com a largura inteira. Com tudo na mesma linha
+  sobram ~58px para o nome, e o que se perde é o fim — justamente onde mora o
+  que distingue uma linha da outra ("Notebook (Parcela 2/6)" virava
+  "Noteboo…"). Vale para contas e para os lançamentos da fatura; no extrato
+  não, porque lá são muitas linhas e a altura dobrada pesaria.
+
 - Ação destrutiva é **texto em `--negative`**, nunca fundo vermelho. Vermelho
   cheio é para valor negativo, não para botão.
 
