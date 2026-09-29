@@ -113,6 +113,11 @@
     --seg-despesa-fundo: rgba(255,107,107,0.10);
     --seg-receita-tinta: var(--positive);
     --seg-despesa-tinta: var(--negative);
+    /* Terceiro sinal, usado no par vencidas/a vencer: o que ainda vai vencer
+     * é aviso, não perda. No escuro o ocre de token já rende de sobra sobre
+     * o próprio tinte (medido: 9,89:1) e não precisa de versão própria. */
+    --seg-aviso-fundo: rgba(255,184,107,0.10);
+    --seg-aviso-tinta: var(--warning);
 
     /* Faz o navegador pintar os controles nativos (lista do select, calendário,
      * autofill) no tema certo. Sem isso o popup do select vem do sistema. */
@@ -201,6 +206,11 @@
     --seg-despesa-fundo: rgba(176,50,42,0.10);
     --seg-receita-tinta: #0B6B4E;
     --seg-despesa-tinta: #B0322A;
+    /* Mesmo remédio do verde e do vermelho: o ocre de token dá 4,35:1 sobre
+     * o tinte, abaixo do mínimo de texto. Escurecido um passo ele fecha
+     * 5,86:1, e só aqui — o aviso em texto, borda e etiqueta não muda. */
+    --seg-aviso-fundo: rgba(132,84,12,0.10);
+    --seg-aviso-tinta: #7A4E0B;
 
     color-scheme: light;
   }
@@ -341,8 +351,32 @@
     background-color: var(--bg);
     background-image: linear-gradient(var(--seg-despesa-fundo), var(--seg-despesa-fundo));
   }
+  .seg-cell--aviso {
+    background-color: var(--bg);
+    background-image: linear-gradient(var(--seg-aviso-fundo), var(--seg-aviso-fundo));
+  }
   .seg-cell--receita .seg-val { color: var(--seg-receita-tinta); }
   .seg-cell--despesa .seg-val { color: var(--seg-despesa-tinta); }
+  .seg-cell--aviso .seg-val { color: var(--seg-aviso-tinta); }
+  /* Ganha das cores de sinal acima: sem valor não há sinal a dar. */
+  .seg-cell .seg-val.vazio { color: var(--fg-subtle); }
+  /* Célula que abre outra tela. Ela é `button`, então precisa desfazer o que o
+   * navegador põe por conta própria (fonte, borda, alinhamento) e dizer que se
+   * clica. A seta no canto é o que conta isso sem hover — no toque não há
+   * hover, e uma célula que abre tela não pode parecer igual a uma que só
+   * mostra número. */
+  button.seg-cell {
+    font-family: inherit; color: inherit; text-align: left; border: none;
+    cursor: pointer; width: 100%; transition: background-color 180ms ease-out;
+  }
+  .seg-cab { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  /* Numa célula de 131px (tela de 320), "a receber" quebrava em "a / receber"
+   * e a linha virava duas. Os dois pedaços cabem inteiros lado a lado — o que
+   * não cabia era a quebra. */
+  #r-pendencias-bloco .seg-sub span { white-space: nowrap; }
+  .seg-cab svg { width: 13px; height: 13px; color: var(--fg-subtle); flex-shrink: 0; }
+  button.seg-cell:hover .seg-cab svg { color: var(--fg); }
+  button.seg-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .seg-meta { font-size: 11px; color: var(--fg-subtle); }
   .seg-subs { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
   .seg-sub { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--fg-subtle); }
@@ -688,6 +722,10 @@
   .fab-opt:hover { background: var(--hover); }
   @media (min-width: 768px) { .fab-wrap { right: 32px; bottom: 32px; } }
 
+  /* O `.ghost` é inline-flex, mas dentro de um `.blk` em coluna ele estica
+   * para a largura toda e vira um botão de página inteira — que não é o que
+   * um "voltar" é. Encolhe para o próprio conteúdo. */
+  .btn-voltar { align-self: flex-start; }
   .ghost.danger { color: var(--negative); }
   .ghost.danger:hover { border-color: var(--negative-borda); }
   .link-danger { background: none; border: none; font-family: inherit; font-size: 13px; color: var(--negative); cursor: pointer; padding: 0; }
@@ -1216,14 +1254,31 @@
             </div>
           </div>
 
-          <!-- O que falta pagar e receber. Some quando não há nada pendente:
-               lista vazia com título é pior que ausência. -->
+          <!-- O que falta pagar e receber, consolidado: dois números e o
+               caminho para a lista. O analítico mora na tela de Pendências —
+               Resumo é consulta rápida, e a lista inteira aberta aqui afogava
+               o mapa de calor e as categorias. Some quando não há nada
+               pendente: bloco vazio com título é pior que ausência. -->
           <div class="blk" id="r-pendencias-bloco" style="--i:4" hidden>
-            <div class="lbl-row"><div class="lbl">Falta pagar e receber</div><div class="lbl-total num" id="r-pend-total"></div></div>
-            <div class="lbl" id="r-vencidas-lbl" hidden></div>
-            <div class="list" id="r-vencidas"></div>
-            <div class="lbl" id="r-a-vencer-lbl" hidden></div>
-            <div class="list" id="r-a-vencer"></div>
+            <div class="lbl">Falta pagar e receber</div>
+            <div class="seg">
+              <button type="button" class="seg-cell seg-cell--aviso" id="r-pend-a-vencer">
+                <div class="seg-cab"><span class="lbl">A vencer</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <div class="seg-val num" id="r-pend-av-val"></div>
+                <div class="seg-meta" id="r-pend-av-n"></div>
+                <div class="seg-subs" id="r-pend-av-subs" hidden>
+                  <div class="seg-sub"><span>a receber</span><span class="num" id="r-pend-av-rec"></span></div>
+                </div>
+              </button>
+              <button type="button" class="seg-cell seg-cell--despesa" id="r-pend-vencidas">
+                <div class="seg-cab"><span class="lbl">Vencidas</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <div class="seg-val num" id="r-pend-ve-val"></div>
+                <div class="seg-meta" id="r-pend-ve-n"></div>
+                <div class="seg-subs" id="r-pend-ve-subs" hidden>
+                  <div class="seg-sub"><span>a receber</span><span class="num" id="r-pend-ve-rec"></span></div>
+                </div>
+              </button>
+            </div>
           </div>
 
           <div class="blk" style="--i:5">
@@ -1260,6 +1315,40 @@
             </div>
           </div>
         </aside>
+      </div>
+    </section>
+
+    <!-- ================= PENDÊNCIAS =================
+         Tela filha do Resumo: não tem aba na barra de baixo, entra pelo bloco
+         consolidado e volta pelo botão. O mês é o MESMO do Resumo (`resumoMes`),
+         não uma cópia — voltar e achar outro mês seria perder o lugar. -->
+    <section class="view" data-view="pendencias">
+      <div class="blk v-head" style="--i:0">
+        <button type="button" class="ghost btn-voltar" id="p-voltar"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Resumo</button>
+        <h1>Pendências</h1>
+        <div class="sub" id="p-sub"></div>
+      </div>
+
+      <div class="blk" style="--i:1">
+        <div class="month-nav">
+          <button class="icon-btn" type="button" id="p-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span class="month-label num" id="p-mes-label"></span>
+          <button class="icon-btn" type="button" id="p-mes-prox" aria-label="Próximo mês"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+
+      <!-- Mesma ordem do par no Resumo, e não a da urgência: quem tocou na
+           célula da esquerda tem que cair na seção da esquerda. Dentro de cada
+           uma a ordem é a da urgência — o atraso maior primeiro, o vencimento
+           mais próximo primeiro. -->
+      <div class="blk" style="--i:2">
+        <div class="lbl-row"><div class="lbl">A vencer</div><div class="lbl-total num" id="p-av-total"></div></div>
+        <div class="list" id="p-a-vencer"></div>
+      </div>
+
+      <div class="blk" style="--i:3">
+        <div class="lbl-row"><div class="lbl">Vencidas</div><div class="lbl-total num" id="p-ve-total"></div></div>
+        <div class="list" id="p-vencidas"></div>
       </div>
     </section>
 
@@ -4042,28 +4131,76 @@
       (entrada ? "+" : "−") + money(x.valor) + '</span></div>';
   }
 
+  /** O consolidado do Resumo: dois números e o caminho para a lista.
+   *
+   * O analítico saiu daqui de propósito. Resumo é consulta rápida — com a
+   * lista inteira aberta, oito linhas de pendência empurravam o mapa de calor
+   * e as categorias para fora da primeira tela. Aqui ficam os dois totais, no
+   * mesmo par de células de Receitas/Despesas logo acima, e quem quiser o
+   * detalhe abre a tela de Pendências. */
   function renderPendencias() {
     var p = pendenciasDoMes(resumoMes);
-    var bloco = document.getElementById("r-pendencias-bloco");
-    // Nada pendente é uma boa notícia, não uma lista vazia: o bloco some.
-    bloco.hidden = p.total === 0;
+    document.getElementById("r-pendencias-bloco").hidden = p.total === 0;
     if (!p.total) return;
+    celulaPendencia("av", p.aVencer, "nada a vencer");
+    celulaPendencia("ve", p.vencidas, "nada vencido");
+  }
 
-    document.getElementById("r-pend-total").textContent =
-      (p.aReceber ? "+" + money(p.aReceber) : "") +
-      (p.aReceber && p.aPagar ? " · " : "") +
-      (p.aPagar ? "−" + money(p.aPagar) : "");
+  /** Uma célula do par. O número grande é o que falta PAGAR — é ele que cobra
+   * uma ação. O que há a receber desce para a linha de baixo em vez de se
+   * misturar num líquido: receber 450 não quita uma fatura de 845, e um número
+   * só esconderia as duas obrigações. Sem nada a receber, a linha nem aparece. */
+  function celulaPendencia(pref, lista, vazio) {
+    var t = somaPendencias(lista);
+    var val = document.getElementById("r-pend-" + pref + "-val");
+    // Lado vazio não vira "R$ 0,00": mesma regra da faixa de meses — zero é um
+    // resultado, "não há nada" é outro, e aqui o segundo é uma boa notícia que
+    // merece ser lida como tal. A célula fica, porque o par não pode encolher
+    // e mudar o desenho do bloco conforme o mês.
+    val.textContent = lista.length ? brl(t.pagar) : "—";
+    val.classList.toggle("vazio", !lista.length);
+    document.getElementById("r-pend-" + pref + "-n").textContent =
+      lista.length ? contagem(lista.length, "lançamento") : vazio;
+    document.getElementById("r-pend-" + pref + "-subs").hidden = !t.receber;
+    document.getElementById("r-pend-" + pref + "-rec").textContent = "+" + money(t.receber);
+  }
 
-    var secao = function (idLista, idRotulo, lista, rotulo) {
-      var host = document.getElementById(idLista);
-      var cab = document.getElementById(idRotulo);
-      host.innerHTML = lista.map(linhaPendenciaHTML).join("");
-      host.hidden = !lista.length;
-      cab.hidden = !lista.length;
-      cab.textContent = rotulo + " · " + lista.length;
-    };
-    secao("r-vencidas", "r-vencidas-lbl", p.vencidas, "Vencidas");
-    secao("r-a-vencer", "r-a-vencer-lbl", p.aVencer, "A vencer");
+  function somaPendencias(lista) {
+    var pagar = 0, receber = 0;
+    lista.forEach(function (x) { if (x.tipo === "INCOME") receber += x.valor; else pagar += x.valor; });
+    return { pagar: pagar, receber: receber };
+  }
+
+  /** "1 lançamento", "2 lançamentos" — o plural tem que acompanhar o número. */
+  function contagem(n, palavra) { return n + " " + palavra + (n === 1 ? "" : "s"); }
+
+  /** Os dois sentidos lado a lado, nunca somados: "+450,00 · −2.410,20". */
+  function totalPendencia(lista) {
+    var t = somaPendencias(lista);
+    return (t.receber ? "+" + money(t.receber) : "") +
+      (t.receber && t.pagar ? " · " : "") +
+      (t.pagar ? "−" + money(t.pagar) : "");
+  }
+
+  /* ---------- tela de pendências (o analítico) ---------- */
+
+  /** A lista inteira, discriminada. Lê o MESMO `resumoMes` do Resumo: voltar da
+   * tela e achar outro mês seria perder o lugar. */
+  function renderTelaPendencias() {
+    var p = pendenciasDoMes(resumoMes);
+    document.getElementById("p-mes-label").textContent = rotuloMes(resumoMes);
+    document.getElementById("p-sub").textContent = p.total
+      ? contagem(p.total, "lançamento") + " sem confirmação até " + rotuloMes(resumoMes).toLowerCase() + "."
+      : "Nada em aberto até " + rotuloMes(resumoMes).toLowerCase() + ".";
+    secaoPendencia("p-a-vencer", "p-av-total", p.aVencer, "Nada a vencer neste mês.");
+    secaoPendencia("p-vencidas", "p-ve-total", p.vencidas, "Nada vencido — em dia até aqui.");
+  }
+
+  function secaoPendencia(idLista, idTotal, lista, vazio) {
+    document.getElementById(idTotal).textContent = lista.length ? totalPendencia(lista) : "";
+    document.getElementById(idLista).innerHTML = lista.length
+      ? lista.map(linhaPendenciaHTML).join("")
+      : '<div class="empty">' + esc(vazio) + '</div>';
   }
 
   /* ---------- faixa de meses ---------- */
@@ -4401,7 +4538,7 @@
     var tot = totaisDoMes(resumoMes);
     document.getElementById("r-entradas").textContent = brl(tot.entradas);
     document.getElementById("r-saidas").textContent = brl(tot.saidas);
-    document.getElementById("r-m-entradas").textContent = (tot.avulsos.length + tot.faturas.length) + " lançamentos";
+    document.getElementById("r-m-entradas").textContent = contagem(tot.avulsos.length + tot.faturas.length, "lançamento");
     document.getElementById("r-m-saidas").textContent = "resultado " + sinal(tot.entradas - tot.saidas);
     renderFaixaMeses();
     renderPendencias();
@@ -4799,7 +4936,7 @@
   }
 
   function renderAll() {
-    renderResumo(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderPerfil();
+    renderResumo(); renderTelaPendencias(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderPerfil();
     atualizarBannerDaFila();
     // A camada do dia fica aberta enquanto o usuário confirma, edita ou exclui
     // a partir dela, então precisa refletir a mudança na hora.
@@ -6412,15 +6549,28 @@
     if (vm.m < 0) { vm.m = 11; vm.y--; }
     if (vm.m > 11) { vm.m = 0; vm.y++; }
   }
+  /** Todo mundo que troca o mês do Resumo passa por aqui: as setas dos dois
+   * lugares, a faixa e a tela de Pendências. Espalhar a lista de telas a
+   * redesenhar por cada handler foi como a tela filha nasceu dessincronizada
+   * na primeira versão — mudar o mês pelas setas do Resumo deixava Pendências
+   * mostrando o mês anterior. */
+  function mudarMesDoResumo(delta, destino) {
+    if (destino) { resumoMes.y = destino.y; resumoMes.m = destino.m; }
+    else passoMes(resumoMes, delta);
+    renderResumo(); renderTelaPendencias(); renderCategorias();
+  }
   document.getElementById("r-meses").addEventListener("click", function (ev) {
     var col = ev.target.closest(".mes-col");
     if (!col) return;
-    var vm = parseMonthKey(col.getAttribute("data-mes"));
-    resumoMes.y = vm.y; resumoMes.m = vm.m;
-    renderResumo(); renderCategorias();
+    mudarMesDoResumo(0, parseMonthKey(col.getAttribute("data-mes")));
   });
-  document.getElementById("r-mes-ant").addEventListener("click", function () { passoMes(resumoMes, -1); renderResumo(); renderCategorias(); });
-  document.getElementById("r-mes-prox").addEventListener("click", function () { passoMes(resumoMes, 1); renderResumo(); renderCategorias(); });
+  document.getElementById("r-mes-ant").addEventListener("click", function () { mudarMesDoResumo(-1); });
+  document.getElementById("r-mes-prox").addEventListener("click", function () { mudarMesDoResumo(1); });
+  document.getElementById("p-mes-ant").addEventListener("click", function () { mudarMesDoResumo(-1); });
+  document.getElementById("p-mes-prox").addEventListener("click", function () { mudarMesDoResumo(1); });
+  document.getElementById("p-voltar").addEventListener("click", function () { irPara("resumo"); });
+  document.getElementById("r-pend-a-vencer").addEventListener("click", function () { irPara("pendencias"); });
+  document.getElementById("r-pend-vencidas").addEventListener("click", function () { irPara("pendencias"); });
   document.getElementById("l-mes-ant").addEventListener("click", function () { passoMes(extratoMes, -1); renderExtrato(); });
   document.getElementById("l-mes-prox").addEventListener("click", function () { passoMes(extratoMes, 1); renderExtrato(); });
   document.getElementById("k-mes-ant").addEventListener("click", function () { passoMes(faturaMes, -1); renderCartoes(); });
@@ -6659,10 +6809,17 @@
   document.getElementById("banner-regularizar").addEventListener("click", abrirAssinatura);
 
   /* ================= navegação de tela ================= */
+  /** Telas filhas: não têm aba própria na barra de baixo, e a aba que acende é
+   * a do pai. Sem isto, abrir Pendências apagaria as cinco abas e a pessoa
+   * ficaria sem saber de onde veio. */
+  var TELA_PAI = { pendencias: "resumo" };
+
   function irPara(view) {
+    var aba = TELA_PAI[view] || view;
     document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("on", v.dataset.view === view); });
-    document.querySelectorAll("[data-goto]").forEach(function (b) { b.classList.toggle("on", b.dataset.goto === view); });
+    document.querySelectorAll("[data-goto]").forEach(function (b) { b.classList.toggle("on", b.dataset.goto === aba); });
     if (view === "resumo") renderResumo();
+    if (view === "pendencias") renderTelaPendencias();
     window.scrollTo(0, 0);
   }
   document.querySelectorAll("[data-goto]").forEach(function (b) {

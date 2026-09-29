@@ -631,26 +631,57 @@ escolhido no centro. A janela vai de onze meses atrás até o mês que vem, e
 estica para conter o mês escolhido — quem navegar para longe pelas setas
 continua se vendo nela.
 
-**Falta pagar e receber** (no Resumo, logo abaixo da faixa) — a lista do que
-ainda está em aberto no mês olhado, separada em **Vencidas** (do mais antigo
-para o mais novo: o atraso maior primeiro) e **A vencer** (do mais próximo para
-o mais distante: o que chega antes primeiro). Cada linha é a `.row` de sempre —
-ponto colorido pelo tipo, nome, meta em `--fg-muted` e valor à direita — e a
-meta diz **data, distância em palavras e origem**: `12/08/2026 · há 48 dias ·
-Fatura de agosto`. A distância é o que a data crua não diz; ler "há 48 dias"
-é imediato, converter "12/08" para dias de atraso é conta.
+**Falta pagar e receber** (no Resumo) — o **consolidado**, no mesmo par de
+células de Receitas/Despesas logo acima: `A vencer` num tinte de aviso, `Vencidas`
+no de despesa. O analítico não mora aqui. Com a lista inteira aberta, oito linhas
+de pendência empurravam o mapa de calor e as categorias para fora da primeira
+tela — e Resumo é consulta rápida, não relatório.
 
-**Só entra o que não está confirmado**, porque a pergunta do bloco é o que falta
-fazer, e confirmado já foi feito. O total do cabeçalho separa os dois sentidos —
-`+450,00 · −14.755,87` — em vez de somar num líquido: receber R$ 450 não paga a
+**O número grande de cada célula é o que falta PAGAR**, porque é ele que cobra
+uma ação. O que há a receber desce para a linha de baixo (`.seg-sub`), e some
+quando é zero. Os dois nunca viram um líquido: receber R$ 450 não quita uma
 fatura de R$ 845, e um número só esconderia as duas obrigações.
+
+**Lado vazio mostra `—`, não `R$ 0,00`** — a mesma regra da faixa de meses, e
+aqui a ausência é notícia boa: o metadado passa a dizer "nada a vencer". A
+célula fica no lugar de qualquer jeito, porque o par não pode encolher e mudar
+o desenho do bloco conforme o mês. **Sem nada pendente dos dois lados, o bloco
+inteiro some**, como o de primeiros passos.
+
+**A célula é `button` e abre a tela de Pendências.** A seta no canto do rótulo é
+o que conta isso — no toque não há hover, e uma célula que abre tela não pode
+parecer igual a uma que só mostra número. Sendo `button`, ela desfaz o que o
+navegador põe por conta própria (fonte, borda, alinhamento) e ganha anel de foco
+para o teclado.
+
+**Pendências** (tela filha do Resumo) — o analítico. Não tem aba na barra de
+baixo: entra pelo bloco consolidado e volta pelo botão do topo, e enquanto
+está aberta **a aba acesa é a do pai** (`TELA_PAI`), senão as cinco apagariam e
+a pessoa ficaria sem saber de onde veio.
+
+**O mês é o mesmo objeto do Resumo** (`resumoMes`), não uma cópia: as setas das
+duas telas e a faixa de meses passam todas por `mudarMesDoResumo`, que redesenha
+as duas. Espalhar a lista de telas a redesenhar por cada handler foi como a tela
+filha nasceu dessincronizada na primeira versão.
+
+**As seções vêm na ordem do par, não na da urgência**: `A vencer` e depois
+`Vencidas`, porque quem tocou na célula da esquerda tem que cair na seção da
+esquerda. Dentro de cada uma a ordem é a da urgência — o atraso maior primeiro,
+o vencimento mais próximo primeiro. Cada linha é a `.row` de sempre, e a meta diz
+**data, distância em palavras e origem**: `12/08/2026 · há 48 dias · Fatura de
+agosto`. A distância é o que a data crua não diz; ler "há 48 dias" é imediato,
+converter "12/08" para dias de atraso é conta. Seção vazia mostra `.empty`, não
+some: a ausência de vencidas é justamente o que a pessoa quer ver.
+
+**Só entra o que não está confirmado**, porque a pergunta é o que falta fazer, e
+confirmado já foi feito.
 
 **O cartão entra pela fatura, nunca pelas compras.** Somar as compras do cartão
 *e* a fatura contaria o mesmo dinheiro duas vezes; somar só as compras diria um
-vencimento que não existe (a compra de 20/08 não vence em 20/08). Então a
-compra no cartão nunca aparece solta aqui: o que aparece é a fatura em aberto,
-com o valor de `emAberto` e a data do vencimento — a mesma data que a tela de
-Lançamentos mostra, independente da configuração de relatório.
+vencimento que não existe (a compra de 20/08 não vence em 20/08). Então a compra
+no cartão nunca aparece solta: o que aparece é a fatura em aberto, com o valor de
+`emAberto` e a data do vencimento — a mesma data que a tela de Lançamentos mostra,
+independente da configuração de relatório.
 
 **A lista olha do mês escolhido para trás**, como o saldo previsto: conta de
 setembro que ninguém pagou continua na lista em outubro e em novembro. Some em
@@ -658,14 +689,17 @@ agosto, porque agosto não sabe de setembro; mudar de mês não faz o tempo pass
 então um lançamento de 25/09 segue em "a vencer" mesmo olhando outubro — vencido
 é o que passou de **hoje**, não do mês na tela.
 
-**Sem nada pendente o bloco some** — como o de primeiros passos. Uma lista vazia
-com título ocuparia a tela para dizer "nada", quando a ausência já diz.
-
 **O ano sai do rótulo da fatura quando é o mesmo do vencimento** (`Fatura de
 agosto`, não `Fatura de agosto 2026`): a data ao lado já carrega o ano, e a
 linha da meta é o primeiro texto a ser cortado numa tela de 320px. Ele volta
 quando muda — fatura de dezembro que vence em janeiro diz `Fatura de dezembro
 de 2026`, senão o rótulo mentiria por omissão.
+
+**O tinte de aviso é um token à parte** (`--seg-aviso-fundo`/`--seg-aviso-tinta`).
+No escuro o ocre de token já rende 9,89:1 sobre o próprio tinte e não precisa de
+versão própria; no claro ele dá 4,35:1, abaixo do mínimo de texto, e escurece um
+passo para 5,86:1 — mesmo remédio que o verde e o vermelho da célula tingida já
+usavam, e valendo só ali: o aviso em texto, borda e etiqueta não muda.
 
 **Mapa de calor** (gastos ou receitas por dia do mês) — grade de 7 colunas começando na
 **segunda** (S T Q Q S S D, cabeçalho no estilo do `.lbl`), gap de 2px, uma
