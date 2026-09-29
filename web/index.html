@@ -553,8 +553,13 @@
     transition: color 160ms ease-out, opacity 160ms ease-out;
   }
   .arrasto svg { width: 12px; height: 12px; }
-  /* Alvo de toque de 44px sem engordar o desenho (regra 4). */
-  .arrasto::after { content: ""; position: absolute; inset: -12px -4px -12px -12px; }
+  /* Alvo de toque de 44px sem engordar o desenho (regra 4). As margens são
+   * assimétricas porque o espaço é assimétrico: à esquerda há a calha da
+   * página, vazia; à direita começa o nome da linha, e avançar por cima dele
+   * faria o toque no início do nome pegar a alça. Medido: 44x44.
+   * Já foi -12/-4/-12/-12, que dava 34 de largura — o comentário prometia 44
+   * e a conta não fechava, porque 18 + 12 + 4 nunca foram 44. */
+  .arrasto::after { content: ""; position: absolute; inset: -12px -6px -12px -20px; }
   .arrasto:hover, .arrasto:focus-visible { color: var(--fg-muted); }
   .cat-grupo, .cat-filhas { display: flex; flex-direction: column; }
   @media (hover: hover) {
