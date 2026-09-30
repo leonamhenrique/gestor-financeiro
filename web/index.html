@@ -322,6 +322,9 @@
     color: var(--fg-muted); cursor: pointer; transition: color 180ms ease-out, border-color 180ms ease-out;
   }
   .icon-btn:hover { color: var(--fg); border-color: var(--accent-borda); }
+  /* Também é o estado "pedido no ar": o mesmo apagado dos outros controles
+   * desabilitados do app, que diz "não toque de novo" sem inventar sinal novo. */
+  .icon-btn:disabled { opacity: 0.4; cursor: default; }
   .icon-btn svg { width: 14px; height: 14px; }
   .icon-btn.danger:hover { color: var(--negative); border-color: var(--negative-borda); }
 
@@ -3822,7 +3825,24 @@
 
   /** Grava no servidor e recarrega. Se falhar, a tela não muda e a mensagem da
    * API aparece: melhor um "não consegui" honesto que uma tela otimista. */
+  /** O botão que disparou a ação em curso. `acoesDeLista` o deposita aqui e
+   * `comServidor` o consome: é o único jeito de o botão saber que o pedido
+   * dele está no ar sem passar o elemento por dentro de cada função de
+   * negócio (`confirmarLancamento`, `excluirLancamento`, e por aí). */
+  var botaoDaAcao = null;
+
   async function comServidor(oQue, acao) {
+    // Entre o toque e a resposta há uma ida à rede — offline, até 3 segundos.
+    // Nesse intervalo o botão ficava exatamente igual: nada dizia que o toque
+    // tinha sido registrado, dava para tocar de novo, e cada toque disparava
+    // outro pedido (medido: 3 toques, 3 pedidos) com um aviso atrás do outro.
+    var botao = botaoDaAcao;
+    botaoDaAcao = null;
+    if (botao) {
+      if (botao.disabled) return false;
+      botao.disabled = true;
+      botao.setAttribute("aria-busy", "true");
+    }
     try {
       await acao();
       await carregarDoServidor();
@@ -3848,6 +3868,14 @@
       }
       avisar("Não deu para " + oQue, (e && e.message) || "Tente de novo em instantes.");
       return false;
+    } finally {
+      // `renderAll` troca o HTML da lista: o botão de antes pode já não estar
+      // na página, e reabilitar um elemento solto não custa nada além de ser
+      // inútil — por isso o `isConnected`.
+      if (botao && botao.isConnected) {
+        botao.disabled = false;
+        botao.removeAttribute("aria-busy");
+      }
     }
   }
 
@@ -6593,6 +6621,9 @@
     // A alça fica dentro da linha do cartão, que navega para a fatura no
     // clique. Soltar um arraste não pode virar navegação.
     if (e.target.closest(".arrasto")) return;
+    // Guardado antes de despachar: quem chamar `comServidor` daqui vai
+    // encontrá-lo e marcar o botão como ocupado enquanto o pedido não volta.
+    botaoDaAcao = e.target.closest(".icon-btn");
     var el;
     if ((el = e.target.closest("[data-passo]"))) return abrirPasso(el.dataset.passo);
     if ((el = e.target.closest("[data-confirmar]"))) return confirmarLancamento(el.dataset.confirmar);

@@ -785,6 +785,31 @@ comum também expõe `cssRules` (vazio); tratar isso como "é um grupo" faz a
 varredura pular o seletor de todas elas e concluir, errado, que nenhuma regra de
 hover existe.
 
+**Enquanto o pedido está no ar, o botão fica ocupado.** Entre o toque e a
+resposta há uma ida à rede — **offline, até 3 segundos** — e nesse intervalo o
+botão ficava exatamente igual: nada dizia que o toque tinha sido registrado.
+Medido: **3 toques, 3 pedidos**, e um aviso de "sem conexão" atrás do outro.
+Agora `comServidor` desabilita o botão que disparou a ação e marca
+`aria-busy` até a resposta voltar; `.icon-btn:disabled` usa o mesmo apagado dos
+outros controles desabilitados do app, que diz "não toque de novo" sem inventar
+sinal novo. Depois: **4 toques, 1 pedido**.
+
+O botão chega até lá por uma variável que `acoesDeLista` deposita e
+`comServidor` consome — é o único jeito de ele saber que o pedido é dele sem
+passar o elemento por dentro de cada função de negócio. E o `finally` só
+reabilita o que ainda está na página (`isConnected`): `renderAll` troca o HTML
+da lista, e o botão de antes pode já não existir.
+
+**Offline, a tela de Pendências continua inteira.** O service worker serve a
+casca, os dados da última sessão abrem do aparelho, e o bloco do Resumo conta o
+que está na fila — lançamento offline entra em `state.transactions` como
+qualquer outro. A linha que ainda não subiu leva a etiqueta `pendente`, o
+metadado "pendente, aguardando conexão" e **só "remover da fila"**: confirmar e
+editar não têm o que tocar no servidor. Remover da fila funciona offline, porque
+é local. Pagar fatura abre a camada (também local) mas o envio avisa "sem
+conexão" e **não mexe na fatura** — nada de pagamento fantasma. Quando a conexão
+volta, a fila sobe sozinha e a linha troca as próprias ações, sem navegação.
+
 **Sessão morta é uma terceira categoria de erro**, ao lado de "sem rede" e de
 erro comum, e as três terminam diferente. Sem rede, o pedido não chegou a ser
 julgado: a pessoa fica onde está e tenta de novo depois. Erro comum vira aviso e
