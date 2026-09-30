@@ -785,6 +785,38 @@ comum também expõe `cssRules` (vazio); tratar isso como "é um grupo" faz a
 varredura pular o seletor de todas elas e concluir, errado, que nenhuma regra de
 hover existe.
 
+**A lista tem teto; os números, não.** A lista olha do mês escolhido para trás,
+então ela não tem limite natural: quem nunca confirma nada chega a setembro de
+2026 com tudo que deixou em aberto desde 2024. Medido com **2.952 lançamentos**:
+**706 linhas** numa seção só e **42.676px de rolagem** — 42 metros de uma lista
+que existe para ser resolvida e que, nesse tamanho, não se resolve. O teto de
+**50 por seção** mantém as mais urgentes à mão (cada seção já vem na sua ordem
+de urgência) e o resto vira uma linha de texto: *"Mostrando as 50 mais urgentes.
+Faltam mais 656, somados no total acima."* Nenhum número mente — o total do
+cabeçalho e a contagem do subtítulo seguem somando tudo. Depois do teto:
+**3.360px** de página e 856 nós na tela, contra 11.449.
+
+**Uma varredura por desenho.** `pendenciasDoMes` percorre TODOS os lançamentos e,
+para cada cartão, monta todas as faturas. Com 3 mil lançamentos ela custa ~87ms —
+e era chamada **duas vezes** por desenho: uma pelo bloco do Resumo, outra pela
+tela. Medido: trocar de mês levava **165ms**; com uma varredura só, **72ms**. O
+resultado fica lembrado por mês, e quem esquece é `renderAll` — por onde passa
+toda mudança de dado. Navegar entre meses só troca a chave.
+
+Sobra um custo fixo de ~75ms por troca de mês, que é `renderResumo` mais
+`renderCategorias` relendo os mesmos 3 mil lançamentos; o Extrato, que redesenha
+só a si mesmo, faz a mesma troca em **12ms**. É dívida de toda a tela de Resumo,
+não desta, e está medida aqui para quando valer a pena pagá-la.
+
+**Valor que não cabe desce de linha, não encolhe nem é cortado.** Na célula de
+131px de uma tela de 320, `+333.148,36` vazava 26px para fora e era cortado na
+borda. O par "a receber / valor" passa a quebrar em duas linhas quando precisa —
+número cortado é número errado, e abreviar um valor que o resto da célula mostra
+por extenso seria inventar duas unidades na mesma caixa. Com valores normais, e
+em qualquer largura de desktop, a linha segue uma só. (O valor grande da célula
+quebrando em duas linhas a 320 é de `.seg-val` e vem de antes: Receitas e
+Despesas fazem o mesmo.)
+
 **Enquanto o pedido está no ar, o botão fica ocupado.** Entre o toque e a
 resposta há uma ida à rede — **offline, até 3 segundos** — e nesse intervalo o
 botão ficava exatamente igual: nada dizia que o toque tinha sido registrado.
