@@ -484,6 +484,61 @@
   .calor-dia[tabindex] { cursor: pointer; }
   .calor-dia[tabindex]:hover, .calor-dia:focus-visible { border-color: var(--fg); }
   .calor-rodape { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--fg-subtle); }
+  /* ---------- modo Ambos: duas faixas na mesma célula ----------
+   * O problema é que uma cor só não conta duas histórias. A saída não é
+   * misturar as duas rampas num tinte só — seria inventar um terceiro
+   * significado —, é dar a cada lado a sua faixa, a sua rampa e a sua escala.
+   * O que separa os dois não é só a cor: é a POSIÇÃO, fixa (receita em cima,
+   * gasto embaixo) e mantida mesmo quando um dos lados está vazio. Assim o
+   * número de um nunca é lido como o do outro, nem em tela pequena, nem por
+   * quem não distingue verde de vermelho. */
+  .calor-dia--ambos {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 5px 5px 6px; justify-content: flex-start;
+  }
+  .calor-dia--ambos .calor-n { padding: 0 3px; }
+  .calor-faixa {
+    flex: 1; min-height: 17px; display: flex; align-items: center;
+    padding: 0 4px; border-radius: 5px; font-variant-numeric: tabular-nums;
+  }
+  /* Cada faixa carrega a rampa do seu lado nas MESMAS variáveis, então os
+   * degraus abaixo são uma regra só e a troca de tema continua num lugar só. */
+  .calor-faixa--rec {
+    --calor-1: var(--calor-rec-1); --calor-2: var(--calor-rec-2); --calor-3: var(--calor-rec-3);
+    --calor-4: var(--calor-rec-4); --calor-5: var(--calor-rec-5);
+  }
+  /* A tinta do número é NEUTRA, não a cor do sinal. Número verde sobre tinte
+   * verde é a mesma cor disputando dois trabalhos: medido, a receita em
+   * `--positive` cai para 4,15 no primeiro degrau do tema claro e 2,44 no
+   * terceiro; o gasto em `--negative`, para 2,43. O tinte é quem carrega a
+   * intensidade; quem diz o lado são a posição da faixa (receita em cima), a
+   * rampa e o sinal escrito. Mesma regra que o número do dia já segue. */
+  .calor-faixa { color: var(--fg); }
+  .calor-faixa.n1 { background: var(--calor-1); }
+  .calor-faixa.n2 { background: var(--calor-2); }
+  .calor-faixa.n3 { background: var(--calor-3); }
+  .calor-faixa.n4 { background: var(--calor-4); color: var(--calor-tinta-4); }
+  .calor-faixa.n5 { background: var(--calor-5); color: var(--calor-tinta-5); }
+  .calor-faixa .calor-v { font-size: 11px; line-height: 1; }
+  /* Duas escalas empilhadas, uma por faixa. */
+  .calor-escalas { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+  .calor-escala--rec i:nth-of-type(1) { background: var(--calor-rec-1); }
+  .calor-escala--rec i:nth-of-type(2) { background: var(--calor-rec-2); }
+  .calor-escala--rec i:nth-of-type(3) { background: var(--calor-rec-3); }
+  .calor-escala--rec i:nth-of-type(4) { background: var(--calor-rec-4); }
+  .calor-escala--rec i:nth-of-type(5) { background: var(--calor-rec-5); }
+  @media (max-width: 380px) {
+    .calor-dia--ambos { padding: 4px 3px 5px; gap: 2px; }
+    .calor-faixa { padding: 0 3px; min-height: 15px; }
+    .calor-faixa .calor-v { font-size: 10px; }
+    /* Numa tela de 320 a célula tem 36px e sobram 24 para o texto: com o sinal,
+     * "−890" virava "−89" e "+5,2k" virava "+5,2". Número cortado é número
+     * errado — pior que número sem sinal. O sinal sai, e quem diz o lado
+     * continua sendo a posição da faixa, a rampa e a legenda do rodapé, que
+     * mantém o "+" e o "−". Acima de 380 ele volta: medido, em 375 a célula
+     * tem 44px e o sinal cabe inteiro. */
+    .calor-sinal { display: none; }
+  }
   .calor-escala { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
   /* Em tela estreita a célula tem ~36px: com o padding e a fonte do desktop,
    * "1,2k" é cortado no meio. Menos padding e um ponto de fonte a menos
@@ -1360,6 +1415,7 @@
             <div class="pills" id="r-calor-pills" role="group" aria-label="Tipo do mapa de calor">
               <button type="button" class="pill on" data-calor-tipo="EXPENSE" aria-pressed="true">Despesas</button>
               <button type="button" class="pill" data-calor-tipo="INCOME" aria-pressed="false">Receitas</button>
+              <button type="button" class="pill" data-calor-tipo="AMBOS" aria-pressed="false">Ambos</button>
             </div>
             <div class="calor" id="r-calor"></div>
           </div>
@@ -4550,16 +4606,24 @@
    * não é gasto; entra nas receitas, como já entra em "Maiores receitas". */
   function entraNoCalor(t, tipo) {
     if (tipo === "INCOME") return t.tipo === "INCOME";
-    return t.tipo === "EXPENSE" && !t.pagamentoFaturaCartaoId;
+    // Pagamento de fatura nunca entra: ele é a fatura saindo da conta, e a
+    // compra que a formou já contou. Vale nos três modos.
+    var gasto = t.tipo === "EXPENSE" && !t.pagamentoFaturaCartaoId;
+    if (tipo === "AMBOS") return gasto || t.tipo === "INCOME";
+    return gasto;
   }
   function totaisPorDia(vm, tipo) {
     var total = new Date(vm.y, vm.m + 1, 0).getDate();
     var dias = [];
-    for (var i = 1; i <= total; i++) dias.push({ dia: i, total: 0, previsto: 0, n: 0 });
+    for (var i = 1; i <= total; i++) dias.push({ dia: i, total: 0, previsto: 0, n: 0, receita: 0, despesa: 0 });
     movimentoDoMes(vm).forEach(function (t) {
       if (!entraNoCalor(t, tipo)) return;
       var d = dias[Number(dataDeRelatorio(t).slice(8, 10)) - 1];
+      // `total` continua sendo "o número deste mapa": no modo Ambos ele é o
+      // movimento do dia (entradas + saídas), e é o que guarda os `total > 0`
+      // espalhados pelo resto do código — célula clicável, dica, rodapé.
       d.total += t.valor; d.n++;
+      if (t.tipo === "INCOME") d.receita += t.valor; else d.despesa += t.valor;
       if (!t.confirmada) d.previsto += t.valor;
     });
     return dias;
@@ -4576,9 +4640,21 @@
     if (v < 9950) return (Math.round(v / 100) / 10).toLocaleString("pt-BR") + "k";
     return Math.round(v / 1000) + "k";
   }
-  function textoDia(d) {
+  function textoDia(d, tipo) {
+    if (tipo === "AMBOS") return textoDiaAmbos(d);
     var partes = ["Dia " + d.dia, brl(d.total), d.n + (d.n === 1 ? " lançamento" : " lançamentos")];
     if (d.previsto > 0) partes.push(d.previsto === d.total ? "previsto" : brl(d.previsto) + " previsto");
+    return partes;
+  }
+
+  /** No modo Ambos os dois lados aparecem por extenso e em ordem fixa —
+   * receita primeiro, gasto depois —, a mesma ordem das faixas na célula. Um
+   * lado zerado não vira "R$ 0,00": ele simplesmente não é dito. */
+  function textoDiaAmbos(d) {
+    var partes = ["Dia " + d.dia];
+    if (d.receita > 0) partes.push("+" + brl(d.receita));
+    if (d.despesa > 0) partes.push("−" + brl(d.despesa));
+    partes.push(d.n + (d.n === 1 ? " lançamento" : " lançamentos"));
     return partes;
   }
 
@@ -4592,7 +4668,10 @@
 
   var MAPAS_CALOR = {
     EXPENSE: { maior: "Maior gasto", vazioMes: "Nenhum gasto neste mês", vazioDia: "Nenhum gasto neste dia." },
-    INCOME: { maior: "Maior receita", vazioMes: "Nenhuma receita neste mês", vazioDia: "Nenhuma receita neste dia." }
+    INCOME: { maior: "Maior receita", vazioMes: "Nenhuma receita neste mês", vazioDia: "Nenhuma receita neste dia." },
+    // No modo Ambos o "maior" é o dia de maior MOVIMENTO — entradas mais
+    // saídas. Dizer "maior gasto" ali seria eleger um dos dois lados.
+    AMBOS: { maior: "Maior movimento", vazioMes: "Nada neste mês", vazioDia: "Nada neste dia." }
   };
   // Um mapa só na tela; o filtro escolhe o que ele mostra. Troca de mês
   // mantém o filtro — quem está olhando receitas quer comparar receitas.
@@ -4612,8 +4691,16 @@
       b.classList.toggle("on", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    var ambos = tipo === "AMBOS";
     var maximo = dias.reduce(function (m, d) { return Math.max(m, d.total); }, 0);
     var soma = dias.reduce(function (s, d) { return s + d.total; }, 0);
+    // Cada faixa tem a SUA escala. Uma escala comum faria a receita de um mês
+    // de salário apagar todos os gastos do mês — e o mapa serve justamente
+    // para comparar dia com dia dentro de cada lado.
+    var maxRec = dias.reduce(function (m, d) { return Math.max(m, d.receita); }, 0);
+    var maxDesp = dias.reduce(function (m, d) { return Math.max(m, d.despesa); }, 0);
+    var somaRec = dias.reduce(function (s, d) { return s + d.receita; }, 0);
+    var somaDesp = dias.reduce(function (s, d) { return s + d.despesa; }, 0);
     var hoje = vm.y === HOJE.getFullYear() && vm.m === HOJE.getMonth() ? HOJE.getDate() : 0;
     // Semana começa na segunda: getDay() dá 0 no domingo.
     var vazios = (new Date(vm.y, vm.m, 1).getDay() + 6) % 7;
@@ -4621,25 +4708,73 @@
     var celulas = "";
     for (var v = 0; v < vazios; v++) celulas += '<div class="calor-dia vazio" aria-hidden="true"></div>';
     dias.forEach(function (d) {
+      var clicavel = d.total > 0 ? ' tabindex="0" role="button"' : "";
+      if (ambos) {
+        // Duas faixas, sempre as duas, mesmo vazias: é a POSIÇÃO que diz o
+        // lado — de cima receita, de baixo gasto — e ela não pode dançar
+        // conforme o dia. A faixa vazia fica transparente e sem número.
+        celulas += '<div class="calor-dia calor-dia--ambos' + (d.dia === hoje ? " hoje" : "") +
+          '" data-dia="' + d.dia + '"' + clicavel + '>' +
+          '<span class="calor-n" aria-hidden="true">' + d.dia + '</span>' +
+          faixaCalorHTML("rec", d.receita, maxRec, "+") +
+          faixaCalorHTML("desp", d.despesa, maxDesp, "−") +
+          (d.total > 0 ? '<span class="sr-only">' + textoDia(d, tipo).join(", ") + '</span>' : "") +
+          '</div>';
+        return;
+      }
       var nivel = nivelCalor(d.total, maximo);
       var classes = "calor-dia" + (nivel ? " n" + nivel : "") + (d.dia === hoje ? " hoje" : "");
-      celulas += '<div class="' + classes + '" data-dia="' + d.dia + '"' + (d.total > 0 ? ' tabindex="0" role="button"' : "") + '>' +
+      celulas += '<div class="' + classes + '" data-dia="' + d.dia + '"' + clicavel + '>' +
         '<span class="calor-n" aria-hidden="true">' + d.dia + '</span>' +
         (d.total > 0 ? '<span class="calor-v" aria-hidden="true">' + valorCurto(d.total) + '</span>' +
-          '<span class="sr-only">' + textoDia(d).join(", ") + '</span>' : '') +
+          '<span class="sr-only">' + textoDia(d, tipo).join(", ") + '</span>' : '') +
         '</div>';
     });
 
     var maior = dias.reduce(function (m, d) { return d.total > m.total ? d : m; }, dias[0]);
-    document.getElementById("r-t-calor").textContent = brl(soma);
+    // O total do bloco segue a régua do resto do app: os dois sentidos lado a
+    // lado, nunca somados num líquido.
+    document.getElementById("r-t-calor").textContent = ambos
+      ? (somaRec ? "+" + brl(somaRec) : "") + (somaRec && somaDesp ? " · " : "") + (somaDesp ? "−" + brl(somaDesp) : "") || brl(0)
+      : brl(soma);
     host.innerHTML =
       '<div class="calor-semana" aria-hidden="true"><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span><span>D</span></div>' +
       '<div class="calor-grade">' + celulas + '</div>' +
       '<div class="calor-rodape">' +
         '<span>' + (maximo > 0 ? mapa.maior + ": dia " + maior.dia + " · " + brl(maior.total) : mapa.vazioMes) + '</span>' +
-        (maximo > 0 ? '<span class="calor-escala" aria-hidden="true">0<i></i><i></i><i></i><i></i><i></i>' + valorCurto(maximo) + '</span>' : '') +
+        (maximo > 0 ? (ambos ? escalaAmbosHTML(maxRec, maxDesp) : escalaCalorHTML("", maximo)) : '') +
       '</div>' +
       '<div class="calor-dica" role="tooltip" hidden></div>';
+  }
+
+  /** Uma faixa da célula do modo Ambos. Sem valor ela continua existindo, só
+   * que invisível: tirar do fluxo faria a faixa de baixo subir e um dia de só
+   * gastos parecer um dia de só receitas. */
+  function faixaCalorHTML(lado, valor, maximo, sinal) {
+    var nivel = nivelCalor(valor, maximo);
+    return '<span class="calor-faixa calor-faixa--' + lado + (nivel ? " n" + nivel : "") + '" aria-hidden="true">' +
+      (valor > 0 ? '<span class="calor-v"><span class="calor-sinal">' + sinal + '</span>' +
+        valorCurto(valor) + '</span>' : "") +
+      '</span>';
+  }
+
+  /** A ponta de baixo da escala é "0" nos mapas de um tipo só. No modo Ambos
+   * ela vira o sinal: duas escalas empilhadas, distinguidas só pela cor,
+   * deixariam quem não separa verde de vermelho sem saber qual é qual — e o
+   * sinal ocupa o mesmo caractere que o zero ocupava. */
+  function escalaCalorHTML(classe, maximo, ponta) {
+    return '<span class="calor-escala ' + classe + '" aria-hidden="true">' + (ponta || "0") +
+      '<i></i><i></i><i></i><i></i><i></i>' + valorCurto(maximo) + '</span>';
+  }
+
+  /** Duas escalas, uma por faixa, porque são duas medidas diferentes. Cada uma
+   * carrega o seu próprio máximo — é isso que o leitor precisa para traduzir
+   * intensidade em valor no lado certo. */
+  function escalaAmbosHTML(maxRec, maxDesp) {
+    return '<span class="calor-escalas">' +
+      (maxRec > 0 ? escalaCalorHTML("calor-escala--rec", maxRec, "+") : "") +
+      (maxDesp > 0 ? escalaCalorHTML("calor-escala--desp", maxDesp, "−") : "") +
+      '</span>';
   }
 
   (function ligarMapaDeCalor() {
@@ -4655,7 +4790,7 @@
       var dica = host.querySelector(".calor-dica");
       if (!d || !d.total || !dica) return;
       // Valor na frente e em destaque: quem passa o mouse já sabe o dia.
-      var partes = textoDia(d);
+      var partes = textoDia(d, calorTipo);
       dica.textContent = "";
       dica.appendChild(document.createTextNode(partes[0] + " · "));
       var forte = document.createElement("strong");
@@ -4708,14 +4843,18 @@
     if (!diaAberto) return;
     var lista = lancamentosDoDia(diaAberto.iso, diaAberto.tipo);
     var d = new Date(diaAberto.iso + "T00:00:00");
-    var resumo = { dia: d.getDate(), total: 0, previsto: 0, n: lista.length };
+    var resumo = { dia: d.getDate(), total: 0, previsto: 0, n: lista.length, receita: 0, despesa: 0 };
     lista.forEach(function (t) { resumo.total += t.valor; if (!t.confirmada) resumo.previsto += t.valor; });
     // Dia da semana por extenso: aqui é título, não o rótulo curto do extrato.
     var titulo = d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
     document.getElementById("dia-titulo").textContent = titulo.charAt(0).toUpperCase() + titulo.slice(1);
     // O tipo vai no contexto: o mesmo dia pode ter sido aberto por qualquer um dos mapas.
-    document.getElementById("dia-ctx").textContent = (diaAberto.tipo === "INCOME" ? "Receitas" : "Gastos") +
-      (lista.length ? " · " + textoDia(resumo).slice(1).join(" · ") : "");
+    // No modo Ambos a lista traz os dois, então o contexto também: o resumo
+    // reaproveita `receita`/`despesa`, que `textoDiaAmbos` sabe ler.
+    lista.forEach(function (t) { if (t.tipo === "INCOME") resumo.receita += t.valor; else resumo.despesa += t.valor; });
+    document.getElementById("dia-ctx").textContent =
+      (diaAberto.tipo === "AMBOS" ? "Receitas e gastos" : diaAberto.tipo === "INCOME" ? "Receitas" : "Gastos") +
+      (lista.length ? " · " + textoDia(resumo, diaAberto.tipo).slice(1).join(" · ") : "");
     // Mesma linha do extrato, com as mesmas ações: confirmar, editar, excluir.
     document.getElementById("dia-lista").innerHTML = lista.length
       ? lista.map(function (t) { return linhaLancamentoHTML(t, true); }).join("")

@@ -895,6 +895,45 @@ tem no mínimo 52px de altura, raio 8px, número do dia no topo (11px
 `--fg-muted`) e valor abreviado embaixo (11px/500: `214`, `2,7k`, `12k`).
 Dia sem gasto mostra só o número, sem fundo.
 
+**Modo "Ambos": duas faixas na mesma célula.** Uma cor só não conta duas
+histórias — misturar as duas rampas num tinte único seria inventar um terceiro
+significado. Então cada lado ganha **a sua faixa, a sua rampa e a sua escala**:
+receita em cima, gasto embaixo, dentro da mesma célula.
+
+**O que separa os dois não é a cor, é a posição** — e ela é fixa. Um dia sem
+receita mantém a faixa de cima vazia e transparente em vez de subir a de baixo:
+se a posição dançasse, um dia só de gastos pareceria um dia só de receitas. Sobre
+a posição vêm a rampa e o sinal escrito, três canais para a mesma informação, o
+que mantém a leitura de pé para quem não distingue verde de vermelho.
+
+**Cada faixa tem a sua escala.** Uma escala comum faria a receita de um mês de
+salário apagar todos os gastos, e o mapa existe justamente para comparar dia com
+dia **dentro de cada lado**.
+
+**A tinta do número é neutra, não a cor do sinal.** Número verde sobre tinte
+verde é a mesma cor disputando dois trabalhos: medido, a receita em `--positive`
+cai para **4,15:1** no primeiro degrau do tema claro e **2,44:1** no terceiro; o
+gasto em `--negative`, para 2,43:1. O tinte carrega a intensidade; quem diz o
+lado são a posição, a rampa e o sinal. É a mesma regra que o número do dia já
+segue, e com ela os 13 valores da tela passam nos dois temas (pior caso 4,94:1).
+
+**Abaixo de 380 o sinal sai.** Numa tela de 320 a célula tem 36px e sobram 24
+para o texto: com o sinal, `−890` virava `−89` e `+5,2k` virava `+5,2`. **Número
+cortado é número errado** — pior que número sem sinal. Acima de 380 ele volta
+(medido: em 375 a célula tem 44px e cabe inteiro), e a legenda do rodapé mantém
+`+` e `−` em qualquer largura.
+
+**O rodapé ganha duas escalas**, uma por faixa, cada uma com o seu próprio
+máximo — é o que traduz intensidade em valor no lado certo. A ponta de baixo,
+que nos mapas de um tipo só é `0`, vira o sinal: duas escalas empilhadas
+distinguidas apenas pela cor deixariam sem resposta quem não separa as duas, e o
+sinal ocupa o mesmo caractere que o zero ocupava.
+
+**"Maior movimento", não "maior gasto".** No modo Ambos o dia de destaque é o de
+maior movimento (entradas + saídas); eleger um dos lados ali seria escolher por
+quem lê. E o total do bloco segue a régua do app: os dois sentidos lado a lado,
+nunca somados num líquido.
+
 A intensidade é **o acento em 5 degraus de opacidade** (`--calor-1` a
 `--calor-5`), relativa ao maior dia do mês — a mesma lógica da barra de
 categoria. Uma cor só: nada de laranja, vermelho ou escala arco-íris, porque
