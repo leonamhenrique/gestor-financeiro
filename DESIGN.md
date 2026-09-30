@@ -659,6 +659,20 @@ baixo: entra pelo bloco consolidado e volta pelo botão do topo, e enquanto
 está aberta **a aba acesa é a do pai** (`TELA_PAI`), senão as cinco apagariam e
 a pessoa ficaria sem saber de onde veio.
 
+**Duas colunas só quando cada uma cabe a linha inteira.** A linha de Pendências
+é a mais pesada do app — nome, meta de quatro partes (data · distância ·
+categoria · conta), valor e três ações. Num desktop de 800 a coluna saía com
+303px e sobravam **121px para o nome**: 9 de 9 metas cortadas, a pior faltando
+175px. Medido coluna por coluna: 303 corta 9 metas, 403 corta 7, 453 corta 2,
+503 corta 0 metas mas ainda 1 nome. E a coluna **não passa de 544px**, porque
+`--content-max` é 1120 — ela só fica inteira quando o conteúdo bate no teto, o
+que acontece em 1120 + 72 de trilho + 64 de calha ≈ 1256. Daí o ponto de quebra
+em **1280**: duas colunas só quando cada uma já está no seu tamanho máximo.
+Abaixo disso, uma coluna dá de 600 a 1050px por linha, que é folga de sobra, e o
+filete do `.rail` sai junto — em coluna única ele não divide nada. Categorias usa
+o mesmo `split--par` e fica de fora: a linha dela é leve e cabe em 353px (medido,
+0 de 19 cortadas em 900).
+
 **O conteúdo mora num `.split--par`.** No desktop a `.view` é um grid de duas
 colunas com o cabeçalho na linha 1 e o `.split` na linha 2: uma tela cujos
 blocos ficam soltos cai na auto-colocação desse grid, e foi o que aconteceu na
@@ -741,6 +755,15 @@ No escuro o ocre de token já rende 9,89:1 sobre o próprio tinte e não precisa
 versão própria; no claro ele dá 4,35:1, abaixo do mínimo de texto, e escurece um
 passo para 5,86:1 — mesmo remédio que o verde e o vermelho da célula tingida já
 usavam, e valendo só ali: o aviso em texto, borda e etiqueta não muda.
+
+**O anel de foco é do app, não do navegador.** Sem regra própria cada navegador
+pinta o seu: no Chrome saía um laranja que não existe nesta paleta, e com
+`outline: auto` a **cor nem é medível** — o navegador pinta um anel que não é o
+`outlineColor` computado, então o auditor mecânico não tem o que ler. Agora todo
+botão (`.icon-btn`, `.ghost`, `.pill`, `.link-ghost`) usa o mesmo anel da célula
+do Resumo: `2px solid var(--accent)` com 2px de deslocamento. Medido: 5,62:1 no
+claro, 13,47:1 no escuro, e 2px de folga entre os anéis de duas ações vizinhas —
+o deslocamento cabe no vão de 6px sem encostar no vizinho.
 
 **O hover do destrutivo tem que ACENDER o contorno, não apagá-lo.**
 `--negative-borda` valia 0,35 no claro (1,71:1) e 0,40 no escuro (1,98:1) —

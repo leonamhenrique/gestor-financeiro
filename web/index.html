@@ -724,6 +724,17 @@
   .ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--accent-borda); }
   .ghost:disabled { opacity: 0.4; cursor: default; }
   .ghost svg { width: 14px; height: 14px; }
+
+  /* O foco de teclado é do app, não do navegador. Sem regra própria cada um
+   * pinta o seu: no Chrome saía um laranja que não existe nesta paleta, e com
+   * `outline: auto` a cor nem é medível — o navegador pinta um anel que não é
+   * o `outlineColor` computado, então o auditor mecânico não tem o que ler.
+   * É o mesmo anel que a célula do Resumo já usa; aqui ele passa a valer para
+   * todo botão do app, que é onde a tabulação de fato anda. O deslocamento de
+   * 2px cabe no vão de 6px entre ações sem encostar no vizinho. */
+  .icon-btn:focus-visible, .ghost:focus-visible, .pill:focus-visible, .link-ghost:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
   /* Ação primária do app, sempre à mão. Fica acima da barra inferior no
    * mobile; separa-se do conteúdo por contraste, sem sombra (regra 3). */
   .fab-wrap {
@@ -1055,6 +1066,26 @@
     }
     .split--extrato { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
     .split--par { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    /* Pendências só abre em duas colunas quando cada uma cabe a linha inteira.
+     * A linha dela é a mais pesada do app — nome, meta de quatro partes (data ·
+     * distância · categoria · conta), valor e três ações — e num desktop de 800
+     * a coluna saía com 303px: sobravam 121px para o nome, com 9 de 9 metas
+     * cortadas e a pior faltando 175px.
+     *
+     * Medido, coluna por coluna: 303px corta 9 metas, 403 corta 7, 453 corta 2,
+     * 503 corta 0 metas mas ainda 1 nome. E a coluna NÃO PASSA de 544px, porque
+     * `--content-max` é 1120 — ela só fica inteira quando o conteúdo bate no
+     * teto, o que acontece em 1120 + 72 de trilho + 64 de calha ≈ 1256. Daí o
+     * ponto de quebra em 1280: duas colunas só quando cada uma já está no seu
+     * tamanho máximo. Abaixo disso, uma coluna dá de 600 a 1050px por linha,
+     * que é folga de sobra. Categorias fica de fora: a linha dela é leve e cabe
+     * em 353px (medido, 0 de 19 cortadas em 900). */
+    @media (max-width: 1279px) {
+      .view[data-view="pendencias"] .split--par { grid-template-columns: minmax(0, 1fr); }
+      /* Em coluna única o trilho não divide nada: o filete e o recuo sairiam
+       * indentando a segunda seção sem nada do lado. */
+      .view[data-view="pendencias"] .split--par > .rail { border-left: none; padding-left: 0; }
+    }
     .col-main, .rail, .rail-fixo { gap: var(--blk-gap); }
     .rail { border-left: 1px solid var(--hairline); padding-left: var(--col-gap); }
     /* O trilho é do .rail, que estica com a linha do grid; quem congela é o
