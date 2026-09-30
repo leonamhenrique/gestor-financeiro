@@ -742,6 +742,26 @@ versão própria; no claro ele dá 4,35:1, abaixo do mínimo de texto, e escurec
 passo para 5,86:1 — mesmo remédio que o verde e o vermelho da célula tingida já
 usavam, e valendo só ali: o aviso em texto, borda e etiqueta não muda.
 
+**O hover do destrutivo tem que ACENDER o contorno, não apagá-lo.**
+`--negative-borda` valia 0,35 no claro (1,71:1) e 0,40 no escuro (1,98:1) —
+**mais fraco que a borda em repouso** (3,00 e 3,03). Apontar o "excluir" deixava
+o botão com o contorno mais apagado da tela, justo no botão em que o retorno
+importa mais. É o mesmo erro que o `--warning-forte` já tinha cometido, e a
+regra que ele deixou escrita continua valendo: um estado ativo nunca pode render
+menos que o estado de repouso do mesmo controle. Agora 0,75 no claro (3,41:1) e
+0,67 no escuro (3,66:1), ao lado dos 3,38 e 3,63 do `--accent-borda` — o botão
+destrutivo responde ao mouse com a mesma força que os outros, só na cor dele.
+
+**Como medir um estado que só existe sob o ponteiro**: o painel de pré-visualização
+impõe CSP que bloqueia estilo injetado (atributo `style` e `<style>` novo), e o
+ponteiro sintético não segura `:hover` até o script rodar. Então o valor sai das
+**cores vivas dos tokens** lidas da página (`getPropertyValue`) com a **regra de
+hover lida do CSSOM** — nada transcrito à mão —, e a aplicação do pseudo se
+confere por screenshot. Um detalhe do varredor: desde o CSS aninhado, uma regra
+comum também expõe `cssRules` (vazio); tratar isso como "é um grupo" faz a
+varredura pular o seletor de todas elas e concluir, errado, que nenhuma regra de
+hover existe.
+
 **Sessão morta é uma terceira categoria de erro**, ao lado de "sem rede" e de
 erro comum, e as três terminam diferente. Sem rede, o pedido não chegou a ser
 julgado: a pessoa fica onde está e tenta de novo depois. Erro comum vira aviso e

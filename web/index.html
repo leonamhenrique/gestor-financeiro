@@ -81,7 +81,13 @@
      * aviso" — a hairline de leitura (0,08) sumia no fundo. */
     --warning-borda: rgba(255,184,107,0.45);
     --warning-forte: rgba(255,184,107,0.60);
-    --negative-borda: rgba(255,107,107,0.40);
+    /* Borda do destrutivo no hover. Em 0,40 ela dava 1,98:1 — MAIS FRACA que a
+     * borda em repouso (3,03), então apontar o "excluir" apagava o contorno em
+     * vez de acendê-lo: o hover invertia o próprio sinal. Mesmo erro que o
+     * --warning-forte já tinha cometido. Em 0,67 ela fecha 3,63:1, que é
+     * exatamente o peso do hover normal (--accent-borda) — o botão destrutivo
+     * responde ao mouse com a mesma força que os outros, só na cor dele. */
+    --negative-borda: rgba(255,107,107,0.67);
     --hover: rgba(255,255,255,0.02);
     --scroll: rgba(255,255,255,0.14);
     --scroll-forte: rgba(255,255,255,0.24);
@@ -178,7 +184,9 @@
     /* 2,17:1 aqui ficaria MAIS FRACO que a borda em repouso, invertendo o
      * sinal do hover. Com 0,90 ele sobe para 3,92:1. */
     --warning-forte: rgba(154,100,16,0.90);
-    --negative-borda: rgba(192,57,47,0.35);
+    /* Tinta vermelha sobre claro rende menos: 0,75 para 3,41:1, ao lado dos
+     * 3,38 do --accent-borda. Era 0,35 = 1,71:1. */
+    --negative-borda: rgba(192,57,47,0.75);
     --hover: rgba(15,23,32,0.03);
     --scroll: rgba(15,23,32,0.18);
     --scroll-forte: rgba(15,23,32,0.30);
