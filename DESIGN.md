@@ -742,6 +742,21 @@ versão própria; no claro ele dá 4,35:1, abaixo do mínimo de texto, e escurec
 passo para 5,86:1 — mesmo remédio que o verde e o vermelho da célula tingida já
 usavam, e valendo só ali: o aviso em texto, borda e etiqueta não muda.
 
+**Sessão morta é uma terceira categoria de erro**, ao lado de "sem rede" e de
+erro comum, e as três terminam diferente. Sem rede, o pedido não chegou a ser
+julgado: a pessoa fica onde está e tenta de novo depois. Erro comum vira aviso e
+a tela continua. **Sessão negada pelo servidor não tem como dar certo numa
+segunda tentativa** — insistir só repete o 401 a cada toque —, então o app
+encerra a sessão e leva para a entrada, com o e-mail preenchido e o motivo
+escrito no campo de erro.
+
+O sintoma que expôs isso: tocar em "confirmar" abria uma camada dizendo
+**"Unauthorized"**, em inglês, e deixava a pessoa na mesma tela, onde todo botão
+repetiria o mesmo. `Unauthorized` e `Forbidden` são o texto padrão do framework;
+`mensagemDaApi` passa a traduzi-los por status, e qualquer mensagem própria do
+servidor continua passando inteira — ela costuma ser mais específica que o
+genérico.
+
 **Mapa de calor** (gastos ou receitas por dia do mês) — grade de 7 colunas começando na
 **segunda** (S T Q Q S S D, cabeçalho no estilo do `.lbl`), gap de 2px, uma
 célula por dia do mês e células vazias invisíveis antes do dia 1. Cada célula

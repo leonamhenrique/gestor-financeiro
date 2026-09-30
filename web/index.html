@@ -3444,7 +3444,13 @@
   function mensagemDaApi(json, status) {
     var m = json && json.message;
     if (Array.isArray(m)) m = m[0];
-    if (typeof m === "string" && m) return m;
+    // "Unauthorized" e "Forbidden" são o texto padrão do framework, em inglês e
+    // sem dizer o que fazer. Eles chegam à tela como qualquer outra mensagem se
+    // a gente deixar — e foi assim que um toque em "confirmar" virou a palavra
+    // "Unauthorized" na cara de quem só queria dar baixa numa conta.
+    if (typeof m === "string" && m && !/^(Unauthorized|Forbidden)$/.test(m)) return m;
+    if (status === 401) return "Sua sessão expirou. Entre de novo para continuar.";
+    if (status === 403) return "Esta conta não tem acesso a isso.";
     if (status === 429) return "Muitas tentativas. Tente de novo em alguns minutos.";
     return "Não foi possível concluir agora. Tente de novo.";
   }
@@ -3461,10 +3467,18 @@
       });
     }
     var r = await tentar();
-    if (r.status === 401 && caminho.indexOf("/auth/") !== 0 && (await renovarSessao()) === true) r = await tentar();
+    var sessaoMorta = false;
+    if (r.status === 401 && caminho.indexOf("/auth/") !== 0) {
+      var renovou = await renovarSessao();
+      if (renovou === true) r = await tentar();
+      // `false` é o servidor dizendo que a sessão não vale mais — insistir só
+      // repetiria o 401 a cada toque. "sem-rede" é outra coisa: ali o pedido
+      // nem chegou a ser julgado, e mais tarde pode dar certo.
+      else if (renovou === false) sessaoMorta = true;
+    }
     var json = null;
     try { json = r.status === 204 ? null : await r.json(); } catch (e) { json = null; }
-    return { ok: r.ok, status: r.status, json: json };
+    return { ok: r.ok, status: r.status, json: json, sessaoMorta: sessaoMorta };
   }
 
   /** true = sessão renovada; false = o servidor disse que não; "sem-rede" = não
@@ -3550,6 +3564,14 @@
       var semRede = new Error("Sem conexão com o servidor.");
       semRede.semRede = true;
       throw semRede;
+    }
+    // Sessão negada é uma terceira categoria, ao lado de "sem rede" e de erro
+    // comum: não adianta tentar de novo, e a mensagem do servidor ("Unauthorized")
+    // não diz nada a quem está do outro lado.
+    if (r.sessaoMorta) {
+      var expirou = new Error("Sua sessão expirou. Entre de novo para continuar.");
+      expirou.sessaoMorta = true;
+      throw expirou;
     }
     if (!r.ok) throw new Error(mensagemDaApi(r.json, r.status));
     return r.json;
@@ -3778,6 +3800,13 @@
           "Isto precisa de internet e não ficou guardado. Tente de novo quando a conexão voltar — só lançar funciona offline, esperando na fila.");
         return false;
       }
+      // Com a sessão morta, ficar na tela seria prender a pessoa: cada botão
+      // repetiria o mesmo erro e nenhum funcionaria. Ela vai para a entrada,
+      // que é o único lugar onde dá para resolver, e com o motivo escrito.
+      if (e && e.sessaoMorta) {
+        sairDaConta(e.message);
+        return false;
+      }
       avisar("Não deu para " + oQue, (e && e.message) || "Tente de novo em instantes.");
       return false;
     }
@@ -3924,7 +3953,7 @@
     entrarNoApp();
   });
 
-  function sairDaConta() {
+  function sairDaConta(motivo) {
     if (MODO_API) {
       // Os dados eram do servidor: saem da memória e do aparelho junto com a
       // sessão, senão a próxima pessoa a abrir o app veria as contas de quem
@@ -3952,6 +3981,9 @@
     limparSenhas();
     document.getElementById("ent-email").value = state.perfil.email || "";
     montarEntrada("entrar");
+    // Depois de `montarEntrada`, que limpa o campo de erro: quem saiu por
+    // conta própria não vê recado nenhum, quem foi posto para fora lê por quê.
+    if (motivo) document.getElementById("ent-erro").textContent = motivo;
     aplicarSessao();
     window.scrollTo(0, 0);
   }
@@ -6941,7 +6973,8 @@
       window.addEventListener("online", function reconectar() {
         window.removeEventListener("online", reconectar);
         renovarSessao().then(function (ok) {
-          if (ok) entrarComServidor(); else sairDaConta();
+          if (ok) entrarComServidor();
+          else sairDaConta("Sua sessão expirou enquanto você estava sem conexão. Entre de novo.");
         });
       });
     } else renovarSessao().then(function (ok) {
@@ -6953,7 +6986,15 @@
         entrarComServidor();
         return;
       }
-      if (!ok) { document.getElementById("ent-email").value = state.perfil.email || ""; return; }
+      if (!ok) {
+        document.getElementById("ent-email").value = state.perfil.email || "";
+        // Só para quem ESTAVA dentro: numa primeira visita não há sessão para
+        // ter expirado, e o recado seria um susto sem motivo.
+        if (jaEstavaLogado) {
+          document.getElementById("ent-erro").textContent = "Sua sessão expirou. Entre de novo para continuar.";
+        }
+        return;
+      }
       state.sessao = { entrou: true };
       entrarComServidor();
     });
