@@ -803,10 +803,41 @@ tela. Medido: trocar de mês levava **165ms**; com uma varredura só, **72ms**. 
 resultado fica lembrado por mês, e quem esquece é `renderAll` — por onde passa
 toda mudança de dado. Navegar entre meses só troca a chave.
 
-Sobra um custo fixo de ~75ms por troca de mês, que é `renderResumo` mais
-`renderCategorias` relendo os mesmos 3 mil lançamentos; o Extrato, que redesenha
-só a si mesmo, faz a mesma troca em **12ms**. É dívida de toda a tela de Resumo,
-não desta, e está medida aqui para quando valer a pena pagá-la.
+**A fatura é calculada uma vez por desenho.** `faturasDoCartao` é pura em
+relação ao estado — com os mesmos lançamentos e pagamentos devolve sempre a mesma
+coisa — e era recalculada dezenas de vezes por desenho com entrada idêntica: só a
+faixa de meses pede 13 meses × 3 cartões, e cada pedido varre a lista inteira.
+Medido com 2.952 lançamentos: **475µs por cartão**, e a faixa inteira em **35ms**.
+
+O cache vive **apenas dentro de `comCacheDeFaturas`**, que embrulha um desenho.
+Isso é seguro por construção e não por vigilância: um desenho é síncrono, então o
+estado não muda no meio dele. Fora do desenho não há cache, e qualquer chamada
+solta continua lendo o estado de agora — nada de invalidar à mão em cada lugar
+que mexe em lançamento, que é onde esse tipo de cache apodrece. Três testes
+prendem o contrato: dentro do desenho a fatura é objeto único, fora dele um
+lançamento novo aparece na hora, e o desenho seguinte enxerga o estado novo.
+
+No banco de ensaio, um desenho inteiro (faixa + totais + pendências + saldos)
+caiu de **42,5ms para 5,0ms**.
+
+**Tela escondida não se desenha.** Trocar o mês redesenhava Resumo *e* Pendências,
+quem quer que estivesse à vista. `irPara` já redesenha as duas ao entrar nelas, o
+que torna seguro pular a que está escondida — e são 37ms (Resumo) e 11ms
+(Pendências) que ninguém precisava pagar pela tela que não está olhando.
+Categorias fica de fora da regra, porque `irPara` **não** a redesenha: pulá-la
+deixaria a tela com o mês antigo.
+
+**O resultado, com 2.952 lançamentos e 3 cartões** (mediana de 7 trocas de mês):
+
+| caminho | antes | depois |
+|---|---|---|
+| trocar mês em Pendências | 165ms | **21ms** |
+| trocar mês no Resumo | 163ms | **44ms** |
+| trocar mês no Extrato (controle) | 12ms | 12ms |
+
+O que sobra não tem mais gargalo único: está espalhado entre montar as 13 colunas
+da faixa (10,5ms), a série do saldo (7,5ms), as barras de categoria (7,9ms) e o
+traçado do spark (6,3ms) — trabalho de DOM, não varredura repetida.
 
 **Valor que não cabe desce de linha, não encolhe nem é cortado.** Na célula de
 131px de uma tela de 320, `+333.148,36` vazava 26px para fora e era cortado na

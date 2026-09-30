@@ -2190,7 +2190,33 @@
   function periodoDaTransacao(t, card) {
     return t.faturaMesOverride ? parseMonthKey(t.faturaMesOverride) : resolveInvoicePeriodFromDate(t.data, card.fechamento);
   }
+  /** Memória de faturas que vale por UM desenho.
+   *
+   * `faturasDoCartao` é pura em relação ao estado: com os mesmos lançamentos e
+   * os mesmos pagamentos, ela devolve sempre a mesma coisa. E é chamada dezenas
+   * de vezes por desenho com entrada idêntica — só a faixa de meses pede 13
+   * meses × 3 cartões, e cada pedido varre a lista inteira de lançamentos.
+   * Medido com 2.952 lançamentos: 475µs por cartão, e a faixa inteira em 38ms.
+   *
+   * O cache vive apenas dentro de `comCacheDeFaturas`, que embrulha um desenho.
+   * Isso é seguro por construção, e não por vigilância: um desenho é síncrono,
+   * então o estado não muda no meio dele. Fora do desenho não há cache, e
+   * qualquer chamada solta continua lendo o estado de agora — nada de invalidar
+   * à mão em cada lugar que mexe em lançamento, que é onde esse tipo de cache
+   * costuma apodrecer. */
+  var cacheDeFaturas = null;
+
+  function comCacheDeFaturas(desenhar) {
+    // Só quem abriu o cache o fecha: desenhos aninhados (renderAll chamando
+    // renderResumo) compartilham a mesma memória em vez de zerá-la no meio.
+    var raiz = cacheDeFaturas === null;
+    if (raiz) cacheDeFaturas = {};
+    try { return desenhar(); }
+    finally { if (raiz) cacheDeFaturas = null; }
+  }
+
   function faturasDoCartao(card) {
+    if (cacheDeFaturas && cacheDeFaturas[card.id]) return cacheDeFaturas[card.id];
     var porMes = {};
     state.transactions.filter(function (t) { return t.cartaoId === card.id; }).forEach(function (t) {
       var p = periodoDaTransacao(t, card);
@@ -2203,7 +2229,9 @@
       porMes[key].previsto += valor;
       if (t.confirmada) porMes[key].confirmado += valor;
     });
-    return aplicarTransporte(card, porMes);
+    var faturas = aplicarTransporte(card, porMes);
+    if (cacheDeFaturas) cacheDeFaturas[card.id] = faturas;
+    return faturas;
   }
 
   /** Rotativo: fatura paga só em parte não fica pendurada no mês dela para
@@ -5145,14 +5173,16 @@
   }
 
   function renderAll() {
-    // Todo caminho que muda dado termina aqui: é o ponto certo para esquecer o
-    // que foi lembrado sobre as pendências.
-    pendenciasLembradas = null;
-    renderResumo(); renderTelaPendencias(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderPerfil();
-    atualizarBannerDaFila();
-    // A camada do dia fica aberta enquanto o usuário confirma, edita ou exclui
-    // a partir dela, então precisa refletir a mudança na hora.
-    renderDia();
+    comCacheDeFaturas(function () {
+      // Todo caminho que muda dado termina aqui: é o ponto certo para esquecer o
+      // que foi lembrado sobre as pendências.
+      pendenciasLembradas = null;
+      renderResumo(); renderTelaPendencias(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderPerfil();
+      atualizarBannerDaFila();
+      // A camada do dia fica aberta enquanto o usuário confirma, edita ou exclui
+      // a partir dela, então precisa refletir a mudança na hora.
+      renderDia();
+    });
   }
 
   /* ================= camadas: helpers ================= */
@@ -6790,7 +6820,22 @@
   function mudarMesDoResumo(delta, destino) {
     if (destino) { resumoMes.y = destino.y; resumoMes.m = destino.m; }
     else passoMes(resumoMes, delta);
-    renderResumo(); renderTelaPendencias(); renderCategorias();
+    comCacheDeFaturas(function () {
+      // Desenhar tela escondida é trabalho jogado fora, e aqui dá para saber
+      // que é seguro pular: `irPara` redesenha Resumo e Pendências ao entrar
+      // nelas. Categorias fica de fora porque `irPara` NÃO a redesenha — pulá-la
+      // deixaria a tela com o mês antigo até alguém trocar o mês de novo.
+      // Medido com 2.952 lançamentos: renderResumo custa 37ms e a tela de
+      // Pendências 11ms; quem está numa nunca precisa pagar pela outra.
+      if (telaEstaVisivel("resumo")) renderResumo();
+      if (telaEstaVisivel("pendencias")) renderTelaPendencias();
+      renderCategorias();
+    });
+  }
+
+  function telaEstaVisivel(nome) {
+    var v = document.querySelector('.view[data-view="' + nome + '"]');
+    return !!v && v.classList.contains("on");
   }
   document.getElementById("r-meses").addEventListener("click", function (ev) {
     var col = ev.target.closest(".mes-col");
