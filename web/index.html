@@ -312,7 +312,7 @@
   }
   .pill::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 44px; transform: translateY(-50%); }
   .pill.on { background: var(--accent-fraco); border-color: var(--accent-borda); color: var(--accent); }
-  .pill:disabled { opacity: 0.4; cursor: default; }
+  .pill:disabled { opacity: 0.65; cursor: default; }
 
   .month-nav { display: flex; align-items: center; gap: 10px; }
   .month-label { font-size: 12px; color: var(--fg-muted); min-width: 118px; }
@@ -776,7 +776,7 @@
     transition: opacity 180ms ease-out;
   }
   .primary:hover { opacity: 0.9; }
-  .primary:disabled { opacity: 0.4; cursor: default; }
+  .primary:disabled { opacity: 0.65; cursor: default; }
   .primary svg { width: 16px; height: 16px; }
   .ghost {
     height: 44px; padding: 0 18px; border-radius: var(--r-sm);
@@ -786,7 +786,14 @@
     transition: color 180ms ease-out, border-color 180ms ease-out;
   }
   .ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--accent-borda); }
-  .ghost:disabled { opacity: 0.4; cursor: default; }
+  /* 0,65 e não 0,4. Desabilitado precisa dizer "isto não dá agora", e para
+   * dizer tem que ser lido: em 0,4 o rótulo caía para 1,95:1 no tema claro e
+   * 2,28:1 no escuro, e a borda sumia em 1,41:1 — não é apagado, é ilegível.
+   * Medido, o piso para o rótulo fechar 3:1 é 0,62 no claro (o tema mais
+   * exigente aqui); 0,65 dá 3,26:1 no claro e 4,23:1 no escuro. A borda fica
+   * em ~1,9:1 de propósito: a regra do desabilitado é justamente poder
+   * afrouxar o contorno, que é o que o separa de um controle vivo. */
+  .ghost:disabled { opacity: 0.65; cursor: default; }
   .ghost svg { width: 14px; height: 14px; }
 
   /* O foco de teclado é do app, não do navegador. Sem regra própria cada um
@@ -833,6 +840,17 @@
    * para a largura toda e vira um botão de página inteira — que não é o que
    * um "voltar" é. Encolhe para o próprio conteúdo. */
   .btn-voltar { align-self: flex-start; }
+  /* Um degrau de destaque entre o ghost neutro e o primário cheio, para a ação
+   * principal de uma tela que JÁ TEM primário — o flutuante. A regra do app é
+   * que onde o flutuante existe nenhum outro botão de acento cheio aparece;
+   * acento em contorno não disputa com ele, e é a mesma receita que o pill
+   * ligado já usa para dizer "é esta aqui". */
+  .ghost--acento {
+    background: var(--accent-fraco);
+    border-color: var(--accent-borda);
+    color: var(--accent);
+  }
+  .ghost--acento:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
   .ghost.danger { color: var(--negative); }
   .ghost.danger:hover { border-color: var(--negative-borda); }
   .link-danger { background: none; border: none; font-family: inherit; font-size: 13px; color: var(--negative); cursor: pointer; padding: 0; }
@@ -5139,8 +5157,15 @@
     // Com pagamento parcial o botão continua vivo: a mesma fatura aceita
     // quantos pagamentos o usuário precisar até o vencimento.
     var botaoPagar = document.getElementById("k-pagar");
-    botaoPagar.disabled = (f.emAberto || 0) <= 0;
+    var podePagar = (f.emAberto || 0) > 0;
+    botaoPagar.disabled = !podePagar;
     botaoPagar.textContent = pago > 0 && f.emAberto > 0 ? "Pagar o restante" : "Pagar fatura";
+    // O destaque segue a ação que DÁ para fazer. Com a fatura quitada (ou com o
+    // resto já transportado), pagar não é mais uma opção e quem fica em pé é
+    // adicionar lançamento — deixar os dois no mesmo tom cinza era o que fazia
+    // a tela inteira parecer desligada.
+    botaoPagar.classList.toggle("ghost--acento", podePagar);
+    document.getElementById("k-add-lancamento").classList.toggle("ghost--acento", !podePagar);
 
     var pagamentos = (card.pagamentos || []).filter(function (p) { return p.mesKey === key; });
     document.getElementById("k-pag-head").hidden = !pagamentos.length;

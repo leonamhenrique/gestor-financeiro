@@ -1095,6 +1095,27 @@ acento aparece. A ação secundária de criação daquela tela (novo cartão, no
 categoria) vira `.ghost` no cabeçalho. Separação do conteúdo vem do contraste
 do acento — sem sombra, mantendo a regra 3.
 
+**`.ghost--acento` — o degrau entre os dois.** Numa tela que já tem primário (o
+flutuante), a ação principal do conteúdo não pode virar um segundo acento cheio,
+mas também não pode ficar no mesmo cinza de tudo. O meio-termo é acento **em
+contorno**: fundo `--accent-fraco`, borda `--accent-borda`, texto `--accent` — a
+mesma receita que o pill ligado já usa para dizer "é esta aqui". Contorno não
+disputa com preenchimento, então a regra acima continua de pé.
+
+**E ele segue a ação que dá para fazer.** Na fatura, `Pagar fatura` leva o acento
+enquanto há o que pagar; quitada (ou com o resto transportado), pagar deixa de
+ser opção e o acento passa para `Adicionar lançamento`, que é o que sobra. Os
+dois no mesmo cinza faziam a tela inteira parecer desligada.
+
+**Desabilitado é 0,65 de opacidade, não 0,4.** Desabilitado precisa dizer "isto
+não dá agora", e para dizer tem que ser lido. Em 0,4 o rótulo caía para
+**1,95:1** no tema claro e 2,28:1 no escuro, e a borda sumia em 1,41:1 — não é
+apagado, é ilegível, e foi assim que uma fatura quitada passou a parecer uma
+tela quebrada. Medido: o piso para o rótulo fechar 3:1 é 0,62 no claro (o tema
+mais exigente aqui); 0,65 dá **3,26:1 no claro e 4,23:1 no escuro**. A borda fica
+em ~1,9:1 **de propósito** — a regra do desabilitado é justamente poder afrouxar
+o contorno, e é ele que separa o controle morto do vivo.
+
 **Ícones** — SVG inline, stroke 1.7–1.8, grid 24, tamanho de render 13–20px,
 `currentColor` sempre que possível. Nunca emoji.
 
