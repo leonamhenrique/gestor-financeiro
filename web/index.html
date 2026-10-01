@@ -1699,6 +1699,12 @@
 
       <div id="fx-vazio" class="blk" style="--i:1" hidden>
         <div class="empty" id="fx-vazio-texto"></div>
+        <!-- Só aparece quando a falha foi de rede ou de servidor. Ano sem
+             lançamento não é erro: ali não há o que tentar de novo. É `ghost`
+             porque o flutuante já é o primário desta tela. -->
+        <div class="v-cta" id="fx-vazio-acao" hidden>
+          <button class="ghost" type="button" id="fx-tentar-de-novo">Tentar de novo</button>
+        </div>
       </div>
 
       <!-- O corpo É o split da tela. Como `div` solto ele caía na primeira
@@ -4869,10 +4875,15 @@
     document.getElementById("fx-ano").textContent = fluxoAno;
     var corpo = document.getElementById("fx-corpo");
     var vazio = document.getElementById("fx-vazio");
-    var dizer = function (texto) {
+    var dizer = function (texto, podeTentarDeNovo) {
       corpo.hidden = true;
       vazio.hidden = false;
       document.getElementById("fx-vazio-texto").textContent = texto;
+      // A marca fica no DOM, e não numa variável de módulo, para o ouvinte de
+      // "online" saber se esta tela está parada por falha ou se está apenas
+      // mostrando um ano sem movimento.
+      vazio.dataset.falhou = podeTentarDeNovo ? "1" : "";
+      document.getElementById("fx-vazio-acao").hidden = !podeTentarDeNovo;
     };
 
     if (!MODO_API) {
@@ -4889,7 +4900,7 @@
       document.getElementById("fx-sub").textContent = "Não foi possível carregar.";
       dizer((e && e.semRede)
         ? "Sem conexão agora. O relatório é calculado no servidor e precisa de internet."
-        : ((e && e.message) || "Não foi possível carregar o relatório."));
+        : ((e && e.message) || "Não foi possível carregar o relatório."), true);
       return;
     }
     pintarFluxo(fluxoDados);
@@ -4905,6 +4916,8 @@
       vazio.hidden = false;
       document.getElementById("fx-vazio-texto").textContent =
         "Nenhum lançamento em " + d.year + ". Assim que houver movimento, o relatório aparece aqui.";
+      vazio.dataset.falhou = "";
+      document.getElementById("fx-vazio-acao").hidden = true;
       return;
     }
     corpo.hidden = false;
@@ -7571,6 +7584,16 @@
   document.getElementById("p-mes-prox").addEventListener("click", function () { mudarMesDoResumo(1); });
   document.getElementById("fx-ano-ant").addEventListener("click", function () { fluxoAno -= 1; renderFluxo(); });
   document.getElementById("fx-ano-prox").addEventListener("click", function () { fluxoAno += 1; renderFluxo(); });
+  document.getElementById("fx-tentar-de-novo").addEventListener("click", function () { renderFluxo(); });
+  /* A tela não se cura sozinha sem isto: o relatório só é pedido ao ENTRAR na
+   * tela, então quem ficou parado nela enquanto a rede voltava continuava
+   * lendo "não foi possível carregar" com o servidor já no ar — medido. O
+   * evento só dispara quando é o APARELHO que recupera a rede; servidor que
+   * caiu e voltou não avisa ninguém, e é para esse caso que existe o botão. */
+  window.addEventListener("online", function () {
+    var vazio = document.getElementById("fx-vazio");
+    if (vazio.dataset.falhou && document.querySelector('.view[data-view="fluxo"].on')) renderFluxo();
+  });
   // A largura do spark só existe depois do layout: sem redesenhar no resize
   // a curva ficaria com o viewBox da largura antiga.
   window.addEventListener("resize", function () {

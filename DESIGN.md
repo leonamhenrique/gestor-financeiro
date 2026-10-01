@@ -1239,6 +1239,28 @@ ninguém reclamava, porque a tela não parecia quebrada — parecia sem cor.
 Medido depois de corrigir, contra a página: positivo 4,87 (claro) / 10,51
 (escuro), negativo 5,10 / 7,10, ocre 4,69 / 11,56, acento 5,62 / 13,47.
 
+### Tela que depende do servidor
+
+Tela calculada no servidor não inventa um resultado local quando a rede cai:
+ela esconde o conteúdo e diz o que houve. Esconder é parte da regra — deixar o
+relatório anterior na tela faz número velho passar por número de agora.
+
+**Todo aviso de falha carrega a saída.** Falha de rede ou de servidor mostra um
+botão de nova tentativa; ano sem lançamento não mostra, porque ali não há o que
+tentar. O botão é `ghost`, nunca de acento: onde o flutuante existe, ele é o
+primário da tela.
+
+**E a tela se cura sozinha quando a rede volta.** O relatório é pedido ao
+ENTRAR na tela, então quem ficou parado nela durante a queda continuava lendo
+"não foi possível carregar" com o servidor já de volta — medido, com o evento
+`online` disparado e tudo. Um ouvinte de `online` refaz o pedido, e só quando
+duas coisas valem ao mesmo tempo: a tela está visível e o último desenho
+falhou. Sem as duas, o evento vira pedido à toa em toda tela do app.
+
+O evento `online` só dispara quando é o **aparelho** que recupera a rede.
+Servidor que caiu e voltou não avisa ninguém — e é exatamente para esse caso
+que o botão existe.
+
 ## 6. Regras que não se negociam
 
 1. Nenhum card com fundo próprio em bloco de conteúdo.
