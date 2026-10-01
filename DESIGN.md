@@ -1095,6 +1095,26 @@ acento aparece. A ação secundária de criação daquela tela (novo cartão, no
 categoria) vira `.ghost` no cabeçalho. Separação do conteúdo vem do contraste
 do acento — sem sombra, mantendo a regra 3.
 
+**Despesa e Receita são o único par em que o pill ligado não usa o acento.** Em
+todos os outros, acento quer dizer "é esta a escolhida" e mais nada. Aqui a
+escolha **é o sinal do dinheiro**, e o app inteiro já ensina que vermelho sai e
+verde entra — da linha do extrato à faixa do mapa de calor. Pintar de acento
+seria guardar essa informação justamente no momento em que ela está sendo
+decidida. Vale nos dois lugares em que o par aparece: tipo do lançamento e tipo
+da categoria, que são o mesmo controle fazendo a mesma pergunta.
+
+**A tinta é a `--seg-*-tinta`, não o token de sinal cru.** São a mesma cor um
+passo mais escura, e existem porque vermelho e verde de token não sobrevivem ao
+próprio tinte no tema claro: medido aqui, o verde cru deu **4,38:1** e o
+vermelho **4,55:1** — um reprovado e o outro a 0,05 do limite. Com elas, 5,50 e
+5,27. No escuro as duas apontam para o token cru, então lá nada muda.
+
+**E a borda do verde subiu para 0,80.** O contorno de um pill ligado encosta em
+dois fundos e precisa de 3:1 nos **dois**: a página por fora e o próprio tinte
+por dentro — a mesma conta que o `--accent-borda` já documenta. Em 0,74 o verde
+dava 3,09 por fora mas **2,88 por dentro**; o piso medido é 0,77. O vermelho já
+passava em 0,75 (3,41 e 3,14).
+
 **`.ghost--acento` — o degrau entre os dois.** Numa tela que já tem primário (o
 flutuante), a ação principal do conteúdo não pode virar um segundo acento cheio,
 mas também não pode ficar no mesmo cinza de tudo. O meio-termo é acento **em

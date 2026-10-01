@@ -88,6 +88,12 @@
      * exatamente o peso do hover normal (--accent-borda) — o botão destrutivo
      * responde ao mouse com a mesma força que os outros, só na cor dele. */
     --negative-borda: rgba(255,107,107,0.67);
+    /* Tinte e contorno do par Despesa/Receita quando ligado. Espelham o
+     * --accent-fraco/--accent-borda, que é a receita do pill ligado; aqui só
+     * trocam de cor, porque neste par a escolha É o sinal. */
+    --negative-fraco: rgba(255,107,107,0.10);
+    --positive-fraco: rgba(61,214,140,0.10);
+    --positive-borda: rgba(61,214,140,0.47);
     --hover: rgba(255,255,255,0.02);
     --scroll: rgba(255,255,255,0.14);
     --scroll-forte: rgba(255,255,255,0.24);
@@ -187,6 +193,13 @@
     /* Tinta vermelha sobre claro rende menos: 0,75 para 3,41:1, ao lado dos
      * 3,38 do --accent-borda. Era 0,35 = 1,71:1. */
     --negative-borda: rgba(192,57,47,0.75);
+    --negative-fraco: rgba(192,57,47,0.08);
+    --positive-fraco: rgba(14,124,90,0.08);
+    /* 0,80 e não 0,74: medido, o piso para a borda fechar 3:1 nos DOIS lados —
+     * contra a página por fora e contra o próprio tinte por dentro — é 0,77 no
+     * verde do tema claro. Em 0,74 ela dava 3,09 por fora mas 2,88 por dentro.
+     * O vermelho já passa em 0,75 (3,41 e 3,14), e no escuro os dois sobram. */
+    --positive-borda: rgba(14,124,90,0.80);
     --hover: rgba(15,23,32,0.03);
     --scroll: rgba(15,23,32,0.18);
     --scroll-forte: rgba(15,23,32,0.30);
@@ -312,6 +325,27 @@
   }
   .pill::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 44px; transform: translateY(-50%); }
   .pill.on { background: var(--accent-fraco); border-color: var(--accent-borda); color: var(--accent); }
+  /* Despesa e Receita são o único par em que o pill ligado NÃO usa o acento.
+   * Em todos os outros, acento quer dizer "é esta a escolhida" e mais nada;
+   * aqui a escolha é o próprio sinal do dinheiro, e o app inteiro já ensina
+   * que vermelho sai e verde entra — da linha do extrato à faixa do mapa de
+   * calor. Pintar de acento seria guardar essa informação justamente no
+   * momento em que ela está sendo decidida. Vale nos dois lugares em que o
+   * par aparece: tipo do lançamento e tipo da categoria. */
+  /* A tinta é a `--seg-*-tinta`, não o token de sinal cru. Esses dois são a
+   * mesma cor um passo mais escura, e existem justamente porque vermelho e
+   * verde de token não sobrevivem ao próprio tinte no tema claro: medido aqui,
+   * o verde cru dava 4,38:1 e o vermelho 4,55:1 — um reprovado e o outro a
+   * 0,05 do limite. Com elas, 5,50 e 5,27. No tema escuro as duas apontam para
+   * o token cru, então nada muda lá. */
+  #l-tipo-pills .pill.on[data-opt="EXPENSE"],
+  #g-tipo-pills .pill.on[data-opt="EXPENSE"] {
+    background: var(--negative-fraco); border-color: var(--negative-borda); color: var(--seg-despesa-tinta);
+  }
+  #l-tipo-pills .pill.on[data-opt="INCOME"],
+  #g-tipo-pills .pill.on[data-opt="INCOME"] {
+    background: var(--positive-fraco); border-color: var(--positive-borda); color: var(--seg-receita-tinta);
+  }
   .pill:disabled { opacity: 0.65; cursor: default; }
 
   .month-nav { display: flex; align-items: center; gap: 10px; }
