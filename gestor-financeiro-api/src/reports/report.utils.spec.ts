@@ -12,6 +12,8 @@ import {
   trimestreDoMes,
   ultimosMesesRealizados,
   trimestresComparaveis,
+  previstosDoMes,
+  TETO_DE_PREVISTOS,
   variacaoTrimestre,
   type LancamentoDoRelatorio,
 } from './report.utils';
@@ -286,5 +288,86 @@ describe('indicadores', () => {
     const k = indicadores(fluxoPorMes([], 2026, '2026-09', ZERO), ZERO);
     expect(k.savingsRate).toBe(0);
     expect(emReais(k.projectedYearEndBalance)).toBe('0.00');
+  });
+});
+
+describe('previstosDoMes', () => {
+  const nomes = new Map([['c1', 'Moradia'], ['c2', 'Salário']]);
+  const prev = (tipo: 'INCOME' | 'EXPENSE', valor: number, desc?: string) =>
+    lanc('2026-11', tipo, valor, { confirmado: false, descricao: desc ?? `L${valor}`, categoriaId: tipo === 'INCOME' ? 'c2' : 'c1' });
+
+  it('acumula o saldo a partir do saldo do mês anterior', () => {
+    const { upcoming } = previstosDoMes(
+      [prev('INCOME', 1000), prev('EXPENSE', 300)], '2026-11', d(500), nomes, ZERO,
+    );
+    expect(upcoming.map((l) => [l.amount, l.balanceAfter])).toEqual([
+      ['1000.00', '1500.00'],
+      ['-300.00', '1200.00'],
+    ]);
+  });
+
+  it('entrada vem antes de saída: o saldo não mergulha por ordem de leitura', () => {
+    const { upcoming } = previstosDoMes([prev('EXPENSE', 50), prev('INCOME', 80)], '2026-11', ZERO, nomes, ZERO);
+    expect(upcoming.map((l) => l.amount)).toEqual(['80.00', '-50.00']);
+  });
+
+  it('sem teto estourado não inventa linha de resto', () => {
+    const { upcoming, upcomingTotal } = previstosDoMes([prev('EXPENSE', 10)], '2026-11', ZERO, nomes, ZERO);
+    expect(upcoming).toHaveLength(1);
+    expect(upcomingTotal).toBe(1);
+  });
+
+  it('acima do teto mostra os MAIORES, não os primeiros', () => {
+    // Trinta saídas de 1 a 30, em ordem crescente na entrada.
+    const muitos = Array.from({ length: 30 }, (_, i) => prev('EXPENSE', i + 1));
+    const { upcoming } = previstosDoMes(muitos, '2026-11', ZERO, nomes, ZERO, 3);
+    expect(upcoming.slice(0, 3).map((l) => l.amount)).toEqual(['-30.00', '-29.00', '-28.00']);
+  });
+
+  it('o que sobra vira uma linha só, com a soma líquida e o total verdadeiro', () => {
+    const muitos = [prev('INCOME', 100), ...Array.from({ length: 5 }, (_, i) => prev('EXPENSE', (i + 1) * 10))];
+    const { upcoming, upcomingTotal } = previstosDoMes(muitos, '2026-11', ZERO, nomes, ZERO, 2);
+    const resto = upcoming[2];
+    expect(upcomingTotal).toBe(6);
+    expect(resto.description).toBe('mais 4 lançamentos previstos');
+    expect(resto.tag).toBe('Resto do mês');
+    // mostrados: +100 e -50; resto: -40 -30 -20 -10 = -100
+    expect(resto.amount).toBe('-100.00');
+  });
+
+  it('cortado ou não, o saldo final é o mesmo — o teto não esconde dinheiro', () => {
+    const muitos = [prev('INCOME', 900), ...Array.from({ length: 12 }, (_, i) => prev('EXPENSE', (i + 1) * 7))];
+    const inteiro = previstosDoMes(muitos, '2026-11', d(200), nomes, ZERO, 999);
+    const cortado = previstosDoMes(muitos, '2026-11', d(200), nomes, ZERO, 3);
+    const fim = (r: { upcoming: { balanceAfter: string }[] }) => r.upcoming[r.upcoming.length - 1].balanceAfter;
+    expect(fim(cortado)).toBe(fim(inteiro));
+  });
+
+  it('a estimativa entra depois do resto e fecha o saldo', () => {
+    const muitos = Array.from({ length: 4 }, (_, i) => prev('EXPENSE', (i + 1) * 10));
+    const { upcoming } = previstosDoMes(muitos, '2026-11', d(1000), nomes, d(25), 2);
+    const ultima = upcoming[upcoming.length - 1];
+    expect(ultima.description).toBe('Gastos variáveis (estimativa)');
+    expect(ultima.amount).toBe('-25.00');
+    // 1000 - 40 - 30 (mostrados) - 30 (resto: 20+10) - 25 = 875
+    expect(ultima.balanceAfter).toBe('875.00');
+  });
+
+  it('mês sem nada previsto devolve lista vazia', () => {
+    expect(previstosDoMes([], '2026-11', d(10), nomes, ZERO)).toEqual({ upcoming: [], upcomingTotal: 0 });
+  });
+
+  it('lançamento sem descrição cai no nome da categoria', () => {
+    const sem = lanc('2026-11', 'EXPENSE', 40, { confirmado: false, descricao: null as unknown as string, categoriaId: 'c1' });
+    const { upcoming } = previstosDoMes([sem], '2026-11', ZERO, nomes, ZERO);
+    expect(upcoming[0].description).toBe('Moradia');
+    expect(upcoming[0].tag).toBe('Moradia');
+  });
+
+  it('o teto padrão é 40', () => {
+    expect(TETO_DE_PREVISTOS).toBe(40);
+    const muitos = Array.from({ length: 45 }, (_, i) => prev('EXPENSE', i + 1));
+    const { upcoming } = previstosDoMes(muitos, '2026-11', ZERO, nomes, ZERO);
+    expect(upcoming).toHaveLength(41); // 40 + a linha do resto
   });
 });

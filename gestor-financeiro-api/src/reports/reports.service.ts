@@ -40,6 +40,7 @@ import {
   fluxoPorMes,
   indicadores,
   mesesDoAno,
+  previstosDoMes,
   soma,
   trimestresComparaveis,
   ultimosMesesRealizados,
@@ -105,7 +106,7 @@ export class ReportsService {
     );
     const kpis = indicadores(months, saldoAtual);
 
-    const { upcoming, horizon } = this.olharAdiante(lancamentos, months, mesCorrente, nomePorCategoria, estimativa);
+    const { upcoming, upcomingTotal, horizon } = this.olharAdiante(lancamentos, months, mesCorrente, nomePorCategoria, estimativa);
 
     const insights = this.insights.gerar({
       months,
@@ -150,6 +151,9 @@ export class ReportsService {
         deltaQuarter: c.deltaQuarter,
       })),
       upcoming,
+      // Quantos lançamentos previstos existem de verdade no mês. A lista tem
+      // teto; este número não, e é ele que a tela usa para não mentir.
+      upcomingTotal,
       horizon,
       insights,
     };
@@ -274,41 +278,20 @@ export class ReportsService {
     estimativa: Map<string, Dinheiro>,
   ) {
     const previstos = months.filter((m) => m.isForecast);
-    if (!previstos.length) return { upcoming: [], horizon: [] };
+    if (!previstos.length) return { upcoming: [], upcomingTotal: 0, horizon: [] };
 
     const alvo = previstos[0];
-    const doMes = lancamentos
-      .filter((l) => l.mes === alvo.month)
-      .sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === 'INCOME' ? -1 : 1));
+    const doMes = lancamentos.filter((l) => l.mes === alvo.month);
 
     // O saldo de partida é o do fim do mês anterior ao previsto.
     const anterior = months[months.indexOf(alvo) - 1];
-    let saldo = anterior ? anterior.balance : ZERO;
-
-    const upcoming = doMes.map((l) => {
-      saldo = l.tipo === 'INCOME' ? saldo.plus(l.valor) : saldo.minus(l.valor);
-      return {
-        date: alvo.month,
-        description: l.descricao ?? nomePorCategoria.get(l.categoriaId ?? '') ?? 'Lançamento',
-        tag: nomePorCategoria.get(l.categoriaId ?? '') ?? (l.tipo === 'INCOME' ? 'Receita' : 'Despesa'),
-        amount: emReais(l.tipo === 'INCOME' ? l.valor : l.valor.negated()),
-        balanceAfter: emReais(saldo),
-      };
-    });
-
-    // A estimativa fecha a lista como uma linha só: ela não é um lançamento,
-    // é o que a média diz que ainda vai sair.
-    const estimado = estimativa.get(alvo.month) ?? ZERO;
-    if (estimado.greaterThan(0)) {
-      saldo = saldo.minus(estimado);
-      upcoming.push({
-        date: alvo.month,
-        description: 'Gastos variáveis (estimativa)',
-        tag: 'Estimativa',
-        amount: emReais(estimado.negated()),
-        balanceAfter: emReais(saldo),
-      });
-    }
+    const { upcoming, upcomingTotal } = previstosDoMes(
+      doMes,
+      alvo.month,
+      anterior ? anterior.balance : ZERO,
+      nomePorCategoria,
+      estimativa.get(alvo.month) ?? ZERO,
+    );
 
     const horizon = previstos.slice(1).map((m) => ({
       month: m.month,
@@ -318,6 +301,6 @@ export class ReportsService {
       balance: emReais(m.balance),
     }));
 
-    return { upcoming, horizon };
+    return { upcoming, upcomingTotal, horizon };
   }
 }

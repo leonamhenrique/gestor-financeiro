@@ -1239,6 +1239,23 @@ ninguém reclamava, porque a tela não parecia quebrada — parecia sem cor.
 Medido depois de corrigir, contra a página: positivo 4,87 (claro) / 10,51
 (escuro), negativo 5,10 / 7,10, ocre 4,69 / 11,56, acento 5,62 / 13,47.
 
+### Lista dentro de resumo tem teto
+
+Toda lista que um resumo mostra tem teto, e o teto mora no **servidor**: cortar
+só na tela ainda faz o aparelho baixar o que não vai aparecer. Medido no fluxo
+de caixa com 400 lançamentos previstos num mês: 72,2 KB de resposta, 394 linhas
+e uma tela de 35.793px — 44 telas de celular num relatório que existe para ser
+lido de uma olhada. Com teto de 40: 14,3 KB e 6.574px.
+
+**O teto mostra os maiores, não os primeiros.** Cortar pela ordem natural da
+lista (entradas antes de saídas) dava, num mês de 400, uma tela inteira só de
+entradas.
+
+**E o teto não esconde dinheiro.** O que ficou de fora vira uma linha só, com a
+soma líquida, e o acumulado segue por ela: a última linha fecha no mesmo saldo
+que o mês inteiro teria sem corte — é teste, não promessa. O cabeçalho do bloco
+diz quantos está mostrando de quantos ("os 40 maiores de 394").
+
 ### Tela que depende do servidor
 
 Tela calculada no servidor não inventa um resultado local quando a rede cai:

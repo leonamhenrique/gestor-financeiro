@@ -5051,8 +5051,14 @@
       var v = fxNum(u.amount);
       if (v >= 0) entradas += v; else saidas += -v;
     });
+    // As linhas sintéticas (o resto do mês e a estimativa) não contam como
+    // lançamento: o total verdadeiro vem do servidor, que é quem tem a lista
+    // inteira. Sem isto a tela diria "40 de 40" num mês com 394.
+    var reais = d.upcoming.filter(function (u) { return u.tag !== "Resto do mês" && u.tag !== "Estimativa"; }).length;
+    var total = d.upcomingTotal == null ? reais : d.upcomingTotal;
     document.getElementById("fx-vai-resumo").textContent = d.upcoming.length
-      ? "entradas " + fxSinal(entradas) + " · saídas −" + fxCurto(saidas) + " · sobra " + fxSinal(entradas - saidas)
+      ? "entradas " + fxSinal(entradas) + " · saídas −" + fxCurto(saidas) + " · sobra " + fxSinal(entradas - saidas) +
+        (total > reais ? " · os " + reais + " maiores de " + total : "")
       : "nada previsto";
 
     document.getElementById("fx-upcoming").innerHTML = d.upcoming.length
@@ -5062,7 +5068,11 @@
           return '<tr><td>' + esc(u.description) + '</td>' +
             '<td class="fx-tag">' + esc(u.tag) + '</td>' +
             '<td class="num ' + (v >= 0 ? "fx-pos" : "fx-neg") + '">' + fxSinal(v) + '</td>' +
-            '<td class="num">' + fxCurto(u.balanceAfter) + '</td></tr>';
+            // `fxCurto` joga o sinal fora de propósito (quem usa põe o seu),
+            // e saldo é a única coluna aqui que pode ser negativa: sem este
+            // menos, um saldo previsto de −768.060 aparecia como 768.060.
+            // Não leva "+": saldo não é variação.
+            '<td class="num">' + (fxNum(u.balanceAfter) < 0 ? "−" : "") + fxCurto(u.balanceAfter) + '</td></tr>';
         }).join("") + '</tbody>'
       : "";
 

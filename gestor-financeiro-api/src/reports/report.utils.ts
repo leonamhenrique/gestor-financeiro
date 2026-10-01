@@ -306,3 +306,92 @@ export function indicadores(meses: MesDoFluxo[], saldoAtual: Dinheiro): Indicado
     projectedYearEndBalance: meses.length ? meses[meses.length - 1].balance : saldoAtual,
   };
 }
+
+/**
+ * Uma linha da tabela "para onde vai": o lançamento previsto e o saldo logo
+ * depois dele.
+ */
+export interface LinhaPrevista {
+  date: string;
+  description: string;
+  tag: string;
+  amount: string;
+  balanceAfter: string;
+}
+
+/**
+ * Quantos lançamentos previstos a tela mostra um a um.
+ *
+ * Medido com 400 previstos num mês: a tabela sozinha dava 31.995px e a tela
+ * inteira 35.793 — 44 telas de celular num relatório que existe para ser lido
+ * de uma olhada. O teto não esconde dinheiro: o que sobra vira uma linha só,
+ * com a soma e com o saldo final, e o cabeçalho do bloco já traz entradas,
+ * saídas e sobra do mês inteiro.
+ */
+export const TETO_DE_PREVISTOS = 40;
+
+/**
+ * Monta "para onde vai" a partir dos lançamentos de um mês previsto.
+ *
+ * Mostra os MAIORES, não os primeiros: a lista é ordenada por tipo (entrada
+ * antes de saída, para o saldo não mergulhar por ordem de leitura), e dentro
+ * de cada tipo os primeiros a cair fora seriam os de menor valor de qualquer
+ * jeito. Cortar pelos primeiros da ordem natural daria, num mês com 400
+ * lançamentos, uma tela só de entradas — medido.
+ *
+ * O saldo de cada linha é o saldo depois do que está à vista, e a última
+ * linha fecha no saldo real do fim do mês: a linha do resto e a da estimativa
+ * entram no acumulado.
+ */
+export function previstosDoMes(
+  doMes: LancamentoDoRelatorio[],
+  mes: string,
+  saldoInicial: Dinheiro,
+  nomePorCategoria: Map<string, string>,
+  estimado: Dinheiro,
+  teto = TETO_DE_PREVISTOS,
+): { upcoming: LinhaPrevista[]; upcomingTotal: number } {
+  const peso = (l: LancamentoDoRelatorio) => (l.tipo === 'INCOME' ? 0 : 1);
+  const ordenado = [...doMes].sort((a, b) => peso(a) - peso(b) || b.valor.comparedTo(a.valor));
+  const mostrados = ordenado.slice(0, teto);
+  const restantes = ordenado.slice(teto);
+
+  let saldo = saldoInicial;
+  const upcoming: LinhaPrevista[] = mostrados.map((l) => {
+    saldo = l.tipo === 'INCOME' ? saldo.plus(l.valor) : saldo.minus(l.valor);
+    return {
+      date: mes,
+      description: l.descricao ?? nomePorCategoria.get(l.categoriaId ?? '') ?? 'Lançamento',
+      tag: nomePorCategoria.get(l.categoriaId ?? '') ?? (l.tipo === 'INCOME' ? 'Receita' : 'Despesa'),
+      amount: emReais(l.tipo === 'INCOME' ? l.valor : l.valor.negated()),
+      balanceAfter: emReais(saldo),
+    };
+  });
+
+  if (restantes.length) {
+    const liquido = soma(restantes.map((l) => (l.tipo === 'INCOME' ? l.valor : l.valor.negated())));
+    saldo = saldo.plus(liquido);
+    upcoming.push({
+      date: mes,
+      description: `mais ${restantes.length} lançamentos previstos`,
+      tag: 'Resto do mês',
+      amount: emReais(liquido),
+      balanceAfter: emReais(saldo),
+    });
+  }
+
+  // A estimativa fecha a lista como uma linha só: ela não é um lançamento,
+  // é o que a média diz que ainda vai sair.
+  if (estimado.greaterThan(0)) {
+    saldo = saldo.minus(estimado);
+    upcoming.push({
+      date: mes,
+      description: 'Gastos variáveis (estimativa)',
+      tag: 'Estimativa',
+      amount: emReais(estimado.negated()),
+      balanceAfter: emReais(saldo),
+    });
+  }
+
+  return { upcoming, upcomingTotal: doMes.length };
+}
