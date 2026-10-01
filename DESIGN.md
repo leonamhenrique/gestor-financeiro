@@ -1202,6 +1202,34 @@ o contorno, e é ele que separa o controle morto do vivo.
 **Ícones** — SVG inline, stroke 1.7–1.8, grid 24, tamanho de render 13–20px,
 `currentColor` sempre que possível. Nunca emoji.
 
+### Tabela densa
+
+Tabela aqui é lista com colunas — sem zebra, sem borda externa, sem fundo
+próprio (regra 1). A linha se separa por `border-top` de hairline, o cabeçalho
+por uma hairline mais firme, e o `tfoot` do total por `--hairline-strong`.
+
+**Toda coluna a partir da segunda carrega seu próprio vão: 12px, 8px abaixo de
+480.** O vão vai no `th + th` / `td + td`, nunca nas bordas da tabela, para a
+primeira e a última coluna continuarem alinhadas com o resto do bloco. Sem ele a
+célula ainda cabe e nada transborda — então **nenhuma checagem de truncamento
+acusa** —, mas dois números encostam e `27.400` ao lado de `43,1%` é lido como
+`27.40043,1%`. Em 320px foi exatamente o que aconteceu.
+
+**Quando a largura acaba, cede primeiro a coluna que repete.** Uma barra de
+participação ao lado da coluna "%" é a tradução visual do mesmo número: abaixo
+de 480 ela sai e o número fica. Informação duplicada cede antes de qualquer
+número, e nunca se encolhe a fonte para caber.
+
+**Cor de valor com sinal se aplica pela célula, não pela classe solta.**
+`.tabela td { color: var(--fg) }` tem especificidade (0,1,1) e vence
+`.fx-pos { color: var(--positive) }` (0,1,0) **por especificidade, não por
+ordem** — escrever a regra depois não adianta. A forma correta é
+`.tabela td.fx-pos`. Escritas soltas, as quatro regras de sinal desta tela
+foram CSS morto desde o primeiro commit: 27 valores saíam na tinta neutra e
+ninguém reclamava, porque a tela não parecia quebrada — parecia sem cor.
+Medido depois de corrigir, contra a página: positivo 4,87 (claro) / 10,51
+(escuro), negativo 5,10 / 7,10, ocre 4,69 / 11,56, acento 5,62 / 13,47.
+
 ## 6. Regras que não se negociam
 
 1. Nenhum card com fundo próprio em bloco de conteúdo.

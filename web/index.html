@@ -725,14 +725,30 @@
     letter-spacing: 0.16em; color: var(--fg-subtle); padding: 8px 0; border-bottom: 1px solid var(--hairline);
   }
   .fx-tabela td { padding: 9px 0; border-top: 1px solid var(--hairline); color: var(--fg); }
+  /* Vão entre colunas. Sem ele, em 320px os números encostam e "27.400" com
+   * "43,1%" ao lado viram "27.40043,1%" — nada transborda da célula, então
+   * nenhuma checagem de truncamento acusa; o texto simplesmente deixa de ser
+   * legível. O vão vai só entre colunas, nunca nas bordas, para a tabela
+   * continuar alinhada com o resto do bloco. */
+  .fx-tabela th + th, .fx-tabela td + td { padding-left: 12px; }
+  @media (max-width: 480px) {
+    .fx-tabela th + th, .fx-tabela td + td { padding-left: 8px; }
+    /* A barra de participação some: ela é a tradução visual da coluna "%",
+     * que continua ali. Em 320px os 60px que ela ocupa fazem falta para os
+     * números, e informação repetida é a primeira coisa que deve ceder. */
+    .fx-tabela--cat th:nth-child(2), .fx-tabela--cat td:nth-child(2) { display: none; }
+  }
   .fx-tabela th.num, .fx-tabela td.num { text-align: right; }
   .fx-tabela tbody tr:first-child td { border-top: none; }
   .fx-tabela .fx-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--fg-subtle); }
   .fx-tabela tfoot td { border-top: 1px solid var(--hairline-strong); color: var(--fg-muted); }
-  .fx-pos { color: var(--positive); }
-  .fx-neg { color: var(--negative); }
-  .fx-sobe { color: var(--warning); }   /* gasto que subiu: atenção, não erro */
-  .fx-cai { color: var(--accent); }
+  /* A cor precisa vir pela célula: `.fx-tabela td` (0,1,1) vence `.fx-pos`
+   * (0,1,0) por especificidade, não por ordem. Escritas soltas, as quatro
+   * regras eram CSS morto — todo valor com sinal saía na tinta neutra. */
+  .fx-tabela td.fx-pos { color: var(--positive); }
+  .fx-tabela td.fx-neg { color: var(--negative); }
+  .fx-tabela td.fx-sobe { color: var(--warning); }   /* gasto que subiu: atenção, não erro */
+  .fx-tabela td.fx-cai { color: var(--accent); }
 
   /* Barra de participação da categoria: horizontal, dentro da própria
    * linha da tabela — nada de rosca, que obriga a comparar ângulos. */
