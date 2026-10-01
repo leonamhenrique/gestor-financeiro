@@ -1451,6 +1451,7 @@ Alvo de toque mínimo cai de 44px para **32px** em ponteiro fino — nunca menos
 | Extrato | coluna única limitada a `--read-max`; filtros e totais no `.rail` |
 | Cartões | `.split` — a **fatura** à esquerda; a lista de cartões no `.rail` |
 | Detalhe de categoria | `.split` — barras e evolução à esquerda; lançamentos no `.rail` |
+| Fluxo de caixa | `.split` a partir de **1280** — KPIs, gráfico de doze meses e categorias à esquerda; previsto e insights no `.rail`. Abaixo de 1280, coluna única |
 | Nova transação | camada de 480px sobre a tela anterior |
 
 A coluna principal é a do **conteúdo longo**, não a do que vem primeiro na
@@ -1461,6 +1462,26 @@ onde faltava espaço.
 Empilhado, a ordem se inverte: quem **escolhe** vem antes de quem é escolhido
 (filtro antes da lista, cartão antes da fatura). É o que o `order: -1` no
 `.rail` resolve dentro do `max-width: 767px`.
+
+O corpo da tela **é** o `.split`, não um `div` dentro dele. Um invólucro solto
+cai na auto-colocação do grid da `.view`, cuja primeira coluna é dimensionada
+pelo `auto` da segunda — a do `.v-cta`. Em Fluxo isso dava uma tela de 902px
+num corpo de 1120: a borda direita dos KPIs era ditada pela largura das duas
+setinhas de ano, e 218px morriam em toda largura de desktop. Quando um bloco
+precisa da linha inteira, ele declara `grid-column: 1 / -1` — é o que `.split`
+já faz, e é por isso que ele é o invólucro certo.
+
+**Duas colunas só quando cada uma já cabe no que carrega.** O critério não é
+"sobrou largura", é o tamanho mínimo do conteúdo de cada lado: em Fluxo, 560px
+para o gráfico de doze meses não rolar e 320 para o trilho, mais a calha de 64
+— 944px de corpo, que só existem quando o conteúdo bate no teto de 1120.
+Daí o corte em 1280, o mesmo de Pendências, por aritmética diferente.
+
+**Uma regra escrita para o trilho vale enquanto o trilho existe.** Abaixo do
+ponto de quebra o `.rail` continua no DOM, com a classe, só que ocupando a
+coluna única — e uma regra como `.rail .fx-insights { grid-template-columns:
+1fr }` empilha seis insights numa largura onde dois cabiam. Regra de trilho
+mora dentro do `@media` do ponto de quebra, não do de 768.
 
 ### 9.7 Regras que não se negociam (desktop)
 

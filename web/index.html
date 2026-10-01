@@ -773,6 +773,11 @@
    * hairline à esquerda separa um do outro. */
   .fx-insights { display: grid; gap: 18px; max-width: var(--read-max); }
   @media (min-width: 768px) { .fx-insights { grid-template-columns: 1fr 1fr; gap: 18px 32px; } }
+  /* No trilho o insight tem ~385px: em duas colunas sobrariam 176px por
+   * coluna, e o texto viraria uma torre de três palavras por linha. Só a
+   * partir de 1280, que é quando o trilho existe de fato — abaixo disso ele
+   * é a mesma coluna única, e ali duas colunas cabem. */
+  @media (min-width: 1280px) { .rail .fx-insights { grid-template-columns: minmax(0, 1fr); } }
   .fx-insight { display: flex; flex-direction: column; gap: 4px; border-left: 2px solid var(--hairline-strong); padding-left: 14px; }
   .fx-insight--positive { border-left-color: var(--accent-borda); }
   .fx-insight--attention { border-left-color: var(--warning-borda); }
@@ -1328,6 +1333,9 @@
     /* O Resumo não tem cabeçalho visível: sem isto a linha 1 do grid ficaria
      * vazia e o row-gap deixaria um buraco de 32px no topo. */
     .view[data-view="resumo"] .split { grid-row: 1; }
+    /* Mesmo motivo do corpo: solto, o aviso de tela vazia herdava a coluna
+     * estreita que a navegação de ano cria. */
+    .view[data-view="fluxo"] #fx-vazio { grid-column: 1 / -1; }
 
     .split {
       display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
@@ -1349,7 +1357,15 @@
      * tamanho máximo. Abaixo disso, uma coluna dá de 600 a 1050px por linha,
      * que é folga de sobra. Categorias fica de fora: a linha dela é leve e cabe
      * em 353px (medido, 0 de 19 cortadas em 900). */
+    /* Fluxo abre em duas colunas pelo mesmo critério do Pendências: só quando
+     * cada coluna já está no tamanho que precisa. A principal carrega o
+     * gráfico de doze meses, que tem `min-width: 560px` e abaixo disso passa
+     * a rolar na horizontal; o trilho pede 320. Com a calha de 64, isso exige
+     * 944px de corpo — e o corpo só chega lá quando bate no teto de 1120, o
+     * que acontece a partir de ~1272 de viewport. Daí o corte em 1280. */
     @media (max-width: 1279px) {
+      .split--fluxo { grid-template-columns: minmax(0, 1fr); }
+      .split--fluxo > .rail { border-left: none; padding-left: 0; }
       .view[data-view="pendencias"] .split--par { grid-template-columns: minmax(0, 1fr); }
       /* Em coluna única o trilho não divide nada: o filete e o recuo sairiam
        * indentando a segunda seção sem nada do lado. */
@@ -1678,7 +1694,13 @@
         <div class="empty" id="fx-vazio-texto"></div>
       </div>
 
-      <div id="fx-corpo">
+      <!-- O corpo É o split da tela. Como `div` solto ele caía na primeira
+           coluna do grid do cabeçalho — e essa coluna é dimensionada pelo
+           `auto` da navegação de ano: em 1440 a tela inteira ficava com 902px
+           de 1120, com a borda direita dos KPIs ditada pela largura das duas
+           setinhas. `.split` ocupa `1 / -1` e devolve a largura. -->
+      <div id="fx-corpo" class="split split--fluxo">
+       <div class="col-main">
         <div class="blk" style="--i:1">
           <div class="seg seg--kpi" id="fx-kpis"></div>
         </div>
@@ -1715,7 +1737,12 @@
           </table>
           <div class="field-help">Δ tri em ocre = gasto subiu; em acento = gasto caiu.</div>
         </div>
+       </div>
 
+       <!-- O trilho leva o que olha para a frente: o previsto e a leitura dos
+            números. A coluna principal é a do conteúdo longo (a tabela de doze
+            meses), como manda a composição por tela do DESIGN. -->
+       <div class="rail">
         <div class="blk" style="--i:4">
           <div class="lbl-row">
             <div class="lbl"><span class="fx-n">03</span> Para onde vai</div>
@@ -1735,6 +1762,7 @@
           </div>
           <div class="fx-insights" id="fx-insights"></div>
         </div>
+       </div>
       </div>
     </section>
 
