@@ -171,6 +171,15 @@ mesma barra fina, sem trilho:
 }
 ```
 
+**Rolador horizontal reserva 10px de calha no rodapé.** Onde a barra é
+flutuante — o padrão em celular e no Chrome com barras sobrepostas —, o polegar
+é desenhado POR CIMA do conteúdo, encostado na base do contêiner. Se a última
+linha do conteúdo for texto, ele leva um risco no meio: no gráfico de fluxo,
+medido em 320px, os nomes dos meses iam de 221 a 234 e a base do contêiner
+também era 234. No tema escuro o polegar se perde no fundo e ninguém nota; no
+claro é uma barra escura atravessando "SET" e "OUT". A calha é `padding-bottom`
+no próprio contêiner que rola, não margem no conteúdo.
+
 ## 3. Tipografia
 
 - Família: **Space Grotesk** (400/500/600), fallback `system-ui, sans-serif`.

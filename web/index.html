@@ -698,6 +698,13 @@
   /* Em tela estreita o gráfico rola na horizontal em vez de espremer doze
    * meses: barra de 4px por mês não se lê. */
   .fx-rolagem { overflow-x: auto; overscroll-behavior-x: contain; max-width: var(--read-max); }
+  /* Calha para a barra de rolagem flutuante. Onde o gráfico rola — qualquer
+   * tela abaixo de 560px de coluna —, o polegar é desenhado POR CIMA do
+   * conteúdo, encostado na base do contêiner, que é justamente onde ficam os
+   * nomes dos meses: medido em 320, nomes de 221 a 234 e base do contêiner em
+   * 234. No tema escuro ele se perde no fundo; no claro é um risco preto
+   * atravessando "SET" e "OUT". Os 10px tiram o texto de baixo do polegar. */
+  .fx-rolagem--grafico { padding-bottom: 10px; }
   .fx-grafico {
     display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 1fr);
     align-items: end; gap: 4px; height: 180px; min-width: 560px; position: relative;
@@ -1715,7 +1722,7 @@
             <span><i class="fx-chip fx-chip--desp"></i>Despesas</span>
             <span><i class="fx-chip fx-chip--prev"></i>Previsto</span>
           </div>
-          <div class="fx-rolagem">
+          <div class="fx-rolagem fx-rolagem--grafico">
             <div class="fx-grafico" id="fx-grafico" role="img" aria-label="Receitas e despesas de cada mês do ano"></div>
           </div>
           <div class="fx-rolagem">
