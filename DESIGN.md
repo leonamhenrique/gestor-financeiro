@@ -888,6 +888,53 @@ repetiria o mesmo. `Unauthorized` e `Forbidden` são o texto padrão do framewor
 servidor continua passando inteira — ela costuma ser mais específica que o
 genérico.
 
+**Fluxo de caixa** (tela própria, item do trilho) — o relatório do ano, em
+quatro seções numeradas: entradas e saídas mês a mês, para onde foi o dinheiro,
+para onde vai e os insights. Ela segue a referência visual que o pedido trouxe,
+e a referência já era quase esta casa: fundo, acento e Space Grotesk batem com
+os tokens daqui.
+
+**Os números vêm prontos do servidor.** `GET /reports/cashflow?year=` entrega
+tudo calculado; a tela só desenha. Refazer a conta aqui criaria duas verdades
+sobre o mesmo dinheiro, e a que divergisse seria descoberta pelo usuário, não
+por nós. A consequência é assumida: **sem servidor a tela não inventa um
+relatório** — no modo demonstração e offline ela diz por que está vazia. É o
+oposto do resto do app, que funciona no aparelho, e é a troca certa aqui.
+
+**A única tela com duas famílias tipográficas.** A referência pede JetBrains
+Mono em todo número, e ela entra só por `.view[data-view="fluxo"]`. Em todas as
+outras telas o número é Space Grotesk com `tabular-nums`, que já alinha coluna.
+Fica isolada de propósito: some com a regra e os números voltam ao padrão sem
+mexer em mais nada. O `@import` mora no topo da folha junto com o da Space
+Grotesk — no meio dela o navegador o ignora em silêncio, e a tela cairia na
+fonte de texto sem avisar.
+
+**Barra prevista é tracejada, não mais clara.** `repeating-linear-gradient` a
+135° com borda `dashed`, nas duas cores. Clarear a barra diria "menos", e o
+previsto não é menos: é outra natureza. A divisória de hoje é a mesma ideia, uma
+linha tracejada entre o último mês realizado e o primeiro previsto.
+
+**As duas escalas do gráfico são uma só.** A altura é relativa ao maior valor do
+ano, receita ou despesa — escalas separadas fariam uma despesa de 8 mil parecer
+do tamanho de uma receita de 12 mil.
+
+**Barra horizontal na categoria, nunca rosca.** Comparar comprimentos é
+imediato; comparar ângulos não é. E o preenchimento usa `--bar-aviso`, não
+`--warning`: ele encosta no TRILHO, não na página, e contra o trilho o ocre de
+texto dá 2,53:1 no tema claro.
+
+**Cinco indicadores numa grade de duas ou três colunas deixam um buraco**, e o
+buraco aparece — a célula vazia tem o mesmo fundo das outras e vira uma caixa
+escura sem conteúdo. O último estica para fechar a linha. Em cinco colunas eles
+já fecham sozinhos, e esticar ali quebraria a grade.
+
+**A barra de abas usa `minmax(0, 1fr)`, não `1fr`.** O atalho significa
+`minmax(auto, 1fr)`, e `auto` deixa a coluna crescer além da sua fatia para
+caber o rótulo: com seis abas em 375px a soma dava 388 e a última ficava cortada
+pela borda da tela — e com cinco já cortava em 320. O zero prende cada aba à sua
+fatia, e quem cede é o texto, com reticências. Nome cortado com reticências
+ainda se lê; aba empurrada para fora da tela, não.
+
 **Mapa de calor** (gastos ou receitas por dia do mês) — grade de 7 colunas começando na
 **segunda** (S T Q Q S S D, cabeçalho no estilo do `.lbl`), gap de 2px, uma
 célula por dia do mês e células vazias invisíveis antes do dia 1. Cada célula

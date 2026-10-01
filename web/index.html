@@ -19,7 +19,11 @@
 <meta name="apple-mobile-web-app-title" content="Gestor">
 <script src="config.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap');
+  /* JetBrains Mono entra só pelo relatório de fluxo (ver `.fx-*`): é a única
+   * tela com uma segunda família. `@import` tem que ser a primeira coisa da
+   * folha — no meio dela o navegador o ignora em silêncio, e a tela cairia
+   * na fonte de texto sem avisar. */
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
   :root {
     --bg: #070B12;
@@ -663,6 +667,120 @@
     .mes-res { font-size: 14px; }
   }
 
+  /* ---------- relatório de fluxo de caixa ----------
+   * A referência pede JetBrains Mono em todo número. É a ÚNICA tela do app
+   * com uma segunda família tipográfica: em todas as outras o número é
+   * Space Grotesk com `tabular-nums`, que já alinha coluna. Fica isolada
+   * aqui de propósito — se destoar do resto, some com esta regra e os
+   * números voltam ao padrão sem mexer em mais nada. */
+  .view[data-view="fluxo"] .num,
+  .fx-tabela td.num, .fx-tabela th.num, .fx-metrica {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* O número da seção: discreto, só para ancorar a leitura em "01, 02…". */
+  .fx-n { color: var(--accent); margin-right: 6px; }
+
+  .fx-legenda { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--fg-subtle); }
+  .fx-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+  .fx-chip { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .fx-chip--rec { background: var(--accent); }
+  .fx-chip--desp { background: var(--warning); }
+  /* O tracejado do previsto é o mesmo recurso da referência: faixa de 2px
+   * a 135°. Ele diz "isto ainda não aconteceu" sem precisar de legenda ao
+   * lado de cada barra. */
+  .fx-chip--prev {
+    background: repeating-linear-gradient(135deg, var(--fg-subtle) 0 2px, transparent 2px 5px);
+    border: 1px dashed var(--fg-subtle);
+  }
+
+  /* Em tela estreita o gráfico rola na horizontal em vez de espremer doze
+   * meses: barra de 4px por mês não se lê. */
+  .fx-rolagem { overflow-x: auto; overscroll-behavior-x: contain; max-width: var(--read-max); }
+  .fx-grafico {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(46px, 1fr);
+    align-items: end; gap: 4px; height: 180px; min-width: 560px; position: relative;
+  }
+  .fx-mes { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+  .fx-barras { display: flex; align-items: flex-end; gap: 3px; height: 100%; width: 100%; justify-content: center; }
+  .fx-barra { width: 11px; border-radius: 3px 3px 0 0; min-height: 2px; }
+  .fx-barra--rec { background: var(--accent); }
+  .fx-barra--desp { background: var(--warning); }
+  .fx-mes--prev .fx-barra--rec {
+    background: repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 6px);
+    border: 1px dashed var(--accent); border-bottom: none;
+  }
+  .fx-mes--prev .fx-barra--desp {
+    background: repeating-linear-gradient(135deg, var(--warning) 0 2px, transparent 2px 6px);
+    border: 1px dashed var(--warning); border-bottom: none;
+  }
+  .fx-mes-nome { font-size: 10px; color: var(--fg-subtle); text-transform: uppercase; letter-spacing: 0.1em; }
+  /* A divisória de "hoje": onde o realizado acaba e a previsão começa. */
+  .fx-corte { position: absolute; top: 0; bottom: 16px; width: 0; border-left: 1px dashed var(--fg-subtle); }
+
+  .fx-tabela { width: 100%; border-collapse: collapse; font-size: 12px; max-width: var(--read-max); }
+  .fx-tabela th {
+    text-align: left; font-size: 10px; font-weight: 400; text-transform: uppercase;
+    letter-spacing: 0.16em; color: var(--fg-subtle); padding: 8px 0; border-bottom: 1px solid var(--hairline);
+  }
+  .fx-tabela td { padding: 9px 0; border-top: 1px solid var(--hairline); color: var(--fg); }
+  .fx-tabela th.num, .fx-tabela td.num { text-align: right; }
+  .fx-tabela tbody tr:first-child td { border-top: none; }
+  .fx-tabela .fx-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--fg-subtle); }
+  .fx-tabela tfoot td { border-top: 1px solid var(--hairline-strong); color: var(--fg-muted); }
+  .fx-pos { color: var(--positive); }
+  .fx-neg { color: var(--negative); }
+  .fx-sobe { color: var(--warning); }   /* gasto que subiu: atenção, não erro */
+  .fx-cai { color: var(--accent); }
+
+  /* Barra de participação da categoria: horizontal, dentro da própria
+   * linha da tabela — nada de rosca, que obriga a comparar ângulos. */
+  /* `display: block` não é detalhe: o elemento é um `span`, e altura não
+   * vale em caixa inline — sem isto a barra existe no DOM e não aparece na
+   * tela, que foi exatamente o que aconteceu. */
+  .fx-cat-barra {
+    display: block; height: 4px; min-width: 60px;
+    border-radius: var(--r-pill); background: var(--track); overflow: hidden;
+  }
+  /* `--bar-aviso`, não `--warning`: o preenchimento encosta no TRILHO, não na
+   * página, e contra ele o ocre de texto dá 2,53:1 no tema claro. Este token
+   * existe no app justamente para esse caso — é o mesmo ocre um passo mais
+   * escuro, e as barras de categoria do Resumo já o usam. */
+  .fx-cat-barra > i { display: block; height: 100%; background: var(--bar-aviso); border-radius: var(--r-pill); }
+
+  .fx-spark { width: 100%; max-width: var(--read-max); height: 64px; display: block; }
+  .fx-spark .fx-linha { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+  .fx-spark .fx-linha--prev { stroke-dasharray: 4 3; }
+
+  /* Insight: sem caixa nem sombra (regra 1 e 3). A métrica grande ancora, a
+   * hairline à esquerda separa um do outro. */
+  .fx-insights { display: grid; gap: 18px; max-width: var(--read-max); }
+  @media (min-width: 768px) { .fx-insights { grid-template-columns: 1fr 1fr; gap: 18px 32px; } }
+  .fx-insight { display: flex; flex-direction: column; gap: 4px; border-left: 2px solid var(--hairline-strong); padding-left: 14px; }
+  .fx-insight--positive { border-left-color: var(--accent-borda); }
+  .fx-insight--attention { border-left-color: var(--warning-borda); }
+  .fx-metrica { font-size: 19px; font-weight: 500; }
+  .fx-insight--positive .fx-metrica { color: var(--accent); }
+  .fx-insight--attention .fx-metrica { color: var(--warning); }
+  .fx-insight-titulo { font-size: 13px; }
+  .fx-insight-texto { font-size: 12px; color: var(--fg-muted); }
+
+  /* KPI: reaproveita o grid segmentado, só com mais colunas no desktop. */
+  /* Cinco colunas só quando cada uma couber o valor inteiro: em 800px elas
+   * saem com ~52px úteis e "R$ 41.263" quebra em duas linhas. Medido, 1120
+   * é onde o número volta a caber numa linha; abaixo disso, três colunas. */
+  .seg--kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (min-width: 768px) { .seg--kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 1120px) { .seg--kpi { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+  /* São cinco indicadores: em duas ou três colunas sobra um buraco, e o
+   * buraco aparece — a célula vazia tem o mesmo fundo das outras e vira uma
+   * caixa escura sem conteúdo. O último ocupa o vão. Em cinco colunas eles
+   * já fecham a linha, e esticar o último quebraria a grade. */
+  @media (max-width: 1119px) { .seg--kpi .seg-cell:last-child { grid-column: span 2; } }
+  .seg--kpi .seg-val { font-size: 19px; }
+  @media (max-width: 380px) { .seg--kpi .seg-val { font-size: 16px; } }
+
   /* ---------- listas ---------- */
   .tabela { display: flex; flex-direction: column; }
   .list-head { display: none; }
@@ -1091,7 +1209,12 @@
   /* ---------- barra inferior (seção 10) ---------- */
   .tabbar {
     position: fixed; left: 0; right: 0; bottom: 0; height: 56px; z-index: 5;
-    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+    /* `minmax(0, 1fr)`, não `1fr`: o atalho significa `minmax(auto, 1fr)`, e
+     * `auto` deixa a coluna CRESCER além da sua fatia para caber o rótulo.
+     * Com seis abas em 375px a soma dava 388 e a última ficava cortada pela
+     * borda da tela — e com cinco já cortava em 320. O zero no mínimo prende
+     * cada aba à sua fatia; quem cede é o texto, logo abaixo. */
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
     background: var(--bg); border-top: 1px solid var(--hairline);
     /* A barra encosta no fundo do aparelho; a área segura entra como altura
      * extra para os ícones não ficarem sob a barra de gestos. */
@@ -1106,7 +1229,13 @@
   }
   .tab.on { color: var(--fg); border-top-color: var(--accent); }
   .tab svg { width: 20px; height: 20px; }
-  .tab span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; }
+  /* O rótulo trunca em vez de empurrar a aba: nome cortado com reticências
+   * ainda se lê, aba empurrada para fora da tela não. */
+  .tab span {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tab { min-width: 0; padding: 0 2px; }
 
   /* ---------- desktop (seção 9) ---------- */
   @media (min-width: 768px) {
@@ -1336,6 +1465,10 @@
       <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/></svg>
       <span>Resumo</span>
     </button>
+    <button class="nav-item" type="button" data-goto="fluxo">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 19V5M4 19h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 15.5V11M12 15.5V7.5M16 15.5v-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Fluxo de caixa</span>
+    </button>
     <button class="nav-item" type="button" data-goto="lancamentos">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Lançamentos</span>
@@ -1503,6 +1636,89 @@
             </div>
           </div>
         </aside>
+      </div>
+    </section>
+
+    <!-- ================= FLUXO DE CAIXA =================
+         O relatório do ano. Os números vêm prontos de GET /reports/cashflow:
+         a conta mora no servidor, e repeti-la aqui criaria duas verdades
+         sobre o mesmo dinheiro. Sem servidor a tela diz isso em vez de
+         mostrar um relatório inventado no aparelho. -->
+    <section class="view" data-view="fluxo">
+      <div class="blk v-head" style="--i:0">
+        <h1>Fluxo de caixa</h1>
+        <div class="sub" id="fx-sub">Carregando…</div>
+      </div>
+
+      <div class="blk v-cta" style="--i:0">
+        <div class="month-nav">
+          <button class="icon-btn" type="button" id="fx-ano-ant" aria-label="Ano anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span class="month-label num" id="fx-ano"></span>
+          <button class="icon-btn" type="button" id="fx-ano-prox" aria-label="Próximo ano"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+
+      <div id="fx-vazio" class="blk" style="--i:1" hidden>
+        <div class="empty" id="fx-vazio-texto"></div>
+      </div>
+
+      <div id="fx-corpo">
+        <div class="blk" style="--i:1">
+          <div class="seg seg--kpi" id="fx-kpis"></div>
+        </div>
+
+        <div class="blk" style="--i:2">
+          <div class="lbl-row">
+            <div class="lbl"><span class="fx-n">01</span> Entradas e saídas, mês a mês</div>
+            <div class="lbl-total" id="fx-corte"></div>
+          </div>
+          <div class="fx-legenda" aria-hidden="true">
+            <span><i class="fx-chip fx-chip--rec"></i>Receitas</span>
+            <span><i class="fx-chip fx-chip--desp"></i>Despesas</span>
+            <span><i class="fx-chip fx-chip--prev"></i>Previsto</span>
+          </div>
+          <div class="fx-rolagem">
+            <div class="fx-grafico" id="fx-grafico" role="img" aria-label="Receitas e despesas de cada mês do ano"></div>
+          </div>
+          <div class="fx-rolagem">
+            <table class="fx-tabela" id="fx-meses">
+              <caption class="sr-only">Receita, despesa e sobra de cada mês</caption>
+            </table>
+          </div>
+          <div class="lbl">Saldo acumulado</div>
+          <svg class="fx-spark" id="fx-spark" role="img" aria-label="Curva do saldo acumulado ao longo do ano"></svg>
+        </div>
+
+        <div class="blk" style="--i:3">
+          <div class="lbl-row">
+            <div class="lbl"><span class="fx-n">02</span> Para onde foi o dinheiro</div>
+            <div class="lbl-total" id="fx-tri"></div>
+          </div>
+          <table class="fx-tabela fx-tabela--cat" id="fx-categorias">
+            <caption class="sr-only">Despesas por categoria</caption>
+          </table>
+          <div class="field-help">Δ tri em ocre = gasto subiu; em acento = gasto caiu.</div>
+        </div>
+
+        <div class="blk" style="--i:4">
+          <div class="lbl-row">
+            <div class="lbl"><span class="fx-n">03</span> Para onde vai</div>
+            <div class="lbl-total" id="fx-vai-resumo"></div>
+          </div>
+          <table class="fx-tabela fx-tabela--vai" id="fx-upcoming">
+            <caption class="sr-only">Lançamentos previstos do próximo mês</caption>
+          </table>
+          <div class="lbl" id="fx-horizonte-lbl" hidden>Meses seguintes · sobra prevista</div>
+          <div class="list" id="fx-horizonte"></div>
+        </div>
+
+        <div class="blk" style="--i:5">
+          <div class="lbl-row">
+            <div class="lbl"><span class="fx-n">04</span> Insights do período</div>
+            <div class="lbl-total">leitura automática dos números acima</div>
+          </div>
+          <div class="fx-insights" id="fx-insights"></div>
+        </div>
       </div>
     </section>
 
@@ -1747,6 +1963,10 @@
     <button class="tab on" type="button" data-goto="resumo">
       <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/></svg>
       <span>Resumo</span>
+    </button>
+    <button class="tab" type="button" data-goto="fluxo">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 19V5M4 19h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 15.5V11M12 15.5V7.5M16 15.5v-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Fluxo</span>
     </button>
     <button class="tab" type="button" data-goto="lancamentos">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
@@ -4556,6 +4776,252 @@
       " no total acima.";
   }
 
+  /* ================= relatório de fluxo de caixa =================
+   * Os números vêm prontos de GET /reports/cashflow. A conta mora no
+   * servidor; refazê-la aqui criaria duas verdades sobre o mesmo dinheiro,
+   * e a que divergisse seria descoberta pelo usuário, não por nós.
+   *
+   * Sem servidor (modo demonstração, ou offline) a tela diz isso. É o
+   * oposto do resto do app, que funciona no aparelho — e é uma escolha:
+   * melhor uma tela honesta que um relatório inventado. */
+  var fluxoAno = HOJE.getFullYear();
+  var fluxoDados = null;
+
+  var MES_CURTO = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+  /** O servidor manda dinheiro como string de duas casas — de propósito,
+   * para não passar por Float no caminho. Aqui vira número só para desenhar
+   * barra e medir altura; o que a tela EXIBE sai dos formatadores abaixo. */
+  function fxNum(v) { return Number(v || 0); }
+
+  /** Mesmas regras do `format.ts` do servidor, que é quem escreve os textos
+   * dos insights. As duas precisam concordar: um "R$ 1.234" no cartão e um
+   * "1.234,00" na tabela ao lado pareceriam dois relatórios. */
+  function fxBrl(v) {
+    var n = Math.round(fxNum(v));
+    return (n < 0 ? "−" : "") + "R$ " + Math.abs(n).toLocaleString("pt-BR");
+  }
+  function fxCurto(v) { return Math.round(Math.abs(fxNum(v))).toLocaleString("pt-BR"); }
+  function fxPct(f, casas) {
+    return (f * 100).toFixed(casas === undefined ? 1 : casas).replace(".", ",") + "%";
+  }
+  function fxPctSinal(f) {
+    var n = f * 100;
+    return (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toFixed(0) + "%";
+  }
+  function fxSinal(v) {
+    var n = fxNum(v);
+    return (n > 0 ? "+" : n < 0 ? "−" : "") + fxCurto(n);
+  }
+
+  async function renderFluxo() {
+    document.getElementById("fx-ano").textContent = fluxoAno;
+    var corpo = document.getElementById("fx-corpo");
+    var vazio = document.getElementById("fx-vazio");
+    var dizer = function (texto) {
+      corpo.hidden = true;
+      vazio.hidden = false;
+      document.getElementById("fx-vazio-texto").textContent = texto;
+    };
+
+    if (!MODO_API) {
+      document.getElementById("fx-sub").textContent = "Indisponível no modo demonstração.";
+      dizer("O relatório é calculado no servidor, e este modo roda só no aparelho. " +
+        "Entre com a sua conta para ver o fluxo de caixa do ano.");
+      return;
+    }
+
+    document.getElementById("fx-sub").textContent = "Carregando…";
+    try {
+      fluxoDados = await api("/reports/cashflow?year=" + fluxoAno, null, "GET");
+    } catch (e) {
+      document.getElementById("fx-sub").textContent = "Não foi possível carregar.";
+      dizer((e && e.semRede)
+        ? "Sem conexão agora. O relatório é calculado no servidor e precisa de internet."
+        : ((e && e.message) || "Não foi possível carregar o relatório."));
+      return;
+    }
+    pintarFluxo(fluxoDados);
+  }
+
+  function pintarFluxo(d) {
+    var corpo = document.getElementById("fx-corpo");
+    var vazio = document.getElementById("fx-vazio");
+    var temMovimento = d.months.some(function (m) { return fxNum(m.income) || fxNum(m.expense); });
+    if (!temMovimento) {
+      document.getElementById("fx-sub").textContent = "Nada lançado em " + d.year + ".";
+      corpo.hidden = true;
+      vazio.hidden = false;
+      document.getElementById("fx-vazio-texto").textContent =
+        "Nenhum lançamento em " + d.year + ". Assim que houver movimento, o relatório aparece aqui.";
+      return;
+    }
+    corpo.hidden = false;
+    vazio.hidden = true;
+
+    var ultimoReal = d.months.filter(function (m) { return !m.isForecast; }).pop();
+    document.getElementById("fx-sub").textContent =
+      "Realizado até " + (ultimoReal ? MES_CURTO[Number(ultimoReal.month.slice(5, 7)) - 1].toLowerCase() : "—") +
+      " · previsto até dez · valores em R$";
+    document.getElementById("fx-corte").textContent =
+      "linha tracejada = hoje, " + d.today.slice(8, 10) + "/" + d.today.slice(5, 7);
+    document.getElementById("fx-tri").textContent =
+      d.quarterComparison.current.split("-Q")[1] + "º tri vs. " +
+      d.quarterComparison.previous.split("-Q")[1] + "º tri";
+
+    pintarKpis(d);
+    pintarGrafico(d);
+    pintarTabelaDeMeses(d);
+    pintarSpark(d);
+    pintarCategorias(d);
+    pintarParaOndeVai(d);
+    pintarInsights(d);
+  }
+
+  function pintarKpis(d) {
+    var k = d.kpis;
+    var ultimo = d.months[d.months.length - 1];
+    var sobra = fxNum(k.realizedIncome) - fxNum(k.realizedExpense);
+    var cartoes = [
+      { lbl: "Saldo atual", val: fxBrl(k.currentBalance), meta: "" },
+      { lbl: "Receitas · realizado", val: fxBrl(k.realizedIncome), meta: "", classe: "seg-cell--receita" },
+      { lbl: "Despesas · realizado", val: fxBrl(k.realizedExpense), meta: "", classe: "seg-cell--despesa" },
+      { lbl: "Taxa de poupança", val: fxPct(k.savingsRate), meta: "sobra de " + fxBrl(sobra) },
+      { lbl: "Saldo em 31 dez · previsto", val: fxBrl(k.projectedYearEndBalance),
+        meta: fxSinal(fxNum(ultimo.balance) - fxNum(k.currentBalance)) + " até lá" }
+    ];
+    document.getElementById("fx-kpis").innerHTML = cartoes.map(function (c) {
+      return '<div class="seg-cell ' + (c.classe || "") + '">' +
+        '<div class="lbl">' + esc(c.lbl) + '</div>' +
+        '<div class="seg-val num">' + esc(c.val) + '</div>' +
+        (c.meta ? '<div class="seg-meta">' + esc(c.meta) + '</div>' : '') +
+        '</div>';
+    }).join("");
+  }
+
+  function pintarGrafico(d) {
+    // A altura é relativa ao maior valor do ano inteiro, receita ou despesa:
+    // duas escalas fariam uma despesa de 8 mil parecer do tamanho de uma
+    // receita de 12 mil.
+    var maior = d.months.reduce(function (m, x) {
+      return Math.max(m, fxNum(x.income), fxNum(x.expense));
+    }, 0) || 1;
+    var alt = function (v) { return Math.max(2, Math.round((fxNum(v) / maior) * 140)); };
+    var primeiroPrev = -1;
+    d.months.forEach(function (m, i) { if (primeiroPrev < 0 && m.isForecast) primeiroPrev = i; });
+
+    document.getElementById("fx-grafico").innerHTML = d.months.map(function (m, i) {
+      var nome = MES_CURTO[Number(m.month.slice(5, 7)) - 1];
+      return '<div class="fx-mes' + (m.isForecast ? " fx-mes--prev" : "") + '">' +
+        (i === primeiroPrev ? '<span class="fx-corte" aria-hidden="true"></span>' : '') +
+        '<span class="fx-barras">' +
+          '<i class="fx-barra fx-barra--rec" style="height:' + alt(m.income) + 'px"></i>' +
+          '<i class="fx-barra fx-barra--desp" style="height:' + alt(m.expense) + 'px"></i>' +
+        '</span>' +
+        '<span class="fx-mes-nome">' + nome + '</span>' +
+        '</div>';
+    }).join("");
+  }
+
+  function pintarTabelaDeMeses(d) {
+    document.getElementById("fx-meses").innerHTML =
+      '<thead><tr><th>Mês</th><th></th><th class="num">Receita</th><th class="num">Despesa</th><th class="num">Sobra</th></tr></thead>' +
+      '<tbody>' + d.months.map(function (m) {
+        var sobra = fxNum(m.net);
+        return '<tr><td>' + MES_CURTO[Number(m.month.slice(5, 7)) - 1] + '</td>' +
+          '<td class="fx-tag">' + (m.isForecast ? "prev." : "real") + '</td>' +
+          '<td class="num">' + fxCurto(m.income) + '</td>' +
+          '<td class="num">' + fxCurto(m.expense) + '</td>' +
+          '<td class="num ' + (sobra >= 0 ? "fx-pos" : "fx-neg") + '">' + fxSinal(sobra) + '</td></tr>';
+      }).join("") + '</tbody>';
+  }
+
+  function pintarSpark(d) {
+    var svg = document.getElementById("fx-spark");
+    var larg = svg.clientWidth || 600, altura = 64, pad = 4;
+    var saldos = d.months.map(function (m) { return fxNum(m.balance); });
+    var min = Math.min.apply(null, saldos), max = Math.max.apply(null, saldos);
+    var faixa = (max - min) || 1;
+    var ponto = function (v, i) {
+      var x = pad + (i / (saldos.length - 1)) * (larg - pad * 2);
+      var y = altura - pad - ((v - min) / faixa) * (altura - pad * 2);
+      return [x, y];
+    };
+    var corte = -1;
+    d.months.forEach(function (m, i) { if (corte < 0 && m.isForecast) corte = i; });
+    var caminho = function (de, ate) {
+      return saldos.slice(de, ate).map(function (v, k) {
+        var pt = ponto(v, de + k);
+        return (k ? "L" : "M") + pt[0].toFixed(1) + " " + pt[1].toFixed(1);
+      }).join(" ");
+    };
+    // O traço previsto começa no mês ANTERIOR ao corte: sem isso a linha
+    // ficaria partida justo onde ela precisa continuar.
+    var fim = corte < 0 ? saldos.length : corte;
+    svg.setAttribute("viewBox", "0 0 " + larg + " " + altura);
+    svg.innerHTML =
+      '<path class="fx-linha" d="' + caminho(0, fim) + '"></path>' +
+      (corte > 0 ? '<path class="fx-linha fx-linha--prev" d="' + caminho(corte - 1, saldos.length) + '"></path>' : "");
+  }
+
+  function pintarCategorias(d) {
+    var total = d.categories.reduce(function (s, c) { return s + fxNum(c.amount); }, 0);
+    var maior = d.categories.reduce(function (m, c) { return Math.max(m, fxNum(c.amount)); }, 0) || 1;
+    document.getElementById("fx-categorias").innerHTML =
+      '<thead><tr><th>Categoria</th><th>Participação nas despesas</th><th class="num">Valor</th><th class="num">%</th><th class="num">Δ tri</th></tr></thead>' +
+      '<tbody>' + d.categories.map(function (c) {
+        var cls = c.deltaQuarter > 0 ? "fx-sobe" : c.deltaQuarter < 0 ? "fx-cai" : "";
+        return '<tr><td>' + esc(c.name) + '</td>' +
+          '<td><span class="fx-cat-barra"><i style="width:' + ((fxNum(c.amount) / maior) * 100).toFixed(1) + '%"></i></span></td>' +
+          '<td class="num">' + fxCurto(c.amount) + '</td>' +
+          '<td class="num">' + fxPct(c.share) + '</td>' +
+          '<td class="num ' + cls + '">' + (c.deltaQuarter ? fxPctSinal(c.deltaQuarter) : "0%") + '</td></tr>';
+      }).join("") + '</tbody>' +
+      '<tfoot><tr><td>Total de despesas</td><td></td><td class="num">' + fxCurto(total) +
+      '</td><td class="num">100%</td><td></td></tr></tfoot>';
+  }
+
+  function pintarParaOndeVai(d) {
+    var entradas = 0, saidas = 0;
+    d.upcoming.forEach(function (u) {
+      var v = fxNum(u.amount);
+      if (v >= 0) entradas += v; else saidas += -v;
+    });
+    document.getElementById("fx-vai-resumo").textContent = d.upcoming.length
+      ? "entradas " + fxSinal(entradas) + " · saídas −" + fxCurto(saidas) + " · sobra " + fxSinal(entradas - saidas)
+      : "nada previsto";
+
+    document.getElementById("fx-upcoming").innerHTML = d.upcoming.length
+      ? '<thead><tr><th>Lançamento</th><th></th><th class="num">Valor</th><th class="num">Saldo</th></tr></thead>' +
+        '<tbody>' + d.upcoming.map(function (u) {
+          var v = fxNum(u.amount);
+          return '<tr><td>' + esc(u.description) + '</td>' +
+            '<td class="fx-tag">' + esc(u.tag) + '</td>' +
+            '<td class="num ' + (v >= 0 ? "fx-pos" : "fx-neg") + '">' + fxSinal(v) + '</td>' +
+            '<td class="num">' + fxCurto(u.balanceAfter) + '</td></tr>';
+        }).join("") + '</tbody>'
+      : "";
+
+    document.getElementById("fx-horizonte-lbl").hidden = !d.horizon.length;
+    document.getElementById("fx-horizonte").innerHTML = d.horizon.map(function (h) {
+      var nome = MES_CURTO[Number(h.month.slice(5, 7)) - 1];
+      return '<div class="row"><span class="row-main"><span class="row-title">' +
+        '<span class="row-name">' + nome + '</span></span>' +
+        '<span class="row-meta">entradas ' + fxCurto(h.income) + ' · saídas ' + fxCurto(h.expense) + '</span></span>' +
+        '<span class="row-val num ' + (fxNum(h.net) >= 0 ? "pos" : "") + '">' + fxSinal(h.net) + '</span></div>';
+    }).join("");
+  }
+
+  function pintarInsights(d) {
+    document.getElementById("fx-insights").innerHTML = d.insights.map(function (i) {
+      return '<div class="fx-insight fx-insight--' + esc(i.tone) + '">' +
+        '<div class="fx-metrica">' + esc(i.metric) + '</div>' +
+        '<div class="fx-insight-titulo">' + esc(i.title) + '</div>' +
+        '<div class="fx-insight-texto">' + esc(i.text) + '</div>' +
+        '</div>';
+    }).join("");
+  }
+
   /* ---------- faixa de meses ---------- */
   /** Mês como número inteiro, para somar e comparar sem cair em Date. */
   function indiceMes(vm) { return vm.y * 12 + vm.m; }
@@ -7052,6 +7518,13 @@
   document.getElementById("r-mes-prox").addEventListener("click", function () { mudarMesDoResumo(1); });
   document.getElementById("p-mes-ant").addEventListener("click", function () { mudarMesDoResumo(-1); });
   document.getElementById("p-mes-prox").addEventListener("click", function () { mudarMesDoResumo(1); });
+  document.getElementById("fx-ano-ant").addEventListener("click", function () { fluxoAno -= 1; renderFluxo(); });
+  document.getElementById("fx-ano-prox").addEventListener("click", function () { fluxoAno += 1; renderFluxo(); });
+  // A largura do spark só existe depois do layout: sem redesenhar no resize
+  // a curva ficaria com o viewBox da largura antiga.
+  window.addEventListener("resize", function () {
+    if (fluxoDados && document.querySelector('.view[data-view="fluxo"].on')) pintarSpark(fluxoDados);
+  });
   document.getElementById("p-voltar").addEventListener("click", function () { irPara("resumo"); });
   document.getElementById("r-pend-a-vencer").addEventListener("click", function () { irPara("pendencias"); });
   document.getElementById("r-pend-vencidas").addEventListener("click", function () { irPara("pendencias"); });
@@ -7304,6 +7777,9 @@
     document.querySelectorAll("[data-goto]").forEach(function (b) { b.classList.toggle("on", b.dataset.goto === aba); });
     if (view === "resumo") renderResumo();
     if (view === "pendencias") renderTelaPendencias();
+    // O relatório é buscado no servidor: só vale a pena pedir quando a tela
+    // de fato abre, e não a cada `renderAll` de qualquer outra mudança.
+    if (view === "fluxo") renderFluxo();
     window.scrollTo(0, 0);
   }
   document.querySelectorAll("[data-goto]").forEach(function (b) {
