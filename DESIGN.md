@@ -1107,6 +1107,22 @@ enquanto há o que pagar; quitada (ou com o resto transportado), pagar deixa de
 ser opção e o acento passa para `Adicionar lançamento`, que é o que sobra. Os
 dois no mesmo cinza faziam a tela inteira parecer desligada.
 
+**A borda dele é de 2px, e isso não é enfeite.** O destaque não pode depender só
+do matiz. Medido em escala de cinza no tema claro: o texto em `--accent` fica em
+**12,6** de luminância contra os **7,7** do ghost neutro — numa página clara,
+mais claro é mais fraco, então o botão em destaque saía **menos** presente que o
+normal, e quem não separa o teal do cinza lia o contrário do pretendido. (No
+escuro a conta se inverte sozinha: 66,8 contra 41,9, e ali mais claro é mais
+forte.) A borda dobrada devolve o peso por **área** — 1,48× de contorno —, que
+sobrevive a qualquer percepção de cor e não mexe na altura, porque a caixa é
+`border-box`. É o mesmo filete de 2px que a coluna do mês e o item do trilho já
+usam para dizer "é esta".
+
+**O anel de foco continua legível sobre ela.** Anel e borda são a mesma família
+de cor, mas o `outline-offset` de 2px deixa a página aparecer entre os dois, e é
+essa fresta que os separa — o foco se anuncia acrescentando uma segunda linha,
+não trocando a cor da primeira.
+
 **Desabilitado é 0,65 de opacidade, não 0,4.** Desabilitado precisa dizer "isto
 não dá agora", e para dizer tem que ser lido. Em 0,4 o rótulo caía para
 **1,95:1** no tema claro e 2,28:1 no escuro, e a borda sumia em 1,41:1 — não é

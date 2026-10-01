@@ -847,6 +847,14 @@
    * ligado já usa para dizer "é esta aqui". */
   .ghost--acento {
     background: var(--accent-fraco);
+    /* 2px, e não 1. O destaque não pode depender só do matiz: medido em escala
+     * de cinza no tema claro, o texto em `--accent` fica em 12,6 de luminância
+     * contra os 7,7 do ghost neutro — ou seja, o botão em DESTAQUE saía mais
+     * claro que o normal, e quem não separa o teal do cinza lia o contrário do
+     * pretendido. A borda dobrada devolve o peso por área, que sobrevive a
+     * qualquer percepção de cor. É o mesmo filete de 2px que a coluna do mês e
+     * o item do trilho já usam para dizer "é esta". */
+    border-width: 2px;
     border-color: var(--accent-borda);
     color: var(--accent);
   }
