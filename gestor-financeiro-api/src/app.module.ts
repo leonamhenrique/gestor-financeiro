@@ -9,6 +9,7 @@ import { TransactionsModule } from './transactions/transactions.module';
 import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
+import { ReportsModule } from './reports/reports.module';
 import { BillingModule } from './billing/billing.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
@@ -23,6 +24,7 @@ import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
     CategoriesModule,
     CreditCardsModule,
     BillingModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [
