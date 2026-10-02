@@ -917,6 +917,11 @@
      * lado do "excluir" isso apaga o que a pessoa não pediu. Onde a linha
      * quebra e o vão cresce, a regra acima devolve os 44. */
     .row-acoes .icon-btn::after { inset: -5px -3px; }
+    /* Ação sozinha na linha não tem vizinho para atropelar — é o caso da
+     * fatura, que só se paga, e o do lançamento na fila, que só se remove.
+     * O aperto horizontal acima existe por causa do trio; aqui ele só tirava
+     * 4px de alvo à toa. Medido: 40x44 antes, 44x44 agora. */
+    .row-acoes .icon-btn:only-child::after { inset: -5px; }
 
     /* Linhas com QUATRO ações: com elas e o valor na mesma linha sobram ~40px
      * para o nome. Aqui vale quebrar — valor e ações descem juntos para a
@@ -3467,7 +3472,19 @@
         '<span class="cell-cat">' + esc(meta) + '</span>' +
         '<span class="cell-org">' + esc(origem) + '</span>' +
         '<span class="row-val num">−' + money(valor) + '</span>' +
-        '<span class="row-acoes"></span>' +
+        // Fatura em aberto se paga daqui, sem passar pelo cartão. É o mesmo
+        // botão e o mesmo `data-pagar-fatura` da tela de Pendências, tratado
+        // pelo `acoesDeLista` que já ouve nesta tela — um só caminho para
+        // pagar fatura, em três telas.
+        //
+        // O critério é o mesmo de lá e o do botão da tela de Cartões:
+        // `emAberto > 0`. Fatura quitada não ganha botão porque a linha dela
+        // JÁ É o pagamento — oferecer "pagar" ali convidaria a pagar duas
+        // vezes. A célula continua existindo vazia nesse caso: ela é uma
+        // coluna do grid no desktop, e sumir desalinharia a lista inteira.
+        '<span class="row-acoes">' +
+        (x.f.emAberto > 0 ? botaoIcone("cifrao", "pagar-fatura", x.card.id + ":" + mk, "Pagar fatura") : "") +
+        '</span>' +
         '</div>'
     };
   }

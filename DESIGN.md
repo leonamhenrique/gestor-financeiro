@@ -1239,6 +1239,17 @@ ninguém reclamava, porque a tela não parecia quebrada — parecia sem cor.
 Medido depois de corrigir, contra a página: positivo 4,87 (claro) / 10,51
 (escuro), negativo 5,10 / 7,10, ocre 4,69 / 11,56, acento 5,62 / 13,47.
 
+### Ação sozinha na linha recebe o halo inteiro
+
+O aperto horizontal do halo (`inset: -5px -3px`, 40px de alvo) existe por causa
+do trio confirmar/editar/excluir, que divide 6px de vão: ali, halo que invade o
+vizinho é pior que alvo curto. Onde a linha tem **uma** ação só — a fatura, que
+só se paga; o lançamento na fila, que só se remove — não há vizinho a atropelar,
+e o aperto só tirava 4px à toa. `:only-child` devolve os 44.
+
+A célula de ações continua existindo mesmo vazia: no desktop ela é uma coluna do
+grid, e sumir desalinharia a lista inteira.
+
 ### Tablet: toque com largura de desktop
 
 Acima de 768 o app entra no shell de desktop, e o tablet entra junto. O alvo de
