@@ -872,6 +872,26 @@
   .row-val.pos { color: var(--positive); }
   .row-val.previsto { color: var(--fg-subtle); }
   .row-acoes { display: flex; gap: 6px; flex-shrink: 0; }
+
+  /* ---------- toque em largura de desktop ----------
+   * Tablet entra pelo shell de desktop (>=768) e ali o halo de 44px estava
+   * desligado: ele vinha num `max-width: 767px`, como se largura de janela
+   * dissesse o tamanho do dedo. Num iPad as setas de ano mediam 32x32 —
+   * medido. A regra 4 vale pelo PONTEIRO, não pela largura.
+   *
+   * -7 e não -6: o `.icon-btn` é `border-box` de 32px com borda de 1px, e o
+   * bloco do `::after` é a caixa de PADDING (30px). 30 + 14 = 44, medido por
+   * elementFromPoint, não estimado.
+   *
+   * E o vão das ações de linha sobe de 6 para 14: com 6, dois halos de 46px
+   * se sobrepunham 8px, e o toque no meio acertaria o botão errado — do lado
+   * do excluir, isso apaga o que ninguém pediu. Halo que invade o vizinho é
+   * pior que alvo curto. */
+  @media (pointer: coarse) and (min-width: 768px) {
+    .icon-btn { position: relative; }
+    .icon-btn::after { content: ""; position: absolute; inset: -7px; }
+    .row-acoes { gap: 14px; }
+  }
   .cell-data, .cell-cat, .cell-org { display: none; font-size: 11px; color: var(--fg-subtle); }
   /* No celular as três ações mais a etiqueta espremiam o nome do lançamento em
    * ~59px ("Projeto Clie…"). A etiqueta "prevista" desce para o metadado, que

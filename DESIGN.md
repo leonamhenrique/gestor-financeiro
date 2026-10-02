@@ -1239,6 +1239,23 @@ ninguém reclamava, porque a tela não parecia quebrada — parecia sem cor.
 Medido depois de corrigir, contra a página: positivo 4,87 (claro) / 10,51
 (escuro), negativo 5,10 / 7,10, ocre 4,69 / 11,56, acento 5,62 / 13,47.
 
+### Tablet: toque com largura de desktop
+
+Acima de 768 o app entra no shell de desktop, e o tablet entra junto. O alvo de
+44px da regra 4 vale pelo **ponteiro**, não pela largura da janela: amarrado a
+`max-width: 767px`, ele desligava justo no iPad, onde as setas de ano mediam
+32×32 — medido. A regra certa é `@media (pointer: coarse) and (min-width: 768px)`.
+
+**O halo cresce a partir da caixa de padding, não da de borda.** Um `.icon-btn`
+de 32px `border-box` com 1px de borda tem 30px de padding box: `inset: -7px` dá
+30 + 14 = **44**, medido por `elementFromPoint`. É a mesma conta que já tinha
+furado duas vezes neste projeto — estimar aqui erra sempre por 2px.
+
+**Alvo que cresce exige vão que cresce junto.** Dois halos de 46px com 6px de
+vão se sobrepõem 8px, e o toque no meio acerta o botão errado — do lado do
+excluir, isso apaga o que ninguém pediu. No toque em largura de desktop o vão
+das ações de linha sobe para 14px, que é o mínimo que separa.
+
 ### Lista dentro de resumo tem teto
 
 Toda lista que um resumo mostra tem teto, e o teto mora no **servidor**: cortar
