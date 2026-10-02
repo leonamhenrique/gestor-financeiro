@@ -1239,6 +1239,34 @@ ninguém reclamava, porque a tela não parecia quebrada — parecia sem cor.
 Medido depois de corrigir, contra a página: positivo 4,87 (claro) / 10,51
 (escuro), negativo 5,10 / 7,10, ocre 4,69 / 11,56, acento 5,62 / 13,47.
 
+### A ordem do menu é do usuário
+
+Trilho lateral e barra de baixo são **duas pinturas da mesma lista**: a ordem
+escolhida vale para as duas. Guardar uma ordem em cada superfície faria a
+pessoa reaprender o próprio app ao virar o celular.
+
+**Reordena-se onde as preferências moram**, não arrastando o menu: a camada de
+Configurações já diz "valem neste aparelho", e a lista de lá usa a mesma alça,
+o mesmo `data-ordem-id` e o mesmo `ativarOrdenacao` das listas de contas,
+cartões e categorias — arraste por ponteiro e setas do teclado na alça, sem
+inventar um segundo jeito de ordenar. Arrastar dentro do trilho de 72px que só
+abre no hover, ou dentro de uma barra de seis abas em 320px, seria um gesto
+novo e pior.
+
+**Marca, tema e perfil não entram.** Os itens reordenáveis são as telas; o que
+emoldura o menu fica onde está. No trilho isso é literal: os itens são sempre
+inseridos ANTES do `.nav-bottom`.
+
+**A ordem salva nunca manda sozinha.** O que vem do armazenamento passa pela
+mesma regra do `aplicarOrdem` das listas: id conhecido entra na ordem pedida,
+id desconhecido é ignorado, repetido entra uma vez, e **tela que falta vai para
+o fim na ordem padrão**. É o que faz uma tela nova aparecer para quem já tinha
+ordem salva, em vez de sumir — o Fluxo de caixa nasceu depois e seria o
+primeiro a desaparecer.
+
+Preferência de uso fica no aparelho, como o tema: não é dado financeiro, não
+precisa de campo novo no servidor nem de migração, e funciona offline.
+
 ### Ação sozinha na linha recebe o halo inteiro
 
 O aperto horizontal do halo (`inset: -5px -3px`, 40px de alvo) existe por causa

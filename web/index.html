@@ -2364,6 +2364,17 @@
       </div>
       <div class="field-help" id="cfg-relatorio-ajuda"></div>
     </div>
+
+    <div class="field">
+      <div class="lbl">Ordem do menu</div>
+      <div class="list" id="cfg-menu"></div>
+      <div class="field-help">
+        Arraste pela alça para reordenar — ou, pelo teclado, foque a alça e use
+        as setas para cima e para baixo. A ordem vale para o menu lateral e
+        para a barra de baixo, que são a mesma lista.
+      </div>
+      <div class="v-cta"><button type="button" class="ghost" id="cfg-menu-padrao">Restaurar ordem padrão</button></div>
+    </div>
   </div>
 </dialog>
 
@@ -7871,6 +7882,7 @@
     var meta = document.getElementById("pf-config-meta");
     if (meta) meta.textContent = relatorioPor === "compra"
       ? "Relatórios pela data da compra." : "Relatórios pelo vencimento da fatura.";
+    pintarOrdemDoMenu();
   }
   function abrirConfig() { pintarConfig(); abrir("dlg-config"); }
   document.getElementById("cfg-relatorio").addEventListener("click", function (e) {
@@ -7885,6 +7897,79 @@
   document.getElementById("abrir-perfil").addEventListener("click", abrirPerfilMenu);
   document.getElementById("abrir-perfil-nav").addEventListener("click", abrirPerfilMenu);
   document.getElementById("banner-regularizar").addEventListener("click", abrirAssinatura);
+
+  /* ---------- ordem do menu ---------- */
+  /** Trilho lateral e barra de baixo são duas pinturas da MESMA lista, então
+   * a ordem escolhida vale para as duas: guardar uma ordem em cada superfície
+   * faria a pessoa reaprender o próprio app ao virar o celular.
+   *
+   * Fica no aparelho, como o tema e a data dos relatórios: é preferência de
+   * uso, não dado financeiro. Não vai para o servidor — nenhum campo novo,
+   * nenhuma migração, e funciona offline e no modo demonstração. */
+  var CHAVE_MENU = "gestor-menu-ordem";
+  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas"];
+  var MENU_NOME = {
+    resumo: "Resumo", fluxo: "Fluxo de caixa", lancamentos: "Lançamentos",
+    cartoes: "Cartões", categorias: "Categorias", contas: "Contas"
+  };
+  var ordemDoMenu = MENU_PADRAO.slice();
+
+  /** Mesma regra do `aplicarOrdem` das listas: o que veio conhecido entra na
+   * ordem pedida, e o que faltou vai atrás, na ordem padrão. Com isso uma
+   * tela NOVA aparece no fim do menu em vez de sumir para quem já tinha uma
+   * ordem salva — foi o que aconteceria com o Fluxo de caixa, que nasceu
+   * depois —, e um id que não existe mais é ignorado em vez de quebrar. */
+  function sanearOrdemDoMenu(ids) {
+    var vistos = {};
+    var limpa = (Array.isArray(ids) ? ids : []).filter(function (id) {
+      if (vistos[id] || MENU_PADRAO.indexOf(id) < 0) return false;
+      vistos[id] = true;
+      return true;
+    });
+    MENU_PADRAO.forEach(function (id) { if (!vistos[id]) limpa.push(id); });
+    return limpa;
+  }
+
+  /** Move os NÓS que já existem, em vez de reconstruir o menu: os botões
+   * carregam ícone, rótulo e o estado "on" da tela aberta, e remontar o HTML
+   * apagaria esse estado no meio da navegação. */
+  function aplicarOrdemDoMenu() {
+    var nav = document.querySelector(".nav");
+    var rodape = nav ? nav.querySelector(".nav-bottom") : null;
+    var abas = document.querySelector(".tabbar");
+    ordemDoMenu.forEach(function (id) {
+      var item = nav && nav.querySelector('.nav-item[data-goto="' + id + '"]');
+      // Sempre ANTES do rodapé: tema e perfil não entram na reordenação.
+      if (item && rodape) nav.insertBefore(item, rodape);
+      var aba = abas && abas.querySelector('.tab[data-goto="' + id + '"]');
+      if (aba) abas.appendChild(aba);
+    });
+  }
+
+  /** Um caminho só para trocar a ordem — a tela e o teste usam este. */
+  function definirOrdemDoMenu(ids, guardar) {
+    ordemDoMenu = sanearOrdemDoMenu(ids);
+    if (guardar) { try { localStorage.setItem(CHAVE_MENU, JSON.stringify(ordemDoMenu)); } catch (e) {} }
+    aplicarOrdemDoMenu();
+  }
+  try { definirOrdemDoMenu(JSON.parse(localStorage.getItem(CHAVE_MENU) || "null"), false); } catch (e) { definirOrdemDoMenu(null, false); }
+
+  function pintarOrdemDoMenu() {
+    document.getElementById("cfg-menu").innerHTML = ordemDoMenu.map(function (id, i) {
+      return '<div class="row" data-ordem-id="' + id + '">' +
+        '<span class="row-main"><span class="row-title">' + alcaHTML(MENU_NOME[id]) +
+        '<span class="row-name">' + esc(MENU_NOME[id]) + '</span></span></span>' +
+        '<span class="row-val num">' + (i + 1) + 'º</span></div>';
+    }).join("");
+  }
+  ativarOrdenacao("cfg-menu", function (ids) {
+    definirOrdemDoMenu(ids, true);
+    pintarOrdemDoMenu();
+  });
+  document.getElementById("cfg-menu-padrao").addEventListener("click", function () {
+    definirOrdemDoMenu(MENU_PADRAO, true);
+    pintarOrdemDoMenu();
+  });
 
   /* ================= navegação de tela ================= */
   /** Telas filhas: não têm aba própria na barra de baixo, e a aba que acende é
