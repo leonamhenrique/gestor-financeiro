@@ -1441,12 +1441,13 @@ some por completo: ícone sem rótulo ainda orienta, trilho vazio não. Ela é
   padding: 32px 0; display: flex; flex-direction: column; gap: 4px;
   transition: width 180ms ease-out;
 }
-.nav:hover, .nav:focus-within { width: var(--nav-w); transition-delay: 120ms; }
+.nav:hover { width: var(--nav-w); transition-delay: 120ms; }
+.nav:has(:focus-visible) { width: var(--nav-w); }   /* teclado, em regra separada */
 
 /* rótulo some por opacidade e é recortado pelo overflow — com display:none
    ele apareceria de estalo no fim da animação, fora de sincronia */
 .nav-item span, .nav-foot-name, .nav-brand span { opacity: 0; white-space: nowrap; transition: opacity 140ms ease-out; }
-.nav:hover .nav-item span, .nav:focus-within .nav-item span { opacity: 1; }
+.nav:hover .nav-item span, .nav:has(:focus-visible) .nav-item span { opacity: 1; }
 .nav-item { height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 20px;
             font-size: 13px; color: var(--fg-subtle); border-left: 2px solid transparent; }
 .nav-item.on { color: var(--fg); border-left-color: var(--accent); }
@@ -1466,8 +1467,18 @@ por fundo preenchido.
 O hover tem **120ms de atraso para abrir e nenhum para fechar**: sem isso,
 atravessar a borda esquerda da tela abriria o trilho sem querer. O padding
 lateral dos itens é o mesmo nos dois estados (26px), para o ícone não saltar
-quando a largura muda. `:focus-within` abre junto, senão a navegação por
-teclado percorre rótulos invisíveis.
+quando a largura muda.
+
+**Quem abre pelo teclado é `:has(:focus-visible)`, não `:focus-within`.** Os
+dois impedem que a navegação por teclado percorra rótulos invisíveis, mas
+`:focus-within` casa também com o foco deixado por um CLIQUE — e aí o trilho
+ficaria preso aberto até a pessoa clicar fora. `:focus-visible` é só o foco que
+o navegador julga que merece ser mostrado, que é o do teclado. Vai em regra
+separada porque um `:has()` sem suporte invalidaria a lista inteira.
+
+Isso tem uma consequência boa no **tablet**: tocar num item não expande o
+trilho, então arrastar para reordenar não muda a largura embaixo do dedo no
+meio do gesto — medido, 72px do começo ao fim.
 
 ### 9.3 Colunas e trilho
 
