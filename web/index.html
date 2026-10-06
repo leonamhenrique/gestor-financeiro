@@ -924,6 +924,11 @@
    * ações para uma segunda linha, que encompridaria a lista toda. O alvo de
    * toque dos ícones sobe para os 44px da regra 4 por um ::after. */
   .tag-previsto-meta { display: none; }
+  /* No desktop a linha tem coluna de CATEGORIA, e ela já diz "Transferência".
+   * A etiqueta no título existe para o celular, onde essa coluna não aparece;
+   * mantê-la nos dois lugares era dizer a mesma palavra duas vezes na mesma
+   * linha, e roubar do nome a largura que ele precisa. */
+  @media (min-width: 768px) { .row-title .tag-transferencia { display: none; } }
   @media (max-width: 767px) {
     /* Etiqueta no título rouba a largura do nome: em 320px sobra menos da
      * metade dele. Elas descem para o metadado, que tem a linha inteira. */
@@ -3576,9 +3581,15 @@
     var para = byId(state.accounts, tr.paraId);
     var caminho = (de ? de.nome : "—") + " → " + (para ? para.nome : "—");
     var titulo = tr.desc || "Transferência";
+    // As mesmas ações do lançamento, no mesmo lugar e com os mesmos ícones:
+    // confirmar sem precisar abrir a edição, e desfazer do mesmo jeito. O que
+    // está na fila ainda não existe no servidor — ali só cabe remover.
     var acoes = tr.pendente
       ? botaoIcone("trash", "remover-da-fila", tr.id, "Remover da fila", "danger")
-      : botaoIcone("edit", "editar-transferencia", tr.id, "Editar") +
+      : botaoIcone(tr.confirmada ? "undo" : "check",
+          tr.confirmada ? "desconfirmar-transferencia" : "confirmar-transferencia",
+          tr.id, tr.confirmada ? "Desfazer confirmação" : "Confirmar") +
+        botaoIcone("edit", "editar-transferencia", tr.id, "Editar") +
         botaoIcone("trash", "excluir-transferencia", tr.id, "Excluir", "danger");
     return {
       data: tr.data, valor: 0,
@@ -3588,7 +3599,11 @@
         '<span class="row-main"><span class="row-title">' +
         '<span class="dot" style="background:var(--fg-subtle)"></span>' +
         '<span class="row-name">' + esc(titulo) + '</span>' +
-        '<span class="tag">Transferência</span>' +
+        // A etiqueta só existe quando há descrição. Sem descrição o próprio
+        // NOME já é "Transferência", e a etiqueta repetia a palavra ao lado
+        // dela — com as duas disputando a linha, o nome ficava com largura
+        // ZERO e a etiqueta era desenhada por cima dele. Medido.
+        (tr.desc ? '<span class="tag tag-transferencia">Transferência</span>' : "") +
         (tr.pendente ? '<span class="tag tag-pendente ' + (tr.erroSync ? "danger" : "warn") + '">' + (tr.erroSync ? "recusado" : "pendente") + '</span>' : "") +
         (tr.confirmada ? "" : '<span class="tag tag-previsto">prevista</span>') + '</span>' +
         // No celular as etiquetas do título somem para o nome não ser
@@ -7554,6 +7569,24 @@
     persist(); renderAll(); fechar("dlg-transferencia");
   });
 
+  /** Confirmar e desfazer pela linha, sem abrir a edição. No servidor é o
+   * mesmo PATCH que a edição usa: ele é quem sabe desfazer o efeito antigo e
+   * aplicar o novo, e assim existe um caminho só para mexer no saldo. */
+  function confirmarTransferencia(id, confirmar) {
+    var tr = (state.transferencias || []).filter(function (x) { return x.id === id; })[0];
+    if (!tr || tr.pendente || !!tr.confirmada === confirmar) return;
+    if (MODO_API) {
+      comServidor(confirmar ? "confirmar a transferência" : "desfazer a confirmação", function () {
+        return api("/transfers/" + id, { isConfirmed: confirmar }, "PATCH");
+      });
+      return;
+    }
+    aplicarEfeitoTransferencia(tr, -1);   // desfaz o que valia antes
+    tr.confirmada = confirmar;
+    aplicarEfeitoTransferencia(tr, 1);
+    persist(); renderAll();
+  }
+
   async function excluirTransferencia(id) {
     var tr = (state.transferencias || []).filter(function (x) { return x.id === id; })[0];
     if (!tr) return;
@@ -7842,6 +7875,8 @@
       }, function () { removerDaFila(el.dataset.removerDaFila); });
     }
     if ((el = e.target.closest("[data-antecipar]"))) return abrirAntecipar(el.dataset.antecipar);
+    if ((el = e.target.closest("[data-confirmar-transferencia]"))) return confirmarTransferencia(el.dataset.confirmarTransferencia, true);
+    if ((el = e.target.closest("[data-desconfirmar-transferencia]"))) return confirmarTransferencia(el.dataset.desconfirmarTransferencia, false);
     if ((el = e.target.closest("[data-editar-transferencia]"))) return abrirTransferencia({ editar: el.dataset.editarTransferencia });
     if ((el = e.target.closest("[data-excluir-transferencia]"))) return excluirTransferencia(el.dataset.excluirTransferencia);
     if ((el = e.target.closest("[data-pagar-fatura]"))) {

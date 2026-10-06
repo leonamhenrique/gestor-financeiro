@@ -1345,6 +1345,18 @@ mentira. Na ordenação por valor ela pesa **zero**, que é quanto ela mudou no
 dinheiro que entrou e saiu; o valor de verdade está na linha, dos dois lados da
 seta.
 
+**As ações da linha são as mesmas do lançamento**: confirmar, editar e
+excluir, nos mesmos ícones e na mesma ordem — confirmar uma transferência
+prevista não pode exigir abrir a edição. Confirmada, o primeiro botão vira
+desfazer.
+
+**Etiqueta de tipo só quando há descrição, e só no celular.** Sem descrição o
+NOME da linha já é "Transferência", e a etiqueta repetia a palavra ao lado
+dela: com as duas disputando a mesma linha, o nome ficava com largura **zero**
+e a etiqueta era desenhada por cima dele — medido, e visível. No desktop a
+coluna CATEGORIA já diz "Transferência", então a etiqueta do título some lá de
+qualquer forma.
+
 **Confirmada move as duas contas; prevista não move nada.** É a mesma regra do
 lançamento: previsto é intenção, e intenção não move dinheiro. O destino do
 formulário já começa na segunda conta, para o formulário nunca nascer num
