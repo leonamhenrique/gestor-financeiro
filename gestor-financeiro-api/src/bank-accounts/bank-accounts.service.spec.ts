@@ -25,6 +25,7 @@ describe('BankAccountsService', () => {
       transaction: { count: jest.fn() },
       creditCard: { count: jest.fn() },
       invoicePayment: { count: jest.fn().mockResolvedValue(0) },
+      transfer: { count: jest.fn().mockResolvedValue(0) },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -103,6 +104,31 @@ describe('BankAccountsService', () => {
 
     expect(prismaMock.bankAccount.delete).toHaveBeenCalledWith({ where: { id: 'acc-1' } });
     expect(result).toEqual({ deleted: true, archived: false });
+  });
+
+  // Transferência é histórico como qualquer outro, e a chave estrangeira dela
+  // é Restrict: sem esta contagem, a conta caía no hard delete e o banco
+  // devolvia erro cru em vez de ela ser arquivada.
+  it('delete() vira soft-delete quando a conta só tem transferência', async () => {
+    prismaMock.bankAccount.findFirst.mockResolvedValue({ id: 'acc-1', userId: 'user-1' });
+    prismaMock.transaction.count.mockResolvedValue(0);
+    prismaMock.creditCard.count.mockResolvedValue(0);
+    prismaMock.transfer.count.mockResolvedValue(1);
+
+    const result = await service.delete('user-1', 'acc-1');
+
+    expect(prismaMock.bankAccount.delete).not.toHaveBeenCalled();
+    expect(result).toEqual({ deleted: false, archived: true });
+  });
+
+  it('delete() conta transferência nos dois sentidos', async () => {
+    prismaMock.bankAccount.findFirst.mockResolvedValue({ id: 'acc-1', userId: 'user-1' });
+    prismaMock.transaction.count.mockResolvedValue(0);
+    prismaMock.creditCard.count.mockResolvedValue(0);
+    await service.delete('user-1', 'acc-1');
+    expect(prismaMock.transfer.count).toHaveBeenCalledWith({
+      where: { OR: [{ fromAccountId: 'acc-1' }, { toAccountId: 'acc-1' }] },
+    });
   });
 
   it('delete() vira soft-delete quando há transações vinculadas', async () => {

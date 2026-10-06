@@ -192,15 +192,23 @@ export class BankAccountsService {
   async delete(userId: string, accountId: string) {
     await this.findOneByUser(userId, accountId);
 
-    const [transactionCount, creditCardCount, paymentCount] = await Promise.all([
+    const [transactionCount, creditCardCount, paymentCount, transferCount] = await Promise.all([
       this.prisma.transaction.count({ where: { bankAccountId: accountId } }),
       this.prisma.creditCard.count({ where: { bankAccountId: accountId } }),
       // Pagamento de fatura que saiu desta conta também é histórico (e a
       // chave estrangeira é Restrict: o banco recusaria a exclusão).
       this.prisma.invoicePayment.count({ where: { bankAccountId: accountId } }),
+      // Transferência conta nos DOIS sentidos, e pelo mesmo motivo: a chave
+      // estrangeira é Restrict. Sem esta contagem, uma conta que só tem
+      // transferência cairia no hard delete e o banco devolveria erro cru em
+      // vez de a conta ser arquivada.
+      this.prisma.transfer.count({
+        where: { OR: [{ fromAccountId: accountId }, { toAccountId: accountId }] },
+      }),
     ]);
 
-    const hasHistory = transactionCount > 0 || creditCardCount > 0 || paymentCount > 0;
+    const hasHistory =
+      transactionCount > 0 || creditCardCount > 0 || paymentCount > 0 || transferCount > 0;
 
     if (hasHistory) {
       await this.prisma.bankAccount.update({
