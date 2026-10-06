@@ -1428,6 +1428,16 @@
     @media (max-width: 1279px) {
       .split--fluxo { grid-template-columns: minmax(0, 1fr); }
       .split--fluxo > .rail { border-left: none; padding-left: 0; }
+      /* Mesmo critério, outra conta: a lista precisa de 720px para a linha
+       * inteira (592 de colunas fixas e vãos, mais 128 para o nome), e a
+       * coluna principal só chega lá quando o conteúdo bate no teto de 1120
+       * — o que acontece a partir de ~1272 de janela. Em 768 ela tinha 294px,
+       * e em 820, 346. Abaixo de 1280, uma coluna só.
+       *
+       * O trilho sobe para a frente, como no celular: quem ESCOLHE vem antes
+       * de quem é escolhido — mês e filtro antes da lista que eles filtram. */
+      .split--extrato { grid-template-columns: minmax(0, 1fr); }
+      .split--extrato > .rail { border-left: none; padding-left: 0; order: -1; }
       .view[data-view="pendencias"] .split--par { grid-template-columns: minmax(0, 1fr); }
       /* Em coluna única o trilho não divide nada: o filete e o recuo sairiam
        * indentando a segunda seção sem nada do lado. */
@@ -1450,10 +1460,24 @@
     .primary { height: 44px; width: auto; padding: 0 24px; }
 
     /* Uma declaração só para cabeçalho e linhas: se as faixas divergirem, a
-     * coluna deixa de significar o que o rótulo diz. */
-    .list--extrato .row, .list-head {
-      display: grid; grid-template-columns: 64px minmax(0, 1fr) 128px 132px 112px 76px;
-      align-items: center; gap: 16px;
+     * coluna deixa de significar o que o rótulo diz.
+     *
+     * E ela só vale a partir de 880px de janela, não de 768. As colunas fixas
+     * somam 512px e os cinco vãos somam 80: são 592px antes de o NOME receber
+     * um pixel. Abaixo disso a linha não encolhe — ela transborda. Medido em
+     * 768: o nome ficava com largura ZERO e as ações eram desenhadas em
+     * x=628, fora da coluna de 294px, por baixo do painel lateral. Não era
+     * feio: era inalcançável — confirmar, editar e excluir não respondiam ao
+     * toque em nenhuma linha da lista. Abaixo de 880 vale o formato empilhado
+     * do celular, que cabe em 320. */
+    @media (min-width: 880px) {
+      .list--extrato .row, .list-head {
+        display: grid; grid-template-columns: 64px minmax(0, 1fr) 128px 132px 112px 76px;
+        align-items: center; gap: 16px;
+      }
+      .list--extrato .cell-data,
+      .list--extrato .cell-cat,
+      .list--extrato .cell-org { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     }
     .list-head {
       position: sticky; top: 0; z-index: 3;
@@ -1478,9 +1502,6 @@
     /* O cabeçalho já separa: a primeira linha não repete a hairline. */
     .list--extrato > :first-child { border-top: none; }
     .list--extrato .row-meta { display: none; }
-    .list--extrato .cell-data,
-    .list--extrato .cell-cat,
-    .list--extrato .cell-org { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .row.clickable:hover, .card-row.clickable:hover { background: var(--hover); }
     .card-row.on { border-left-color: var(--accent); padding-left: 12px; }
   }

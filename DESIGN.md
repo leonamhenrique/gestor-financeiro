@@ -1308,6 +1308,32 @@ e o aperto só tirava 4px à toa. `:only-child` devolve os 44.
 A célula de ações continua existindo mesmo vazia: no desktop ela é uma coluna do
 grid, e sumir desalinharia a lista inteira.
 
+### Tabela de colunas só onde a linha cabe
+
+A lista do Extrato vira tabela de colunas a partir de **880px de janela**, não
+de 768. As cinco colunas fixas somam 512px e os cinco vãos somam 80: são
+**592px antes de o nome receber um pixel**, e a linha não encolhe — ela
+transborda.
+
+O que isso causava em tablet retrato era pior que feio. Medido em 768: a
+coluna principal tinha 294px, o nome ficava com largura **zero** e a célula de
+ações era desenhada em x=628, fora da coluna, **por baixo do painel lateral**.
+Confirmado por `elementFromPoint`: quem estava no ponto do botão era o painel,
+não o botão — confirmar, editar e excluir não respondiam ao toque em **nenhuma
+linha da lista**, de qualquer tipo. Abaixo de 880 vale o formato empilhado do
+celular, que cabe em 320.
+
+**E o Extrato só abre em duas colunas a partir de 1280**, pelo mesmo critério
+do Pendências e do Fluxo: duas colunas só quando cada uma cabe no que carrega.
+A lista precisa de 720px (os 592 mais 128 para o nome), e a coluna principal só
+chega lá quando o conteúdo bate no teto de 1120. Em coluna única o trilho sobe
+para a frente (`order: -1`), porque quem **escolhe** vem antes de quem é
+escolhido: mês e filtro antes da lista que eles filtram.
+
+Faixas medidas, com quatro linhas na tela: 768 e 879 empilhado com 12 de 12
+ações clicáveis; 880 e 1024 em tabela, coluna única, nada vazando; 1280 e 1440
+em tabela com as duas colunas, como antes.
+
 ### Tablet: toque com largura de desktop
 
 Acima de 768 o app entra no shell de desktop, e o tablet entra junto. O alvo de
