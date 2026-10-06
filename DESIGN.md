@@ -1267,6 +1267,14 @@ primeiro a desaparecer.
 Preferência de uso fica no aparelho, como o tema: não é dado financeiro, não
 precisa de campo novo no servidor nem de migração, e funciona offline.
 
+**Ordem do menu e tela inicial são coisas separadas, por decisão.** Pôr Cartões
+em primeiro lugar não faz o app abrir em Cartões: ele continua abrindo no
+Resumo. A ordem responde "onde eu toco", e a tela inicial responde "o que eu
+vejo ao abrir" — quem põe uma tela na frente por usar muito não está
+necessariamente pedindo que ela seja a primeira coisa na cara toda vez. Se um
+dia a tela inicial virar escolha, ela será uma preferência própria, não um
+efeito colateral da ordem.
+
 ### Ação sozinha na linha recebe o halo inteiro
 
 O aperto horizontal do halo (`inset: -5px -3px`, 40px de alvo) existe por causa
