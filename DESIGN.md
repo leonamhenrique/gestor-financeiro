@@ -1245,13 +1245,35 @@ Trilho lateral e barra de baixo são **duas pinturas da mesma lista**: a ordem
 escolhida vale para as duas. Guardar uma ordem em cada superfície faria a
 pessoa reaprender o próprio app ao virar o celular.
 
-**Reordena-se onde as preferências moram**, não arrastando o menu: a camada de
-Configurações já diz "valem neste aparelho", e a lista de lá usa a mesma alça,
-o mesmo `data-ordem-id` e o mesmo `ativarOrdenacao` das listas de contas,
-cartões e categorias — arraste por ponteiro e setas do teclado na alça, sem
-inventar um segundo jeito de ordenar. Arrastar dentro do trilho de 72px que só
-abre no hover, ou dentro de uma barra de seis abas em 320px, seria um gesto
-novo e pior.
+**Reordena-se de dois jeitos, e os dois usam a mesma máquina.** Na camada de
+Configurações, pela alça, como contas, cartões e categorias — é o caminho
+descoberto por quem procura, e o único que funciona pelo teclado. E **direto no
+menu**, arrastando o próprio item, que é o caminho de quem já sabe.
+
+**No menu não há alça, então o item se pega por "pressionar e segurar".** Numa
+aba de 53px e num trilho de 72px não cabe uma alça, e sem ela o mesmo toque que
+navega é o que move: é o segurar que separa as duas intenções. 400ms — abaixo
+disso, tocar e hesitar viraria arraste sem querer; acima, o gesto parece
+travado. Se o dedo andar mais de 8px antes da hora, era rolagem, e o arraste
+nem começa. O clique que vem depois de um item levantado é engolido: quem moveu
+não quis navegar.
+
+**Item levantado precisa de um destaque próprio — o das listas não serve.** O
+tinte de acento que marca a linha arrastada mede, numa aba, **1,12:1 no escuro
+e 1,19:1 no claro** contra a barra: a pessoa segura, o item arma, e nada
+acontece na tela. Numa linha larga o tinte é uma faixa que se vê; num quadrado
+de 53px, não. Por isso o item do menu troca de tinta (ícone e rótulo em acento,
+por `currentColor`) e ganha contorno de acento — sem sombra (regra 3). Medido:
+rótulo 11,28:1 no escuro e 5,02:1 no claro sobre o próprio tinte; contorno 3,63
+e 3,38 contra a barra.
+
+**Medir cor de um estado que tem transição exige desligar a transição.** O
+`.nav-item` transita `color` em 180ms, e `getComputedStyle` durante a transição
+devolve o valor interpolado — num painel de navegador oculto, onde as animações
+ficam congeladas, ele devolve o valor INICIAL para sempre. Três leituras
+seguidas disseram "a regra não aplicou" quando a regra aplicava; com
+`transition: none` injetado, a cascata apareceu certa. Vale para qualquer
+medição de estado neste app.
 
 **Marca, tema e perfil não entram.** Os itens reordenáveis são as telas; o que
 emoldura o menu fica onde está. No trilho isso é literal: os itens são sempre

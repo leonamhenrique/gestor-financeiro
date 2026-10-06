@@ -860,6 +860,31 @@
   }
   .arrastando { background: var(--accent-fraco); }
   .arrastando .arrasto { color: var(--accent); }
+  /* Item do menu levantado para mover.
+   *
+   * O tinte de acento que marca a linha levantada nas LISTAS não serve aqui:
+   * medido, ele dá 1,12:1 contra a barra no escuro e 1,19:1 no claro — a
+   * pessoa segura o dedo, o item arma, e nada acontece na tela. Numa linha
+   * larga o tinte é uma faixa que se vê; numa aba de 53px é um quadradinho
+   * que não se vê.
+   *
+   * Então o item levantado troca de TINTA (ícone e rótulo em acento, por
+   * currentColor) e ganha um contorno de 2px — a mesma gramática do destaque
+   * do app, sem sombra (regra 3). A especificidade é própria porque
+   * `.nav-item` e `.tab` pintam a própria cor e viriam depois. */
+  /* `.nav .nav-item`, e não só `.nav-item`: no item ATIVO existe
+   * `.nav-item.on`, que empata em especificidade e vem depois no arquivo —
+   * o rótulo virava acento e o ícone ficava para trás, porque o ícone herda
+   * a cor do botão. Um grau a mais resolve os dois juntos. */
+  .nav .nav-item.arrastando, .tabbar .tab.arrastando,
+  .nav .nav-item.arrastando span, .tabbar .tab.arrastando span { color: var(--accent); }
+  .nav-item.arrastando, .tab.arrastando {
+    background: var(--accent-fraco);
+    outline: 2px solid var(--accent-borda); outline-offset: -2px; border-radius: var(--r-sm);
+  }
+  /* Com um item levantado, o dedo move o item — não rola a página. Vale só
+   * durante o gesto: fora dele, deslizar sobre o menu rola como sempre. */
+  body.ordenando .nav-item, body.ordenando .tab { touch-action: none; }
   .ordenando, .ordenando * { cursor: grabbing !important; user-select: none; }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -1519,33 +1544,33 @@
 </main>
 
 <div class="shell">
-  <nav class="nav">
+  <nav class="nav" id="nav-principal">
     <div class="nav-brand">
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l8 9-8 9-8-9 8-9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
       <span>Gestor</span>
     </div>
 
-    <button class="nav-item on" type="button" data-goto="resumo">
+    <button class="nav-item on" type="button" data-goto="resumo" data-ordem-id="resumo">
       <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/></svg>
       <span>Resumo</span>
     </button>
-    <button class="nav-item" type="button" data-goto="fluxo">
+    <button class="nav-item" type="button" data-goto="fluxo" data-ordem-id="fluxo">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 19V5M4 19h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 15.5V11M12 15.5V7.5M16 15.5v-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Fluxo de caixa</span>
     </button>
-    <button class="nav-item" type="button" data-goto="lancamentos">
+    <button class="nav-item" type="button" data-goto="lancamentos" data-ordem-id="lancamentos">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Lançamentos</span>
     </button>
-    <button class="nav-item" type="button" data-goto="cartoes">
+    <button class="nav-item" type="button" data-goto="cartoes" data-ordem-id="cartoes">
       <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5.5" width="18" height="13" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M3 10h18" stroke="currentColor" stroke-width="1.7"/></svg>
       <span>Cartões</span>
     </button>
-    <button class="nav-item" type="button" data-goto="categorias">
+    <button class="nav-item" type="button" data-goto="categorias" data-ordem-id="categorias">
       <svg viewBox="0 0 24 24" fill="none"><path d="M11 3.5H5.5A2 2 0 0 0 3.5 5.5V11a2 2 0 0 0 .6 1.4l7.5 7.5a2 2 0 0 0 2.8 0l5.5-5.5a2 2 0 0 0 0-2.8L12.4 4.1a2 2 0 0 0-1.4-.6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/></svg>
       <span>Categorias</span>
     </button>
-    <button class="nav-item" type="button" data-goto="contas">
+    <button class="nav-item" type="button" data-goto="contas" data-ordem-id="contas">
       <svg viewBox="0 0 24 24" fill="none"><path d="M3.5 9.5 12 4l8.5 5.5M5.5 10.5v8M18.5 10.5v8M9.5 10.5v8M14.5 10.5v8M3.5 20h17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Contas</span>
     </button>
@@ -2041,28 +2066,28 @@
     </section>
   </main>
 
-  <nav class="tabbar">
-    <button class="tab on" type="button" data-goto="resumo">
+  <nav class="tabbar" id="tabbar">
+    <button class="tab on" type="button" data-goto="resumo" data-ordem-id="resumo">
       <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.7"/></svg>
       <span>Resumo</span>
     </button>
-    <button class="tab" type="button" data-goto="fluxo">
+    <button class="tab" type="button" data-goto="fluxo" data-ordem-id="fluxo">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 19V5M4 19h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 15.5V11M12 15.5V7.5M16 15.5v-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Fluxo</span>
     </button>
-    <button class="tab" type="button" data-goto="lancamentos">
+    <button class="tab" type="button" data-goto="lancamentos" data-ordem-id="lancamentos">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Extrato</span>
     </button>
-    <button class="tab" type="button" data-goto="cartoes">
+    <button class="tab" type="button" data-goto="cartoes" data-ordem-id="cartoes">
       <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5.5" width="18" height="13" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M3 10h18" stroke="currentColor" stroke-width="1.7"/></svg>
       <span>Cartões</span>
     </button>
-    <button class="tab" type="button" data-goto="categorias">
+    <button class="tab" type="button" data-goto="categorias" data-ordem-id="categorias">
       <svg viewBox="0 0 24 24" fill="none"><path d="M11 3.5H5.5A2 2 0 0 0 3.5 5.5V11a2 2 0 0 0 .6 1.4l7.5 7.5a2 2 0 0 0 2.8 0l5.5-5.5a2 2 0 0 0 0-2.8L12.4 4.1a2 2 0 0 0-1.4-.6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/></svg>
       <span>Categorias</span>
     </button>
-    <button class="tab" type="button" data-goto="contas">
+    <button class="tab" type="button" data-goto="contas" data-ordem-id="contas">
       <svg viewBox="0 0 24 24" fill="none"><path d="M3.5 9.5 12 4l8.5 5.5M5.5 10.5v8M18.5 10.5v8M9.5 10.5v8M14.5 10.5v8M3.5 20h17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Contas</span>
     </button>
@@ -7393,41 +7418,91 @@
     return irmaosOrdenaveis(lista).map(function (x) { return x.dataset.ordemId; });
   }
 
-  function ativarOrdenacao(containerId, aoSoltar) {
+  /**
+   * `opcoes` existe para o MENU, que não tem alça e cujos itens navegam ao
+   * toque — e nada disso vale para as listas, que seguem chamando sem opções:
+   *
+   * - `de`: o que inicia o arraste. Nas listas é a alça; no menu é o próprio
+   *   item, porque num trilho de 72px e numa aba de 53px não cabe alça.
+   * - `segurar`: milissegundos de dedo parado antes de levantar o item. É o
+   *   que desfaz a ambiguidade entre "quero ir para esta tela" e "quero mover
+   *   esta tela". Toque curto navega; toque mantido move. Com alça isso não
+   *   existe, porque a alça já diz qual é a intenção — daí o padrão 0.
+   * - `eixo`: a barra de baixo é horizontal; o trilho e as listas, verticais.
+   */
+  function ativarOrdenacao(containerId, aoSoltar, opcoes) {
+    opcoes = opcoes || {};
+    var DE = opcoes.de || ".arrasto";
+    var SEGURAR = opcoes.segurar || 0;
+    var HORIZONTAL = opcoes.eixo === "x";
+    /** Quanto o dedo pode andar antes de o toque virar rolagem, e não arraste. */
+    var TOLERANCIA = 8;
+
     var host = document.getElementById(containerId);
     var arrastado = null;
     var lista = null;
     var ordemInicial = null;
+    var espera = null;       // toque que ainda não virou arraste
+    var engolirClique = false;
+
+    function levantar(item, pointerId) {
+      arrastado = item;
+      lista = item.parentElement;
+      ordemInicial = idsDe(lista).join();
+      try { host.setPointerCapture(pointerId); } catch (err) {}
+      arrastado.classList.add("arrastando");
+      document.body.classList.add("ordenando");
+    }
+
+    function desistirDaEspera() {
+      if (!espera) return;
+      clearTimeout(espera.relogio);
+      espera = null;
+    }
 
     function concluir() {
+      desistirDaEspera();
       if (!arrastado) return;
       arrastado.classList.remove("arrastando");
       document.body.classList.remove("ordenando");
       var ids = idsDe(lista);
       arrastado = null;
+      // Quem levantou um item não quer navegar ao soltar, mesmo sem ter
+      // movido: o clique que vem depois do arraste é engolido.
+      if (SEGURAR) engolirClique = true;
       if (ids.join() !== ordemInicial) aoSoltar(ids);
     }
 
     host.addEventListener("pointerdown", function (e) {
-      var alca = e.target.closest(".arrasto");
-      if (!alca || e.button !== 0) return;
-      arrastado = alca.closest("[data-ordem-id]");
-      if (!arrastado) return;
-      lista = arrastado.parentElement;
-      e.preventDefault(); // sem seleção de texto durante o arraste
-      ordemInicial = idsDe(lista).join();
-      host.setPointerCapture(e.pointerId);
-      arrastado.classList.add("arrastando");
-      document.body.classList.add("ordenando");
+      var gatilho = e.target.closest(DE);
+      if (!gatilho || e.button !== 0) return;
+      var item = gatilho.closest("[data-ordem-id]");
+      if (!item) return;
+      if (!SEGURAR) {
+        e.preventDefault(); // sem seleção de texto durante o arraste
+        levantar(item, e.pointerId);
+        return;
+      }
+      var id = e.pointerId;
+      espera = {
+        item: item, x: e.clientX, y: e.clientY,
+        relogio: setTimeout(function () { espera = null; levantar(item, id); }, SEGURAR)
+      };
     });
 
     host.addEventListener("pointermove", function (e) {
+      if (espera) {
+        // Andou antes da hora: era rolagem ou um toque trêmulo, não arraste.
+        if (Math.abs(e.clientX - espera.x) > TOLERANCIA || Math.abs(e.clientY - espera.y) > TOLERANCIA) desistirDaEspera();
+        return;
+      }
       if (!arrastado) return;
+      if (e.cancelable) e.preventDefault();
       var irmaos = irmaosOrdenaveis(lista).filter(function (x) { return x !== arrastado; });
-      // Entra antes do primeiro irmão cuja metade ainda está abaixo do ponteiro.
+      // Entra antes do primeiro irmão cuja metade ainda está depois do ponteiro.
       var alvo = irmaos.filter(function (x) {
         var r = x.getBoundingClientRect();
-        return e.clientY < r.top + r.height / 2;
+        return HORIZONTAL ? e.clientX < r.left + r.width / 2 : e.clientY < r.top + r.height / 2;
       })[0] || null;
       if (alvo === arrastado.nextElementSibling) return;
       if (!alvo && irmaos.length && irmaos[irmaos.length - 1].nextElementSibling === arrastado) return;
@@ -7437,6 +7512,14 @@
 
     host.addEventListener("pointerup", concluir);
     host.addEventListener("pointercancel", concluir);
+    // Na captura, antes de o item ouvir: é assim que o clique do fim do
+    // arraste não vira navegação.
+    host.addEventListener("click", function (e) {
+      if (!engolirClique) return;
+      engolirClique = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
 
     // Teclado: quem não usa mouse também precisa poder reordenar.
     host.addEventListener("keydown", function (e) {
@@ -7962,10 +8045,25 @@
         '<span class="row-val num">' + (i + 1) + 'º</span></div>';
     }).join("");
   }
-  ativarOrdenacao("cfg-menu", function (ids) {
+  function moverItemDoMenu(ids) {
     definirOrdemDoMenu(ids, true);
     pintarOrdemDoMenu();
-  });
+  }
+  ativarOrdenacao("cfg-menu", moverItemDoMenu);
+  /* Arrastar direto no menu, sem passar por Configurações.
+   *
+   * Sem alça: num trilho de 72px e numa aba de 53px não cabe uma, e o item
+   * inteiro vira a área de pegar. Por isso o `segurar`: o mesmo toque que
+   * navega é o que move, e só o dedo MANTIDO levanta o item — é o gesto da
+   * tela inicial do celular, que todo mundo já tem no dedo.
+   *
+   * 400ms é o que separa um toque de um toque mantido sem fazer esperar:
+   * abaixo disso, tocar e hesitar viraria arraste sem querer; acima, o gesto
+   * parece travado. Quem prefere não segurar nada continua tendo a lista de
+   * Configurações, que também é o caminho do teclado. */
+  var SEGURAR_PARA_MOVER = 400;
+  ativarOrdenacao("nav-principal", moverItemDoMenu, { de: ".nav-item[data-ordem-id]", segurar: SEGURAR_PARA_MOVER });
+  ativarOrdenacao("tabbar", moverItemDoMenu, { de: ".tab[data-ordem-id]", segurar: SEGURAR_PARA_MOVER, eixo: "x" });
   document.getElementById("cfg-menu-padrao").addEventListener("click", function () {
     definirOrdemDoMenu(MENU_PADRAO, true);
     pintarOrdemDoMenu();
