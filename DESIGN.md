@@ -1325,6 +1325,31 @@ vão se sobrepõem 8px, e o toque no meio acerta o botão errado — do lado do
 excluir, isso apaga o que ninguém pediu. No toque em largura de desktop o vão
 das ações de linha sobe para 14px, que é o mínimo que separa.
 
+### Transferência não é lançamento
+
+Mover dinheiro da conta A para a conta B não é receita nem despesa: o
+patrimônio é o mesmo antes e depois. Por isso ela **não é um par de
+lançamentos** — é entidade própria, com lista própria, e nenhum relatório
+percorre essa lista. A diferença não é de estilo: como par de lançamentos ela
+entraria em resultado do mês, categorias, mapa de calor, pendências e fluxo de
+caixa, e cada um desses lugares precisaria de uma exceção para expulsá-la.
+Separada, não existe exceção a esquecer.
+
+Pelo mesmo motivo ela **não tem categoria**: categoria diz para onde o dinheiro
+foi, e aqui ele não foi a lugar nenhum.
+
+**Mas ela aparece no extrato**, neutra: valor sem sinal, fora dos totais do mês
+e fora dos filtros de receita e despesa. Esconder seria pior — a pessoa veria o
+saldo da conta mudar sem nenhuma linha explicando. Mostrar como despesa seria
+mentira. Na ordenação por valor ela pesa **zero**, que é quanto ela mudou no
+dinheiro que entrou e saiu; o valor de verdade está na linha, dos dois lados da
+seta.
+
+**Confirmada move as duas contas; prevista não move nada.** É a mesma regra do
+lançamento: previsto é intenção, e intenção não move dinheiro. O destino do
+formulário já começa na segunda conta, para o formulário nunca nascer num
+estado inválido.
+
 ### Lista dentro de resumo tem teto
 
 Toda lista que um resumo mostra tem teto, e o teto mora no **servidor**: cortar

@@ -2101,6 +2101,9 @@
       <button type="button" class="fab-opt" data-novo-tipo="INCOME">
         <span class="dot" style="background:var(--positive)"></span>Receita
       </button>
+      <button type="button" class="fab-opt" id="fab-transferencia">
+        <svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px;flex-shrink:0"><path d="M7 7h11l-3-3M17 17H6l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Transferência
+      </button>
       <button type="button" class="fab-opt" id="fab-voz">
         <svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px;flex-shrink:0"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Por voz
       </button>
@@ -2238,6 +2241,35 @@
     </div>
     <div class="layer-foot">
       <button type="submit" class="primary" id="g-submit">Criar categoria</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ================= TRANSFERÊNCIA =================
+     Não é lançamento: não tem categoria, não tem tipo, não entra em
+     resultado, categorias, mapa de calor nem fluxo de caixa. Só tira de uma
+     conta e põe em outra. Por isso o formulário é curto — o que ele pergunta
+     é exatamente o que uma transferência é. -->
+<dialog id="dlg-transferencia">
+  <form id="form-transferencia">
+    <div class="layer-head"><h3 id="tr-titulo">Nova transferência</h3><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <div class="layer-body">
+      <div class="field"><label class="lbl" for="tr-valor">Valor</label><input id="tr-valor" type="number" step="0.01" min="0.01" required></div>
+      <div class="field"><label class="lbl" for="tr-desc">Descrição</label><input id="tr-desc" type="text" maxlength="60" placeholder="Reserva do mês, pagamento do aluguel…"></div>
+      <div class="field"><label class="lbl">Data</label>
+        <div class="field-data"><div id="tr-data-cal"></div><button type="button" class="ghost" id="tr-hoje">Hoje</button></div>
+      </div>
+      <div class="field"><label class="lbl" for="tr-origem">Sai de</label><select id="tr-origem"></select></div>
+      <div class="field"><label class="lbl" for="tr-destino">Entra em</label><select id="tr-destino"></select></div>
+      <div class="field">
+        <label class="check"><input type="checkbox" id="tr-confirmado"> Já confirmado</label>
+        <div class="field-help">Confirmado tira o dinheiro de uma conta e põe na outra agora. Previsto só registra a intenção: nenhum saldo muda até você confirmar.</div>
+      </div>
+      <div class="field-help">Transferência não é receita nem despesa. Ela não entra no resultado do mês, nas categorias, no mapa de calor nem no fluxo de caixa — o dinheiro não entrou nem saiu, só mudou de lugar.</div>
+      <div class="field-error" id="tr-erro"></div>
+    </div>
+    <div class="layer-foot">
+      <button type="submit" class="primary" id="tr-submit">Transferir</button>
     </div>
   </form>
 </dialog>
@@ -2500,6 +2532,10 @@
 
   function seed() {
     return {
+      // Transferência não é lançamento e por isso tem lista própria: assim
+      // ela não aparece em nenhum relatório de receita e despesa por
+      // acidente — nenhum deles percorre esta lista.
+      transferencias: [],
       accounts: [
         { id: "a1", nome: "Nubank", tipo: "CHECKING", saldo: 4312.90, saldoInicial: 500.00, cor: "#A98CF0", isActive: true, oculto: false },
         { id: "a2", nome: "Itaú", tipo: "SAVINGS", saldo: 18760.45, saldoInicial: 19370.45, cor: "#F0946E", isActive: true, oculto: false },
@@ -2538,6 +2574,9 @@
   var state;
   try { var raw = localStorage.getItem(STORAGE_KEY); state = raw ? JSON.parse(raw) : seed(); }
   catch (e) { state = seed(); }
+  // Quem já usava o app antes da transferência não tem a lista no que está
+  // guardado — sem isto, a primeira tela a percorrê-la quebraria.
+  if (!Array.isArray(state.transferencias)) state.transferencias = [];
   (state.cards || []).forEach(function (k) { if (!k.pagamentos) k.pagamentos = []; });
   (state.accounts || []).forEach(function (a) {
     if (typeof a.isActive !== "boolean") a.isActive = true;
@@ -3525,6 +3564,48 @@
     };
   }
 
+  /** A transferência aparece no extrato, mas NEUTRA: valor sem sinal, e fora
+   * dos totais do mês. Esconder seria pior — a pessoa veria o saldo da conta
+   * mudar sem nenhuma linha explicando. Mostrar como despesa seria mentira.
+   *
+   * `valor: 0` não é o valor dela: é o que ela pesa numa lista de dinheiro
+   * que entrou e saiu, e é o que a ordenação por valor deve usar. O valor de
+   * verdade está na linha, dos dois lados da seta. */
+  function linhaTransferenciaHTML(tr) {
+    var de = byId(state.accounts, tr.deId);
+    var para = byId(state.accounts, tr.paraId);
+    var caminho = (de ? de.nome : "—") + " → " + (para ? para.nome : "—");
+    var titulo = tr.desc || "Transferência";
+    var acoes = tr.pendente
+      ? botaoIcone("trash", "remover-da-fila", tr.id, "Remover da fila", "danger")
+      : botaoIcone("edit", "editar-transferencia", tr.id, "Editar") +
+        botaoIcone("trash", "excluir-transferencia", tr.id, "Excluir", "danger");
+    return {
+      data: tr.data, valor: 0,
+      desc: titulo, categoria: "Transferência", origem: caminho,
+      html: '<div class="row">' +
+        '<span class="cell-data num">' + fmtDia(tr.data) + '</span>' +
+        '<span class="row-main"><span class="row-title">' +
+        '<span class="dot" style="background:var(--fg-subtle)"></span>' +
+        '<span class="row-name">' + esc(titulo) + '</span>' +
+        '<span class="tag">Transferência</span>' +
+        (tr.pendente ? '<span class="tag tag-pendente ' + (tr.erroSync ? "danger" : "warn") + '">' + (tr.erroSync ? "recusado" : "pendente") + '</span>' : "") +
+        (tr.confirmada ? "" : '<span class="tag tag-previsto">prevista</span>') + '</span>' +
+        // No celular as etiquetas do título somem para o nome não ser
+        // espremido; a de "prevista" desce para o metadado, que tem a linha
+        // inteira. Sem isto, no celular uma transferência prevista ficava
+        // idêntica a uma já feita.
+        '<span class="row-meta">' + fmtDia(tr.data) + ' · ' + esc(caminho) +
+        (tr.pendente ? ' · ' + esc(tr.erroSync || "pendente, aguardando conexão") : "") +
+        (tr.confirmada ? "" : '<span class="tag-previsto-meta"> · prevista</span>') + '</span></span>' +
+        '<span class="cell-cat">Transferência</span>' +
+        '<span class="cell-org">' + esc(caminho) + '</span>' +
+        '<span class="row-val num">' + money(tr.valor) + '</span>' +
+        '<span class="row-acoes">' + acoes + '</span>' +
+        '</div>'
+    };
+  }
+
   /* ================= ditado: frase → lançamento ================= */
   /** Tira acento e caixa para comparar texto falado com nome cadastrado:
    * quem dita "alimentacao" e quem dita "Alimentação" querem a mesma coisa. */
@@ -4126,12 +4207,14 @@
       api("/bank-accounts?includeInactive=true"),
       api("/categories"),
       api("/credit-cards?includeInactive=true"),
-      api("/transactions?includeHidden=true")
+      api("/transactions?includeHidden=true"),
+      api("/transfers")
     ]);
     state.accounts = partes[0].map(contaDaApi);
     state.categories = partes[1].map(categoriaDaApi);
     state.cards = partes[2].map(cartaoDaApi);
     state.transactions = partes[3].map(lancamentoDaApi);
+    state.transferencias = partes[4].map(transferenciaDaApi);
     var pagamentos = await Promise.all(state.cards.map(function (k) {
       return api("/credit-cards/" + k.id + "/payments");
     }));
@@ -4188,6 +4271,36 @@
   /** O que a fila mostra na tela enquanto não sobe. É um lançamento normal com
    * `pendente`, para todas as telas (extrato, mapa de calor, totais) contarem
    * com ele sem saber que existe uma fila. */
+  /* ---------- transferência ----------
+   * Mora em `state.transferencias`, não em `state.transactions`. Relatório
+   * nenhum percorre esta lista, e é essa a garantia de que transferência não
+   * vira receita nem despesa em lugar algum — não existe exceção a esquecer. */
+  function transferenciaDaApi(t) {
+    return {
+      id: t.id, valor: Number(t.amount), data: String(t.transferDate).slice(0, 10),
+      deId: t.fromAccountId, paraId: t.toAccountId,
+      desc: t.description || "", confirmada: !!t.isConfirmed
+    };
+  }
+  function transferenciaDaFila(item) {
+    var c = item.corpo;
+    return {
+      id: item.id, valor: c.amount, data: c.transferDate,
+      deId: c.fromAccountId, paraId: c.toAccountId,
+      desc: c.description || "", confirmada: !!c.isConfirmed,
+      pendente: true, erroSync: item.erro || null
+    };
+  }
+  /** Só no modo sem servidor: lá o saldo é mantido pelo app. Com API, quem
+   * mantém é o banco, e o app só relê. Prevista não mexe em nada. */
+  function aplicarEfeitoTransferencia(tr, sinal) {
+    if (!tr.confirmada) return;
+    var de = byId(state.accounts, tr.deId);
+    var para = byId(state.accounts, tr.paraId);
+    if (de) de.saldo -= (sinal || 1) * tr.valor;
+    if (para) para.saldo += (sinal || 1) * tr.valor;
+  }
+
   function lancamentoDaFila(item) {
     var c = item.corpo;
     return {
@@ -4199,8 +4312,11 @@
     };
   }
   function aplicarFilaNoEstado() {
+    var ehTransferencia = function (f) { return f.tipo === "transferencia"; };
     state.transactions = state.transactions.filter(function (t) { return !t.pendente; })
-      .concat(fila.map(lancamentoDaFila));
+      .concat(fila.filter(function (f) { return !ehTransferencia(f); }).map(lancamentoDaFila));
+    state.transferencias = (state.transferencias || []).filter(function (t) { return !t.pendente; })
+      .concat(fila.filter(ehTransferencia).map(transferenciaDaFila));
   }
 
   /* O evento "online" só dispara quando o APARELHO perde e recupera a rede. Um
@@ -4222,8 +4338,10 @@
     }, INTERVALO_DE_TENTATIVA);
   }
 
-  function enfileirar(corpo) {
-    fila.push({ id: "fila-" + uid("l"), corpo: corpo, criadoEm: new Date().toISOString(), erro: null });
+  /** `tipo` diz para onde o item vai quando a rede voltar: "lancamento" (o
+   * padrão, e o que todo item gravado antes disto é) ou "transferencia". */
+  function enfileirar(corpo, tipo) {
+    fila.push({ id: "fila-" + uid("l"), tipo: tipo || "lancamento", corpo: corpo, criadoEm: new Date().toISOString(), erro: null });
     salvarFila();
     aplicarFilaNoEstado();
     persist();
@@ -4255,7 +4373,7 @@
       for (var i = 0; i < aEnviar.length; i++) {
         var item = aEnviar[i];
         try {
-          await api("/transactions", item.corpo);
+          await api(item.tipo === "transferencia" ? "/transfers" : "/transactions", item.corpo);
           fila = fila.filter(function (f) { return f.id !== item.id; });
           enviados++;
         } catch (e) {
@@ -5722,6 +5840,16 @@
     });
     if (filtro !== "INCOME") {
       tot.faturas.forEach(function (x) { linhas.push(linhaFaturaHTML(x, x.ref)); });
+    }
+    // Transferência não é receita nem despesa, então só aparece quando o
+    // filtro não está pedindo um dos dois — pedir "receitas" e receber uma
+    // transferência seria a mesma confusão que ela existe para evitar.
+    if (filtro === "TODOS") {
+      (state.transferencias || []).forEach(function (tr) {
+        if (tr.data.slice(0, 7) !== mk) return;
+        if (contaEstaOculta(tr.deId) && contaEstaOculta(tr.paraId)) return;
+        linhas.push(linhaTransferenciaHTML(tr));
+      });
     }
     linhas.sort(comparaLinhas);
     renderCabecalhoExtrato();
@@ -7325,6 +7453,130 @@
       persist(); renderAll();
     });
   }
+  /* ================= transferência ================= */
+  var calTransferencia = montarCalendario(document.getElementById("tr-data-cal"), {});
+  var editandoTransferencia = null;
+
+  /** Só contas ativas e não ocultas: transferir para uma conta que você
+   * escondeu da sua própria visão é pedir para o dinheiro sumir de vista. */
+  function contasParaTransferir() {
+    return state.accounts.filter(function (a) { return a.isActive !== false && !a.oculto; })
+      .map(function (a) { return { id: a.id, nome: a.nome }; });
+  }
+
+  function abrirTransferencia(opcoes) {
+    opcoes = opcoes || {};
+    editandoTransferencia = opcoes.editar || null;
+    var tr = editandoTransferencia
+      ? (state.transferencias || []).filter(function (x) { return x.id === editandoTransferencia; })[0]
+      : null;
+
+    var contas = contasParaTransferir();
+    if (contas.length < 2) {
+      avisar("Transferência precisa de duas contas",
+        "Cadastre pelo menos duas contas ativas para mover dinheiro de uma para a outra.");
+      return;
+    }
+
+    document.getElementById("tr-titulo").textContent = tr ? "Editar transferência" : "Nova transferência";
+    document.getElementById("tr-submit").textContent = tr ? "Salvar" : "Transferir";
+    document.getElementById("tr-erro").textContent = "";
+    document.getElementById("tr-valor").value = tr ? tr.valor : "";
+    document.getElementById("tr-desc").value = tr ? tr.desc : "";
+    calTransferencia.fechar();
+    calTransferencia.definir(tr ? tr.data : isoDate(dataDeHoje()), true);
+    preencherSelect(document.getElementById("tr-origem"), contas, tr ? tr.deId : contas[0].id);
+    // O destino começa na SEGUNDA conta: começando na mesma, o primeiro
+    // formulário que a pessoa vê já está num estado inválido.
+    preencherSelect(document.getElementById("tr-destino"), contas, tr ? tr.paraId : contas[1].id);
+    document.getElementById("tr-confirmado").checked = tr ? !!tr.confirmada : true;
+    abrir("dlg-transferencia");
+  }
+
+  document.getElementById("tr-hoje").addEventListener("click", function () {
+    calTransferencia.definir(isoDate(dataDeHoje()), true);
+  });
+
+  document.getElementById("form-transferencia").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var erro = document.getElementById("tr-erro");
+    var valor = parseFloat(document.getElementById("tr-valor").value);
+    var deId = document.getElementById("tr-origem").value;
+    var paraId = document.getElementById("tr-destino").value;
+    var data = calTransferencia.obter() || isoDate(dataDeHoje());
+    var desc = document.getElementById("tr-desc").value.trim();
+    var confirmada = document.getElementById("tr-confirmado").checked;
+
+    if (!valor || valor <= 0) { erro.textContent = "Informe um valor maior que zero."; return; }
+    if (deId === paraId) { erro.textContent = "A conta de origem e a de destino precisam ser diferentes."; return; }
+
+    var corpo = {
+      fromAccountId: deId, toAccountId: paraId, amount: valor,
+      transferDate: data, isConfirmed: confirmada,
+      description: desc || undefined
+    };
+
+    if (MODO_API) {
+      var alvo = editandoTransferencia;
+      // Editar precisa de rede: o servidor é quem sabe o efeito antigo a
+      // desfazer. Criar, não — vai para a fila como qualquer lançamento.
+      if (!alvo && !navigator.onLine) {
+        corpo.clientKey = uid("tr") + "-" + Date.now();
+        enfileirar(corpo, "transferencia");
+        fechar("dlg-transferencia");
+        avisar("Transferência guardada", "Ela sobe sozinha quando a conexão voltar.");
+        return;
+      }
+      corpo.clientKey = alvo ? undefined : uid("tr") + "-" + Date.now();
+      var ok = await comServidor(alvo ? "salvar a transferência" : "transferir", function () {
+        return alvo ? api("/transfers/" + alvo, corpo, "PATCH") : api("/transfers", corpo);
+      });
+      if (!ok) return;
+      editandoTransferencia = null;
+      fechar("dlg-transferencia");
+      return;
+    }
+
+    if (editandoTransferencia) {
+      var velha = (state.transferencias || []).filter(function (x) { return x.id === editandoTransferencia; })[0];
+      if (velha) {
+        aplicarEfeitoTransferencia(velha, -1);       // desfaz o efeito antigo
+        velha.valor = valor; velha.deId = deId; velha.paraId = paraId;
+        velha.data = data; velha.desc = desc; velha.confirmada = confirmada;
+        aplicarEfeitoTransferencia(velha, 1);
+      }
+      editandoTransferencia = null;
+    } else {
+      var nova = { id: uid("tr"), valor: valor, data: data, deId: deId, paraId: paraId, desc: desc, confirmada: confirmada };
+      state.transferencias.push(nova);
+      aplicarEfeitoTransferencia(nova, 1);
+    }
+    persist(); renderAll(); fechar("dlg-transferencia");
+  });
+
+  async function excluirTransferencia(id) {
+    var tr = (state.transferencias || []).filter(function (x) { return x.id === id; })[0];
+    if (!tr) return;
+    pedirConfirmacao({
+      titulo: "Excluir transferência",
+      ctx: (byId(state.accounts, tr.deId) || {}).nome + " → " + (byId(state.accounts, tr.paraId) || {}).nome + " · " + money(tr.valor),
+      detalhe: tr.confirmada
+        ? "Esta transferência está confirmada: o dinheiro volta para a conta de origem."
+        : "Esta transferência ainda é prevista, então nenhum saldo muda.",
+      acao: "Excluir", destrutivo: true
+    }, async function () {
+      if (tr.pendente) { removerDaFila(id); return; }
+      if (MODO_API) {
+        var ok = await comServidor("excluir a transferência", function () { return api("/transfers/" + id, null, "DELETE"); });
+        if (!ok) return;
+        return;
+      }
+      aplicarEfeitoTransferencia(tr, -1);
+      state.transferencias = state.transferencias.filter(function (x) { return x.id !== id; });
+      persist(); renderAll();
+    });
+  }
+
   document.getElementById("form-pagar").addEventListener("submit", async function (e) {
     e.preventDefault();
     var erro = document.getElementById("pg-erro");
@@ -7590,6 +7842,8 @@
       }, function () { removerDaFila(el.dataset.removerDaFila); });
     }
     if ((el = e.target.closest("[data-antecipar]"))) return abrirAntecipar(el.dataset.antecipar);
+    if ((el = e.target.closest("[data-editar-transferencia]"))) return abrirTransferencia({ editar: el.dataset.editarTransferencia });
+    if ((el = e.target.closest("[data-excluir-transferencia]"))) return excluirTransferencia(el.dataset.excluirTransferencia);
     if ((el = e.target.closest("[data-pagar-fatura]"))) {
       // "cartao:2026-09" — o mesmo id que a pendência já carrega.
       var alvo = el.dataset.pagarFatura.split(":");
@@ -7652,6 +7906,12 @@
     }
     return {};
   }
+
+  document.getElementById("fab-transferencia").addEventListener("click", function () {
+    fecharFabMenu();
+    if (bloqueado()) return;
+    abrirTransferencia();
+  });
 
   document.getElementById("fab-voz").addEventListener("click", function () {
     fecharFabMenu();

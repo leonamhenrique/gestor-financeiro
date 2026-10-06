@@ -112,6 +112,7 @@ model User {
   bankAccounts        BankAccount[]
   categories          Category[]
   transactions        Transaction[]
+  transfers           Transfer[]
   creditCards         CreditCard[]
   whatsappMessages    WhatsappMessageLog[]
   subscription        Subscription?
@@ -295,6 +296,8 @@ model BankAccount {
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions    Transaction[]
+  transfersOut    Transfer[]       @relation("TransferFrom")
+  transfersIn     Transfer[]       @relation("TransferTo")
   creditCards     CreditCard[]     // cartões vinculados a esta conta (fatura debitada daqui)
   invoicePayments InvoicePayment[] // pagamentos de fatura que saíram desta conta
 
@@ -391,6 +394,51 @@ model Transaction {
   @@index([categoryId])
   @@index([seriesId])
   @@map("transactions")
+}
+
+/// Transferência entre contas do próprio usuário.
+///
+/// NÃO é um lançamento, e é por isso que existe como tabela própria. Mover
+/// dinheiro da conta A para a conta B não é receita nem despesa: o patrimônio
+/// é o mesmo antes e depois. Se fosse um par de Transactions (saída em A,
+/// entrada em B), ela entraria em TODO relatório de receita e despesa — mapa
+/// de calor, categorias, resultado do mês, fluxo de caixa, insights — e cada
+/// um deles precisaria de uma exceção para expulsá-la. Separada, ela
+/// simplesmente nunca aparece lá, porque nunca foi lançamento.
+///
+/// Por isso também não tem `categoryId`: categoria classifica para onde o
+/// dinheiro foi, e aqui ele não foi a lugar nenhum.
+model Transfer {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  fromAccountId String   @map("from_account_id")
+  toAccountId   String   @map("to_account_id")
+  amount        Decimal  @db.Decimal(14, 2)
+  description   String?
+  transferDate  DateTime @map("transfer_date") @db.Date
+  /// Previsto (false) × confirmado (true). Só o confirmado mexe no saldo das
+  /// duas contas — previsto é intenção, e intenção não move dinheiro.
+  isConfirmed   Boolean  @default(true) @map("is_confirmed")
+  /// Mesma chave de idempotência dos lançamentos: a fila offline só tira o
+  /// item dela depois da resposta, e sem a chave um reenvio transferiria o
+  /// mesmo dinheiro duas vezes.
+  clientKey     String?  @map("client_key")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromAccount BankAccount @relation("TransferFrom", fields: [fromAccountId], references: [id])
+  toAccount   BankAccount @relation("TransferTo", fields: [toAccountId], references: [id])
+
+  // Origem e destino diferentes é regra de aplicação: o Prisma não tem CHECK
+  // condicional nativo, e a mesma validação precisa existir no serviço de
+  // qualquer forma, para devolver mensagem em português.
+
+  @@unique([userId, clientKey])
+  @@index([userId, transferDate])
+  @@index([fromAccountId])
+  @@index([toAccountId])
+  @@map("transfers")
 }
 
 enum SeriesKind {
