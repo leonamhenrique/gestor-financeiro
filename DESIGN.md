@@ -1393,6 +1393,14 @@ e a etiqueta era desenhada por cima dele — medido, e visível. No desktop a
 coluna CATEGORIA já diz "Transferência", então a etiqueta do título some lá de
 qualquer forma.
 
+**O ditado compara PALAVRA INTEIRA, nunca pedaço de texto.** Quem tem uma
+conta "C6 BANK" e dita "transferi 10 do nubank para o inter" via o destino
+virar C6 BANK: "bank" está dentro de "nu**bank**", e a posição desse pedaço
+vinha antes de "inter". A mesma armadilha derrubaria uma categoria "Casa"
+dentro de "casamento", ou "Inter" dentro de "internet". A borda é `[a-z0-9]`,
+porque a frase já passou por `normalizarFala` — minúscula e sem acento —, e o
+nome cadastrado é escapado antes de virar regex: existe conta chamada "C6+".
+
 **Ditada, a ordem das contas é a direção do dinheiro.** "Transferência de 10
 da conta Nubank para Inter": a primeira conta dita é a que paga, a segunda é a
 que recebe. Não há outra leitura possível dessa frase, e inverter a ordem

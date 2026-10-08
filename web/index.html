@@ -3728,16 +3728,38 @@
   /** Acha um cadastro (conta, cartão, categoria) pelo nome dito. Compara o
    * nome inteiro e também cada palavra com 4+ letras, para "nubank roxinho"
    * achar "Nubank Roxinho" e "roxinho" também achar. */
+  /** Escapa o que, num nome cadastrado, o regex leria como sintaxe: "C6+",
+   * "Conta (nova)", "Nu*". */
+  function escaparRegex(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+  /** Onde o termo aparece no texto como PALAVRA INTEIRA, ou -1.
+   *
+   * `indexOf` cru não serve, e o caso que mostrou isso foi real: quem tem uma
+   * conta "C6 BANK" e dita "transferi 10 do nubank para o inter" via o
+   * destino virar C6 BANK — porque "bank" está dentro de "nuBANK", e essa
+   * posição vem antes de "inter". Pela mesma conta, uma categoria "Casa"
+   * casaria dentro de "casamento".
+   *
+   * A borda é `[a-z0-9]` porque o texto já passou por `normalizarFala`:
+   * minúsculo, sem acento. */
+  function posicaoDaPalavra(texto, termo, aPartirDe) {
+    if (!termo) return -1;
+    var re = new RegExp("(^|[^a-z0-9])(" + escaparRegex(termo) + ")([^a-z0-9]|$)", "g");
+    re.lastIndex = aPartirDe || 0;
+    var m = re.exec(texto);
+    return m ? m.index + m[1].length : -1;
+  }
+
   function acharPorNome(lista, texto) {
     var achado = null, tamanho = 0;
     lista.forEach(function (item) {
       var nome = normalizarFala(item.nome);
-      if (nome.length > tamanho && texto.indexOf(nome) >= 0) { achado = item; tamanho = nome.length; }
+      if (nome.length > tamanho && posicaoDaPalavra(texto, nome) >= 0) { achado = item; tamanho = nome.length; }
     });
     if (achado) return achado;
     lista.forEach(function (item) {
       normalizarFala(item.nome).split(/\s+/).forEach(function (palavra) {
-        if (palavra.length >= 4 && palavra.length > tamanho && texto.indexOf(palavra) >= 0) {
+        if (palavra.length >= 4 && palavra.length > tamanho && posicaoDaPalavra(texto, palavra) >= 0) {
           achado = item; tamanho = palavra.length;
         }
       });
@@ -3893,7 +3915,7 @@
       // TODAS as ocorrências, não só a primeira: quem diz "do Nubank para o
       // Nubank" disse a mesma conta duas vezes, e o app precisa poder dizer
       // isso em vez de fingir que não entendeu a segunda.
-      for (var i = texto.indexOf(nome); i >= 0; i = texto.indexOf(nome, i + nome.length)) {
+      for (var i = posicaoDaPalavra(texto, nome); i >= 0; i = posicaoDaPalavra(texto, nome, i + nome.length)) {
         achados.push({ conta: a, posicao: i, forte: true });
       }
     });
@@ -3902,7 +3924,7 @@
       var melhor = -1;
       normalizarFala(a.nome).split(/\s+/).forEach(function (palavra) {
         if (palavra.length < 4 || PALAVRAS_DE_ESTRUTURA.indexOf(palavra) >= 0) return;
-        var i = texto.indexOf(palavra);
+        var i = posicaoDaPalavra(texto, palavra);
         if (i >= 0 && (melhor < 0 || i < melhor)) melhor = i;
       });
       if (melhor >= 0) achados.push({ conta: a, posicao: melhor, forte: false });
