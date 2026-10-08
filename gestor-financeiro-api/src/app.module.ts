@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { TransfersModule } from './transfers/transfers.module';
+import { GoalsModule } from './goals/goals.module';
 import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
@@ -22,6 +23,7 @@ import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
     AuthModule,
     TransactionsModule,
     TransfersModule,
+    GoalsModule,
     BankAccountsModule,
     CategoriesModule,
     CreditCardsModule,

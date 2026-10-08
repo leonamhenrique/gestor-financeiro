@@ -1443,6 +1443,134 @@ lançamento: previsto é intenção, e intenção não move dinheiro. O destino 
 formulário já começa na segunda conta, para o formulário nunca nascer num
 estado inválido.
 
+### Objetivo de poupança: dois dinheiros diferentes
+
+Um objetivo guarda dinheiro de duas origens, e tratá-las igual quebra o saldo
+geral nos dois sentidos.
+
+**O saldo inicial não entra em total nenhum.** É o que a pessoa já tinha
+guardado para aquilo antes do objetivo existir — dinheiro de fora, que nunca
+passou por conta cadastrada. Somá-lo ao saldo geral criaria dinheiro do nada.
+Ele conta só para o progresso do objetivo, que é a pergunta que ele responde:
+quanto falta.
+
+**O que se aplica continua contando.** Aplicar tira de uma conta de verdade; se
+o total caísse junto, a tela diria que o dinheiro sumiu. Então o saldo geral é
+**contas + o que está em objetivos**, e aplicar não mexe no número do topo —
+exatamente como uma transferência entre contas.
+
+O trilho da tela separa os dois com essas palavras: *aplicado das contas* (saiu
+de uma conta e continua no saldo geral) e *saldo inicial* (dinheiro que já era
+seu, fora das contas).
+
+**Resgatar mais do que foi aplicado faz o total SUBIR, e está certo.** O que
+sobra vem do saldo inicial, que o total não contava; caindo numa conta, ele
+passa a ser conhecido pelo app. Por isso o "aplicado das contas" de um objetivo
+tem **piso em zero** em vez de virar negativo: com piso, a entrada aparece no
+total; sem ele, o total ficaria parado e esconderia o dinheiro que chegou.
+
+O *saldo inicial* da tela também sai de subtração — `guardado − aplicado` —, não
+de um campo gravado: depois de um resgate que come o saldo inicial, o campo
+mentiria.
+
+**A série histórica do saldo geral não precisa de ajuste por objetivo.** Aplicar
+tira da conta e põe no objetivo: a soma dos dois não muda. Por isso o gráfico
+anda para trás desfazendo só lançamentos, e a linha fica contínua em vez de dar
+um salto no mês em que o objetivo nasceu.
+
+### A estimativa mensal é dinâmica por construção
+
+Ela **não é guardada** no cadastro. É recalculada a cada leitura:
+
+```
+falta ÷ meses que restam (o mês corrente conta, e o mínimo é 1)
+```
+
+É isso, e só isso, que faz o número subir para quem depositou menos do que o
+sugerido — no mesmo prazo — e descer para quem depositou mais. Um campo gravado
+no cadastro responderia a pergunta de ontem.
+
+**O centavo arredonda para cima.** 4.000 em 3 meses dá 1.333,33…, e 1.333,33
+três vezes fecha em 3.999,99: um número que, seguido à risca, não chega na meta
+não serve como sugestão.
+
+Alcançada a meta, a mensalidade é **zero** — continuar pedindo dinheiro de quem
+já chegou é o app não saber ler o próprio número. Prazo vencido com dinheiro
+faltando é **atrasado**: a linha diz quanto falta e manda editar para postergar,
+porque postergar é a saída, e ela existe.
+
+**A dica do formulário e a linha da lista falam o mesmo número.** Editando um
+objetivo que já tem aportes, o "por mês para chegar" desconta também o que foi
+aplicado — senão o formulário pediria mais que a linha, sobre o mesmo objetivo.
+
+### Concluir fecha a entrada, não a saída
+
+Objetivo concluído **não recebe nova aplicação**: não se guarda mais para o que
+já terminou, e ele some das opções de novo depósito — a linha dele simplesmente
+não tem o botão de aplicar.
+
+**Mas continua podendo ser resgatado.** Trancar a saída deixaria o dinheiro
+preso em algo que já acabou, e o saldo geral errado para sempre. A regra é essa:
+concluir é terminar, não apagar.
+
+**Excluir pede o resgate antes.** Apagar um objetivo que segura dinheiro de
+conta faria esse valor sumir do total sem voltar para lugar nenhum. O app diz
+quanto resgatar e para onde, em vez de escolher sozinho o destino. Objetivo que
+só tem saldo inicial sai sem cerimônia: nenhum saldo muda.
+
+**Postergar é editar a data final, e só.** Nenhum saldo se move; o que muda é o
+divisor da mensalidade, na leitura seguinte.
+
+### A linha do objetivo carrega dois verbos, não cinco
+
+Na linha ficam **aplicar** e **resgatar** — o que se faz toda semana. Editar,
+concluir, reabrir e excluir moram na camada que a própria linha abre.
+
+Não é preferência: com quatro botões na linha, num celular de 375px sobravam
+**110px** para o nome, e "Notebook novo" virava "N.". A linha do objetivo já é
+alta (nome, meta, barra, meta) e o nome é a coisa mais importante dela.
+
+As setas de aplicar e resgatar são o **mesmo desenho invertido** — entra na
+caixa, sai da caixa. É o que distingue os dois quando estão lado a lado.
+
+Com dois botões sobra espaço, então o alvo de toque vai ao limite: vão de 12px
+e halo de −7/−5, medido em **44×48**.
+
+**No celular a meta quebra em duas linhas em vez de ser cortada**, e a etiqueta
+de estado (*atrasado*, *concluído*) some. A meta logo abaixo já diz a mesma
+coisa por extenso, e a etiqueta disputava a linha do título com o nome — a
+mesma troca que `.tag-previsto` e `.tag-transferencia` fazem no extrato.
+
+**A barra é reforço, não a única fonte.** A linha de cima escreve "21% de
+R$ 7.000,00" em texto. Isso importa porque no tema claro o `--track` fica em
+1,85:1 contra o fundo: tentei um track mais forte e o tiro saiu pela culatra —
+no claro o `--accent` é tinta escura (#0C6E77), e qualquer cinza escuro o
+bastante para se separar do fundo se funde com a parte cheia (medido, 1,66:1).
+A saída não é escurecer o vazio, é a barra não precisar carregar o número
+sozinha, como já acontece nos primeiros passos ("1 de 5").
+
+### A camada do objetivo é a tela dele
+
+Abre tocando a linha. Mostra o nome, quanto de quanto, a frase do que falta, o
+histórico de aplicações e resgates — e, separado, o **saldo inicial**, com a
+explicação de que ele está fora das contas. No pé, *Editar* e *Concluir*
+(ou *Reabrir*). Excluir fica dentro da edição, à esquerda, como ação destrutiva.
+
+Apagar um movimento desfaz o efeito dele no saldo da conta: aplicação devolve,
+resgate retira. Um movimento que não pode ser desfeito não deveria oferecer
+lixeira.
+
+### Conta vinculada é sugestão, não trava
+
+Ela é a conta que já vem escolhida ao aplicar e ao resgatar. Nenhum saldo fica
+preso a ela, e no dia o dinheiro pode vir de outra — por isso a relação é
+`SetNull`: a conta pode ser arquivada sem levar o objetivo junto. "Nenhuma" é a
+primeira opção do seletor, e não um valor vazio que o formulário confundiria
+com "não escolheu".
+
+As contas oferecidas são as **ativas e não ocultas**: aplicar numa conta que a
+pessoa escondeu da própria visão é pedir para o dinheiro sumir de vista.
+
 ### Lista dentro de resumo tem teto
 
 Toda lista que um resumo mostra tem teto, e o teto mora no **servidor**: cortar
@@ -1715,6 +1843,7 @@ Alvo de toque mínimo cai de 44px para **32px** em ponteiro fino — nunca menos
 | Cartões | `.split` — a **fatura** à esquerda; a lista de cartões no `.rail` |
 | Detalhe de categoria | `.split` — barras e evolução à esquerda; lançamentos no `.rail` |
 | Fluxo de caixa | `.split` a partir de **1280** — KPIs, gráfico de doze meses e categorias à esquerda; previsto e insights no `.rail`. Abaixo de 1280, coluna única |
+| Objetivos | `.split` a partir de **1280** — objetivos em andamento e concluídos à esquerda; de onde vem o guardado no `.rail`. Abaixo de 1280, coluna única, com o trilho DEPOIS da lista |
 | Nova transação | camada de 480px sobre a tela anterior |
 
 A coluna principal é a do **conteúdo longo**, não a do que vem primeiro na
@@ -1725,6 +1854,15 @@ onde faltava espaço.
 Empilhado, a ordem se inverte: quem **escolhe** vem antes de quem é escolhido
 (filtro antes da lista, cartão antes da fatura). É o que o `order: -1` no
 `.rail` resolve dentro do `max-width: 767px`.
+
+Mas só quem escolhe. O trilho de Objetivos não escolhe nada — ele explica de
+onde vem o dinheiro guardado —, então empilhado ele fica **depois** da lista:
+nota de rodapé não abre a página.
+
+Em 768px, Objetivos sem esse corte dava uma coluna principal de **254px** contra
+um trilho de 320: todos os 5 nomes e as 10 metas cortados, "Notebook novo" em
+"Not…" e a frase do quanto guardar por mês inteira fora da tela. Em 1280 a
+coluna sai com 668px e nada corta.
 
 O corpo da tela **é** o `.split`, não um `div` dentro dele. Um invólucro solto
 cai na auto-colocação do grid da `.view`, cuja primeira coluna é dimensionada

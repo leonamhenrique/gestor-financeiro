@@ -192,7 +192,7 @@ export class BankAccountsService {
   async delete(userId: string, accountId: string) {
     await this.findOneByUser(userId, accountId);
 
-    const [transactionCount, creditCardCount, paymentCount, transferCount] = await Promise.all([
+    const [transactionCount, creditCardCount, paymentCount, transferCount, goalMovementCount] = await Promise.all([
       this.prisma.transaction.count({ where: { bankAccountId: accountId } }),
       this.prisma.creditCard.count({ where: { bankAccountId: accountId } }),
       // Pagamento de fatura que saiu desta conta também é histórico (e a
@@ -205,10 +205,18 @@ export class BankAccountsService {
       this.prisma.transfer.count({
         where: { OR: [{ fromAccountId: accountId }, { toAccountId: accountId }] },
       }),
+      // Aplicar e resgatar em objetivo são histórico desta conta, com a mesma
+      // chave estrangeira Restrict. (O vínculo do próprio objetivo é SetNull:
+      // a conta sugerida pode desaparecer sem levar o objetivo com ela.)
+      this.prisma.goalMovement.count({ where: { bankAccountId: accountId } }),
     ]);
 
     const hasHistory =
-      transactionCount > 0 || creditCardCount > 0 || paymentCount > 0 || transferCount > 0;
+      transactionCount > 0 ||
+      creditCardCount > 0 ||
+      paymentCount > 0 ||
+      transferCount > 0 ||
+      goalMovementCount > 0;
 
     if (hasHistory) {
       await this.prisma.bankAccount.update({

@@ -898,6 +898,42 @@
   .row-val.previsto { color: var(--fg-subtle); }
   .row-acoes { display: flex; gap: 6px; flex-shrink: 0; }
 
+  /* ---------- linha de objetivo ----------
+   * Ela carrega mais que nome e valor: uma barra de progresso e duas metas.
+   * Continua sendo linha de lista, com o fundo da tela — não vira card. A
+   * barra tem largura máxima porque uma barra de 600px não se lê melhor que
+   * uma de 320: o olho mede a fração, não o comprimento. */
+  .list--objetivos .row-main { gap: 5px; }
+  /* Usa o `--track` de sempre. Tentei um track mais forte para o vazio da
+   * barra fechar os 3:1 contra o fundo e o tiro saiu pela culatra: no tema
+   * claro o `--accent` é tinta ESCURA (#0C6E77), e qualquer cinza escuro o
+   * bastante para se separar do fundo se funde com a parte cheia — medido,
+   * 1,66:1. O que salva a barra é ela não ser a única fonte: a linha de cima
+   * escreve "21% de R$ 7.000,00" em texto. Barra aqui é reforço, como a dos
+   * primeiros passos, que também imprime "1 de 5". */
+  .list--objetivos .bar { display: block; width: 100%; max-width: 320px; }
+  /* Aqui a meta é o conteúdo, não um detalhe: numa tela estreita ela quebra em
+   * duas linhas em vez de virar "guardar R$ 733,…". A linha já tem várias
+   * alturas, então mais uma não muda a leitura — perder o número, muda. */
+  @media (max-width: 767px) {
+    .list--objetivos .row-meta { white-space: normal; overflow: visible; }
+    /* A etiqueta divide a linha do titulo com o nome, e num celular ela
+     * cortava "Notebook novo" em "Notebook no…". A meta logo abaixo já diz a
+     * mesma coisa por extenso ("o prazo já passou e faltam…", "concluído em
+     * …"), então some a etiqueta e fica o nome inteiro — a mesma troca que
+     * `.tag-previsto` e `.tag-transferencia` já fazem no extrato. */
+    .list--objetivos .row-title .tag { display: none; }
+  }
+  /* A linha do objetivo tem só dois botões, então sobra espaço para o alvo de
+   * toque inteiro: o vão cresce e o halo acompanha. Nas listas de quatro
+   * botões o halo é mais apertado na horizontal por falta de espaço; aqui essa
+   * razão não existe. */
+  @media (pointer: coarse) {
+    .list--objetivos .row-acoes { gap: 12px; }
+    .list--objetivos .row-acoes .icon-btn::after { inset: -7px -5px; }
+  }
+  .row--concluido .row-name { color: var(--fg-muted); }
+
   /* ---------- toque em largura de desktop ----------
    * Tablet entra pelo shell de desktop (>=768) e ali o halo de 44px estava
    * desligado: ele vinha num `max-width: 767px`, como se largura de janela
@@ -985,6 +1021,9 @@
   .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--fg-subtle); flex-shrink: 0; }
   .tag.warn { color: var(--warning); }
   .tag.danger { color: var(--negative); }
+  /* Tinta de texto do aviso, não a da barra: 10px em caixa alta é texto e
+   * precisa dos 4,5:1, que `--bar-aviso` (tinta de gráfico) não dá. */
+  .tag.aviso { color: var(--seg-aviso-tinta); }
   .tag.ok { color: var(--positive); }
 
   .card-row {
@@ -1454,6 +1493,18 @@
        * de quem é escolhido — mês e filtro antes da lista que eles filtram. */
       .split--extrato { grid-template-columns: minmax(0, 1fr); }
       .split--extrato > .rail { border-left: none; padding-left: 0; order: -1; }
+      /* Objetivos pela mesma regra, e pelo mesmo motivo medido: em 768 a
+       * coluna principal saía com 254px contra um trilho de 320, e aí TODOS os
+       * 5 nomes e as 10 metas ficavam cortados — "Notebook novo" virava "Not…"
+       * e a frase que diz quanto guardar por mês sumia inteira. A linha do
+       * objetivo é alta (nome, meta, barra, meta) e não cabe em coluna
+       * estreita; abaixo de 1280 vai uma coluna só.
+       *
+       * O trilho fica DEPOIS aqui, ao contrário do extrato: ele não escolhe
+       * nada, só explica de onde vem o dinheiro guardado — é nota de rodapé,
+       * e nota de rodapé não abre a página. */
+      .split--objetivos { grid-template-columns: minmax(0, 1fr); }
+      .split--objetivos > .rail { border-left: none; padding-left: 0; }
       .view[data-view="pendencias"] .split--par { grid-template-columns: minmax(0, 1fr); }
       /* Em coluna única o trilho não divide nada: o filete e o recuo sairiam
        * indentando a segunda seção sem nada do lado. */
@@ -1620,6 +1671,10 @@
     <button class="nav-item" type="button" data-goto="contas" data-ordem-id="contas">
       <svg viewBox="0 0 24 24" fill="none"><path d="M3.5 9.5 12 4l8.5 5.5M5.5 10.5v8M18.5 10.5v8M9.5 10.5v8M14.5 10.5v8M3.5 20h17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Contas</span>
+    </button>
+    <button class="nav-item" type="button" data-goto="objetivos" data-ordem-id="objetivos">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>
+      <span>Objetivos</span>
     </button>
 
     <div class="nav-bottom">
@@ -2111,6 +2166,53 @@
         </aside>
       </div>
     </section>
+
+    <!-- Objetivos: a tela de guardar dinheiro com prazo. Nada aqui é receita
+         ou despesa — aplicar e resgatar só movem dinheiro entre uma conta e um
+         objetivo, como a transferência faz entre duas contas. -->
+    <section class="view" data-view="objetivos">
+      <div class="blk v-head" style="--i:0"><h1>Objetivos</h1><div class="sub" id="obj-sub"></div></div>
+      <div class="blk v-cta" style="--i:0">
+        <button class="ghost" type="button" data-novo="objetivo">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          Novo objetivo
+        </button>
+      </div>
+
+      <div class="split split--objetivos">
+        <div class="col-main">
+          <div class="blk" style="--i:1">
+            <div class="lbl-row"><div class="lbl">Em andamento</div><div class="lbl-total num" id="obj-total"></div></div>
+            <div class="list list--objetivos" id="obj-lista-ativos"></div>
+          </div>
+          <div class="blk" style="--i:2">
+            <div class="lbl">Concluídos</div>
+            <div class="list list--objetivos" id="obj-lista-concluidos"></div>
+          </div>
+        </div>
+
+        <aside class="rail">
+          <div class="rail-fixo">
+          <div class="blk" style="--i:3">
+            <div class="lbl">De onde vem o guardado</div>
+            <div class="seg seg--1">
+              <div class="seg-cell">
+                <div class="lbl">Aplicado das contas</div>
+                <div class="seg-val num" id="obj-das-contas"></div>
+                <div class="seg-meta">saiu de uma conta e continua no saldo geral</div>
+              </div>
+              <div class="seg-cell">
+                <div class="lbl">Saldo inicial</div>
+                <div class="seg-val num" id="obj-inicial"></div>
+                <div class="seg-meta">dinheiro que já era seu, fora das contas</div>
+              </div>
+            </div>
+            <div class="field-help">O que você aplica sai da conta escolhida e continua contando no saldo geral, agora como valor em objetivos — dinheiro não desaparece por mudar de lugar. O saldo inicial é diferente: ele nunca passou pelas suas contas, então conta só para o progresso do objetivo e não entra em nenhum total.</div>
+          </div>
+          </div>
+        </aside>
+      </div>
+    </section>
   </main>
 
   <nav class="tabbar" id="tabbar">
@@ -2137,6 +2239,10 @@
     <button class="tab" type="button" data-goto="contas" data-ordem-id="contas">
       <svg viewBox="0 0 24 24" fill="none"><path d="M3.5 9.5 12 4l8.5 5.5M5.5 10.5v8M18.5 10.5v8M9.5 10.5v8M14.5 10.5v8M3.5 20h17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Contas</span>
+    </button>
+    <button class="tab" type="button" data-goto="objetivos" data-ordem-id="objetivos">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>
+      <span>Objetivos</span>
     </button>
   </nav>
 
@@ -2319,6 +2425,66 @@
       <button type="submit" class="primary" id="tr-submit">Transferir</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="dlg-objetivo">
+  <form id="form-objetivo">
+    <div class="layer-head"><h3 id="obj-titulo">Novo objetivo</h3><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <div class="layer-body">
+      <div class="field"><label class="lbl" for="obj-nome">Objetivo</label><input id="obj-nome" type="text" maxlength="60" placeholder="Viagem, reserva de emergência, carro…" required></div>
+      <div class="field"><label class="lbl" for="obj-meta">Valor do objetivo</label><input id="obj-meta" type="number" step="0.01" min="0.01" required></div>
+      <div class="field"><label class="lbl" for="obj-saldo-inicial">Saldo inicial</label><input id="obj-saldo-inicial" type="number" step="0.01" min="0" placeholder="0,00">
+        <div class="field-help">O que você já tem guardado para isto fora das suas contas do app. Ele conta para o progresso do objetivo e não entra no saldo geral — somar aqui um dinheiro que já está numa conta cadastrada contaria duas vezes. Para usar dinheiro de uma conta, deixe zero e use "Aplicar" depois.</div>
+      </div>
+      <div class="field"><label class="lbl">Data inicial</label>
+        <div class="field-data"><div id="obj-inicio-cal"></div><button type="button" class="ghost" id="obj-hoje">Hoje</button></div>
+      </div>
+      <div class="field"><label class="lbl">Data final</label>
+        <div class="field-data"><div id="obj-prazo-cal"></div></div>
+        <div class="field-help" id="obj-prazo-help"></div>
+      </div>
+      <div class="field"><label class="lbl" for="obj-conta">Conta vinculada</label><select id="obj-conta"></select>
+        <div class="field-help">Só uma sugestão: é a conta que já vem escolhida ao aplicar e ao resgatar. Nenhum saldo fica preso a ela, e no dia você pode usar outra.</div>
+      </div>
+      <div class="field-error" id="obj-erro"></div>
+    </div>
+    <div class="layer-foot">
+      <button type="button" class="ghost esquerda danger" id="obj-excluir" hidden>Excluir</button>
+      <button type="submit" class="primary" id="obj-submit">Criar objetivo</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-objetivo-mov">
+  <form id="form-objetivo-mov">
+    <div class="layer-head"><h3 id="obm-titulo">Aplicar no objetivo</h3><div class="ctx" id="obm-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <div class="layer-body">
+      <div class="field"><label class="lbl" for="obm-valor">Valor</label><input id="obm-valor" type="number" step="0.01" min="0.01" required></div>
+      <div class="field"><label class="lbl" for="obm-conta" id="obm-conta-lbl">Sai da conta</label><select id="obm-conta"></select></div>
+      <div class="field"><label class="lbl" for="obm-desc">Descrição</label><input id="obm-desc" type="text" maxlength="60" placeholder="Opcional"></div>
+      <div class="field"><label class="lbl">Data</label>
+        <div class="field-data"><div id="obm-data-cal"></div><button type="button" class="ghost" id="obm-hoje">Hoje</button></div>
+      </div>
+      <div class="field-help" id="obm-help"></div>
+      <div class="field-error" id="obm-erro"></div>
+    </div>
+    <div class="layer-foot">
+      <button type="submit" class="primary" id="obm-submit">Aplicar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-objetivo-mov-lista">
+  <div class="layer-head"><h3 id="obl-titulo">Objetivo</h3><div class="ctx" id="obl-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-body">
+    <div class="lbl" id="obl-resumo"></div>
+    <div class="list" id="obl-lista"></div>
+    <div class="field-help">Apagar um movimento desfaz o que ele fez no saldo da conta.</div>
+  </div>
+  <div class="layer-foot">
+    <button type="button" class="ghost esquerda" id="obl-editar">Editar</button>
+    <button type="button" class="primary" id="obl-concluir">Concluir objetivo</button>
+  </div>
 </dialog>
 
 <dialog id="dlg-pagar">
@@ -2583,6 +2749,10 @@
       // ela não aparece em nenhum relatório de receita e despesa por
       // acidente — nenhum deles percorre esta lista.
       transferencias: [],
+      // Objetivo de poupança também tem lista própria, e pelo mesmo motivo:
+      // aplicar e resgatar não são receita nem despesa, e nenhum relatório
+      // percorre esta lista.
+      objetivos: [],
       accounts: [
         { id: "a1", nome: "Nubank", tipo: "CHECKING", saldo: 4312.90, saldoInicial: 500.00, cor: "#A98CF0", isActive: true, oculto: false },
         { id: "a2", nome: "Itaú", tipo: "SAVINGS", saldo: 18760.45, saldoInicial: 19370.45, cor: "#F0946E", isActive: true, oculto: false },
@@ -2624,6 +2794,8 @@
   // Quem já usava o app antes da transferência não tem a lista no que está
   // guardado — sem isto, a primeira tela a percorrê-la quebraria.
   if (!Array.isArray(state.transferencias)) state.transferencias = [];
+  if (!Array.isArray(state.objetivos)) state.objetivos = [];
+  (state.objetivos || []).forEach(function (o) { if (!Array.isArray(o.movimentos)) o.movimentos = []; });
   (state.cards || []).forEach(function (k) { if (!k.pagamentos) k.pagamentos = []; });
   (state.accounts || []).forEach(function (a) {
     if (typeof a.isActive !== "boolean") a.isActive = true;
@@ -3060,6 +3232,71 @@
       .reduce(function (s, a) { return s + a.saldo; }, 0) + efeitoDosPendentes(true);
   }
 
+  /* ---------- as contas de um objetivo ----------
+   * As mesmas quatro contas do servidor (`goal.utils.ts`), repetidas aqui
+   * porque o app também roda sem servidor nenhum — e porque a tela não pode
+   * depender de uma ida à rede para dizer quanto falta.
+   *
+   * A regra que organiza tudo: o SALDO INICIAL conta para o progresso e para
+   * mais nada. Ele é dinheiro que já era seu antes, fora das suas contas;
+   * somá-lo ao saldo geral criaria dinheiro do nada. Já o que você APLICA saiu
+   * de uma conta de verdade, e por isso continua no saldo geral — agora como
+   * valor em objetivos. */
+  function movimentosDoObjetivo(o) { return (o && o.movimentos) || []; }
+  function saldoDoObjetivo(o) {
+    return movimentosDoObjetivo(o).reduce(function (soma, m) {
+      return soma + (m.tipo === "DEPOSIT" ? m.valor : -m.valor);
+    }, o.saldoInicial || 0);
+  }
+  /** Quanto deste objetivo veio das contas. O piso é zero: quem resgatou mais
+   * do que aplicou tirou do saldo inicial, e esse dinheiro — que o total não
+   * contava — passa a contar ao cair numa conta. Sem o piso, o total ficaria
+   * parado e esconderia a entrada. */
+  function aplicadoDoObjetivo(o, soVisiveis) {
+    return Math.max(0, movimentosDoObjetivo(o).reduce(function (soma, m) {
+      if (soVisiveis && contaEstaOculta(m.contaId)) return soma;
+      return soma + (m.tipo === "DEPOSIT" ? m.valor : -m.valor);
+    }, 0));
+  }
+  /** O que está guardado nos objetivos e continua sendo saldo seu. */
+  function emObjetivos() {
+    return (state.objetivos || []).reduce(function (s, o) { return s + aplicadoDoObjetivo(o, true); }, 0);
+  }
+  /** O saldo geral: o que está nas contas mais o que está parado em objetivo.
+   * Aplicar não pode fazer o número do topo cair — o dinheiro só mudou de
+   * lugar, como numa transferência. */
+  function saldoGeral() { return saldoVisivel() + emObjetivos(); }
+
+  /** Meses de `de` até `ate`, contando o mês corrente como um mês que ainda dá
+   * para usar. Nunca menos de 1: um prazo que termina hoje ainda pede o valor
+   * todo, e dividir por zero não é resposta. */
+  function mesesAteOPrazo(de, ate) {
+    var meses = (ate.getFullYear() - de.getFullYear()) * 12 + (ate.getMonth() - de.getMonth());
+    return Math.max(1, meses + 1);
+  }
+  /** A estimativa mensal é DINÂMICA por construção: nada fica guardado do
+   * cadastro, ela recalcula `falta ÷ meses que restam` toda vez que a tela
+   * desenha. Quem depositou menos do que o sugerido vê o número do mês
+   * seguinte subir, no mesmo prazo. Quem depositou mais vê descer.
+   *
+   * O centavo arredonda para cima: 1.333,33 três vezes fecha em 3.999,99, e
+   * um número sugerido que, seguido à risca, não chega na meta não serve. */
+  function progressoDoObjetivo(o, hoje) {
+    var guardado = saldoDoObjetivo(o);
+    var falta = Math.max(0, o.meta - guardado);
+    var meses = mesesAteOPrazo(hoje || dataDeHoje(), new Date(o.prazo + "T00:00:00"));
+    return {
+      guardado: guardado,
+      falta: falta,
+      pct: o.meta > 0 ? Math.min(1, Math.max(0, guardado / o.meta)) : 0,
+      meses: meses,
+      mensal: Math.ceil((falta / meses) * 100) / 100,
+      // Fora do prazo e ainda faltando: o objetivo não cabe mais no que sobrou.
+      noPrazo: falta <= 0 || new Date(o.prazo + "T00:00:00") >= (hoje || dataDeHoje())
+    };
+  }
+  function objetivoConcluido(o) { return !!o.concluidoEm; }
+
   /* ================= calendário ================= */
   function fmtDataBR(iso) {
     if (!iso) return "—";
@@ -3309,7 +3546,13 @@
       olhoOff: '<path d="M3 3l18 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M9.9 5.1A9.9 9.9 0 0 1 12 5c6 0 9.5 7 9.5 7a15 15 0 0 1-2.2 3.1M6.5 6.6C3.9 8.4 2.5 12 2.5 12s3.5 7 9.5 7c1.3 0 2.5-.3 3.6-.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
       cifrao: '<path d="M12 4v16M15.5 8A3.5 3.5 0 0 0 12 6h-.5a3 3 0 0 0 0 6h1a3 3 0 0 1 0 6H12a3.5 3.5 0 0 1-3.5-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
       arquivar: '<path d="M12 7v7M9 11l3 3 3-3M4.5 7.5v10A1.5 1.5 0 0 0 6 19h12a1.5 1.5 0 0 0 1.5-1.5v-10M3.5 4.5h17v3h-17z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
-      antecipar: '<path d="M6 13.5 12 8l6 5.5M6 19l6-5.5 6 5.5M6 5h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>'
+      antecipar: '<path d="M6 13.5 12 8l6 5.5M6 19l6-5.5 6 5.5M6 5h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+      // Par deliberado: a seta entra no objetivo em "aplicar" e sai dele em
+      // "resgatar". Mesma caixa, direção invertida — é o que distingue os dois
+      // botões quando eles estão lado a lado na mesma linha.
+      aplicar: '<path d="M12 3.5v9.5M8.3 9.3 12 13l3.7-3.7M4.5 15.5v3A2 2 0 0 0 6.5 20.5h11a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+      resgatar: '<path d="M12 13V3.5M8.3 7.2 12 3.5l3.7 3.7M4.5 15.5v3A2 2 0 0 0 6.5 20.5h11a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+      alvo: '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/>'
     };
     return '<svg viewBox="0 0 24 24" fill="none">' + d[nome] + '</svg>';
   }
@@ -4384,13 +4627,15 @@
       api("/categories"),
       api("/credit-cards?includeInactive=true"),
       api("/transactions?includeHidden=true"),
-      api("/transfers")
+      api("/transfers"),
+      api("/goals")
     ]);
     state.accounts = partes[0].map(contaDaApi);
     state.categories = partes[1].map(categoriaDaApi);
     state.cards = partes[2].map(cartaoDaApi);
     state.transactions = partes[3].map(lancamentoDaApi);
     state.transferencias = partes[4].map(transferenciaDaApi);
+    state.objetivos = partes[5].map(objetivoDaApi);
     var pagamentos = await Promise.all(state.cards.map(function (k) {
       return api("/credit-cards/" + k.id + "/payments");
     }));
@@ -4475,6 +4720,29 @@
     var para = byId(state.accounts, tr.paraId);
     if (de) de.saldo -= (sinal || 1) * tr.valor;
     if (para) para.saldo += (sinal || 1) * tr.valor;
+  }
+
+  /* ---------- objetivo de poupança ----------
+   * Como a transferência, mora fora de `state.transactions`: relatório nenhum
+   * percorre esta lista, e é essa a garantia de que aplicar e resgatar não
+   * viram receita nem despesa em lugar algum. */
+  function objetivoDaApi(g) {
+    return {
+      id: g.id, nome: g.name,
+      inicio: String(g.startDate).slice(0, 10),
+      prazo: String(g.targetDate).slice(0, 10),
+      meta: Number(g.targetAmount),
+      saldoInicial: Number(g.initialBalance || 0),
+      contaId: g.accountId || null,
+      concluidoEm: g.completedAt ? String(g.completedAt).slice(0, 10) : null,
+      movimentos: (g.movements || []).map(movimentoDeObjetivoDaApi)
+    };
+  }
+  function movimentoDeObjetivoDaApi(m) {
+    return {
+      id: m.id, tipo: m.type, valor: Number(m.amount), contaId: m.bankAccountId,
+      desc: m.description || "", data: String(m.movementDate).slice(0, 10)
+    };
   }
 
   function lancamentoDaFila(item) {
@@ -5836,9 +6104,13 @@
 
   /** Saldo no fim de um mês: parte do saldo atual e desfaz tudo que foi
    * confirmado depois daquela data. */
+  /** O histórico não precisa de ajuste por objetivo: aplicar tira da conta e
+   * põe no objetivo, então a SOMA dos dois não muda. Andar para trás desfazendo
+   * só lançamentos continua certo, e a série fica contínua em vez de dar um
+   * salto no mês em que o objetivo nasceu. */
   function saldoNoFimDoMes(y, m) {
     var limite = new Date(y, m + 1, 0);
-    var saldo = saldoVisivel();
+    var saldo = saldoGeral();
     state.transactions.forEach(function (t) {
       if (!t.confirmada || !t.contaId || contaEstaOculta(t.contaId)) return;
       if (new Date(t.data + "T00:00:00") > limite) saldo -= (t.tipo === "INCOME" ? t.valor : -t.valor);
@@ -5851,19 +6123,24 @@
       var d = adicionarMeses(new Date(HOJE.getFullYear(), HOJE.getMonth(), 1), -i);
       pontos.push(saldoNoFimDoMes(d.getFullYear(), d.getMonth()));
     }
-    pontos[pontos.length - 1] = saldoVisivel();
+    pontos[pontos.length - 1] = saldoGeral();
     return pontos;
   }
 
   function renderResumo() {
     renderOnboarding();
-    var saldo = saldoVisivel();
+    // Contas MAIS o que está guardado em objetivo. Aplicar não é gasto: se o
+    // número do topo caísse, a tela diria que o dinheiro sumiu — ele só mudou
+    // de lugar, como numa transferência.
+    var saldo = saldoGeral();
+    var guardado = emObjetivos();
     document.getElementById("r-saldo").innerHTML = heroNum(saldo);
     var ativas = state.accounts.filter(function (a) { return a.isActive; });
     var ocultas = ativas.filter(function (a) { return a.oculto; }).length;
     document.getElementById("r-ctx").textContent =
       ativas.length + (ativas.length === 1 ? " conta ativa" : " contas ativas") +
-      (ocultas ? " · " + ocultas + " oculta(s)" : "");
+      (ocultas ? " · " + ocultas + " oculta(s)" : "") +
+      (guardado > 0 ? " · " + brl(guardado) + " em objetivos" : "");
 
     var pontos = serieSaldo();
     var anterior = pontos[pontos.length - 2] || 0;
@@ -6300,7 +6577,7 @@
       // Todo caminho que muda dado termina aqui: é o ponto certo para esquecer o
       // que foi lembrado sobre as pendências.
       pendenciasLembradas = null;
-      renderResumo(); renderTelaPendencias(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderPerfil();
+      renderResumo(); renderTelaPendencias(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderObjetivos(); renderPerfil();
       atualizarBannerDaFila();
       // A camada do dia fica aberta enquanto o usuário confirma, edita ou exclui
       // a partir dela, então precisa refletir a mudança na hora.
@@ -7828,6 +8105,433 @@
     });
   }
 
+  /* ================= objetivos de poupança ================= */
+  var calObjetivoInicio = montarCalendario(document.getElementById("obj-inicio-cal"), {});
+  var calObjetivoPrazo = montarCalendario(document.getElementById("obj-prazo-cal"), {});
+  var calObjetivoMov = montarCalendario(document.getElementById("obm-data-cal"), {});
+  var editandoObjetivo = null;
+  var movendoObjetivo = null;   // { id, tipo }
+  var objetivoAberto = null;    // qual objetivo a camada de movimentos mostra
+
+  var SEM_CONTA = "__sem_conta__";
+  function objetivoPorId(id) {
+    return (state.objetivos || []).filter(function (o) { return o.id === id; })[0];
+  }
+
+  /* ---------- render ---------- */
+  function linhaObjetivoHTML(o) {
+    var p = progressoDoObjetivo(o);
+    var concluido = objetivoConcluido(o);
+    var pct = Math.round(p.pct * 100);
+    var alcancou = p.falta <= 0;
+    var atrasado = !concluido && !p.noPrazo;
+
+    var segunda;
+    if (concluido) {
+      var fora = saldoDoObjetivo(o) - aplicadoDoObjetivo(o);
+      segunda = "concluído em " + fmtDataBR(o.concluidoEm) +
+        (aplicadoDoObjetivo(o) > 0 ? " · R$ " + money(aplicadoDoObjetivo(o)) + " ainda guardados das contas" : "") +
+        (fora > 0 ? " · R$ " + money(fora) + " fora das contas" : "");
+    } else if (alcancou) {
+      segunda = "meta alcançada — nada mais a guardar";
+    } else if (atrasado) {
+      segunda = "o prazo já passou e faltam R$ " + money(p.falta) + " — edite para postergar";
+    } else {
+      segunda = "guardar R$ " + money(p.mensal) + " por mês " +
+        (p.meses === 1 ? "no mês que falta" : "nos " + p.meses + " meses que faltam");
+    }
+
+    // Só os dois verbos do dia a dia. Editar, concluir e excluir moram na
+    // camada que a própria linha abre: com quatro botões aqui, no celular
+    // sobravam 110px para o nome e "Notebook novo" virava "N." — e o nome é a
+    // coisa mais importante da linha.
+    var acoes = (concluido ? "" : botaoIcone("aplicar", "aplicar-objetivo", o.id, "Aplicar")) +
+      (saldoDoObjetivo(o) > 0 ? botaoIcone("resgatar", "resgatar-objetivo", o.id, "Resgatar") : "");
+
+    var conta = o.contaId ? byId(state.accounts, o.contaId) : null;
+    return '<div class="row clickable' + (concluido ? " row--concluido" : "") + '" data-objetivo-movimentos="' + o.id + '">' +
+      '<span class="row-main">' +
+      '<span class="row-title"><span class="row-name">' + esc(o.nome) + '</span>' +
+      (concluido ? '<span class="tag">concluído</span>' : "") +
+      (atrasado ? '<span class="tag aviso">atrasado</span>' : "") + '</span>' +
+      '<span class="row-meta">' + pct + '% de R$ ' + money(o.meta) + ' · até ' + fmtDataBR(o.prazo) +
+      (conta ? " · " + esc(conta.nome) : "") + '</span>' +
+      '<span class="bar"><i class="' + (atrasado ? "warn" : "accent") + '" style="width:' + pct + '%"></i></span>' +
+      '<span class="row-meta">' + segunda + '</span></span>' +
+      '<span class="row-val num">' + money(p.guardado) + '</span>' +
+      '<span class="row-acoes">' + acoes + '</span></div>';
+  }
+
+  function renderObjetivos() {
+    var objetivos = state.objetivos || [];
+    var ativos = objetivos.filter(function (o) { return !objetivoConcluido(o); });
+    var concluidos = objetivos.filter(objetivoConcluido);
+
+    document.getElementById("obj-sub").textContent =
+      ativos.length + (ativos.length === 1 ? " objetivo em andamento" : " objetivos em andamento");
+    document.getElementById("obj-total").textContent =
+      brl(ativos.reduce(function (s, o) { return s + saldoDoObjetivo(o); }, 0));
+    document.getElementById("obj-das-contas").textContent = brl(emObjetivos());
+    // O que está guardado e NÃO veio das contas: é o saldo inicial que ainda
+    // está lá. Sai da subtração, não de um campo — resgatar mais do que foi
+    // aplicado come o saldo inicial, e um campo fixo mentiria depois disso.
+    document.getElementById("obj-inicial").textContent = brl(objetivos.reduce(function (s, o) {
+      return s + (saldoDoObjetivo(o) - aplicadoDoObjetivo(o));
+    }, 0));
+
+    document.getElementById("obj-lista-ativos").innerHTML =
+      ativos.map(linhaObjetivoHTML).join("") || '<div class="empty">Nenhum objetivo em andamento.</div>';
+    document.getElementById("obj-lista-concluidos").innerHTML =
+      concluidos.map(linhaObjetivoHTML).join("") || '<div class="empty">Nenhum objetivo concluído.</div>';
+  }
+
+  /* ---------- criar, editar, postergar ---------- */
+  function contasParaObjetivo() {
+    return state.accounts.filter(function (a) { return a.isActive !== false && !a.oculto; })
+      .map(function (a) { return { id: a.id, nome: a.nome }; });
+  }
+
+  function abrirObjetivo(id) {
+    editandoObjetivo = id || null;
+    var o = id ? objetivoPorId(id) : null;
+    var hoje = isoDate(dataDeHoje());
+
+    document.getElementById("obj-titulo").textContent = o ? "Editar objetivo" : "Novo objetivo";
+    document.getElementById("obj-submit").textContent = o ? "Salvar" : "Criar objetivo";
+    document.getElementById("obj-excluir").hidden = !o;
+    document.getElementById("obj-erro").textContent = "";
+    document.getElementById("obj-nome").value = o ? o.nome : "";
+    document.getElementById("obj-meta").value = o ? o.meta : "";
+    document.getElementById("obj-saldo-inicial").value = o ? o.saldoInicial : "";
+    calObjetivoInicio.fechar();
+    calObjetivoPrazo.fechar();
+    calObjetivoInicio.definir(o ? o.inicio : hoje, true);
+    // Um ano é o prazo que a maioria dos objetivos tem, e abrir com data
+    // preenchida é melhor que abrir com um campo vazio que não dá pista
+    // nenhuma do formato esperado.
+    calObjetivoPrazo.definir(o ? o.prazo : isoDate(adicionarMeses(dataDeHoje(), 12)), true);
+    // Objetivo pode não ter conta vinculada: "Nenhuma" é a primeira opção, e
+    // não um valor vazio que o formulário confundiria com "não escolheu".
+    preencherSelect(document.getElementById("obj-conta"),
+      [{ id: SEM_CONTA, nome: "Nenhuma" }].concat(contasParaObjetivo()),
+      (o && o.contaId) || SEM_CONTA);
+    textoDoPrazoDoObjetivo();
+    abrir("dlg-objetivo");
+  }
+
+  /** O que o prazo significa em meses, dito enquanto o usuário escolhe a data —
+   * é o número que vai dividir a meta, e vê-lo antes de salvar evita o prazo
+   * que não era o pretendido. */
+  function textoDoPrazoDoObjetivo() {
+    var inicio = calObjetivoInicio.obter();
+    var prazo = calObjetivoPrazo.obter();
+    var el = document.getElementById("obj-prazo-help");
+    if (!inicio || !prazo) { el.textContent = ""; return; }
+    if (prazo < inicio) { el.textContent = "A data final precisa ser igual ou posterior à inicial."; return; }
+    var meses = mesesAteOPrazo(new Date(inicio + "T00:00:00"), new Date(prazo + "T00:00:00"));
+    var meta = parseFloat(document.getElementById("obj-meta").value) || 0;
+    var inicial = parseFloat(document.getElementById("obj-saldo-inicial").value) || 0;
+    // Editando um objetivo que já tem aportes, o que falta desconta também o
+    // que já foi aplicado — senão a dica do formulário pediria por mês mais do
+    // que a linha da lista, e as duas falariam do mesmo objetivo.
+    var emEdicao = editandoObjetivo ? objetivoPorId(editandoObjetivo) : null;
+    var guardado = inicial + (emEdicao ? aplicadoDoObjetivo(emEdicao) : 0);
+    var falta = Math.max(0, meta - guardado);
+    el.textContent = meses + (meses === 1 ? " mês" : " meses") +
+      (meta > 0 ? " · R$ " + money(Math.ceil((falta / meses) * 100) / 100) + " por mês para chegar" : "");
+  }
+  ["obj-meta", "obj-saldo-inicial"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", textoDoPrazoDoObjetivo);
+  });
+  document.getElementById("obj-inicio-cal").addEventListener("click", function () { setTimeout(textoDoPrazoDoObjetivo, 0); });
+  document.getElementById("obj-prazo-cal").addEventListener("click", function () { setTimeout(textoDoPrazoDoObjetivo, 0); });
+  document.getElementById("obj-hoje").addEventListener("click", function () {
+    calObjetivoInicio.definir(isoDate(dataDeHoje()), true);
+    textoDoPrazoDoObjetivo();
+  });
+
+  document.getElementById("form-objetivo").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var erro = document.getElementById("obj-erro");
+    var nome = document.getElementById("obj-nome").value.trim();
+    var meta = parseFloat(document.getElementById("obj-meta").value);
+    var inicial = parseFloat(document.getElementById("obj-saldo-inicial").value) || 0;
+    var inicio = calObjetivoInicio.obter() || isoDate(dataDeHoje());
+    var prazo = calObjetivoPrazo.obter();
+    var contaSel = document.getElementById("obj-conta").value;
+    var contaId = contaSel === SEM_CONTA ? null : contaSel;
+
+    if (!nome) { erro.textContent = "Dê um nome ao objetivo."; return; }
+    if (!meta || meta <= 0) { erro.textContent = "Informe um valor maior que zero."; return; }
+    if (inicial < 0) { erro.textContent = "O saldo inicial não pode ser negativo."; return; }
+    if (!prazo) { erro.textContent = "Escolha a data final."; return; }
+    if (prazo < inicio) { erro.textContent = "A data final não pode ser antes da inicial."; return; }
+
+    var corpo = {
+      name: nome, targetAmount: meta, initialBalance: inicial,
+      startDate: inicio, targetDate: prazo, accountId: contaId
+    };
+
+    if (MODO_API) {
+      var alvo = editandoObjetivo;
+      var ok = await comServidor(alvo ? "salvar o objetivo" : "criar o objetivo", function () {
+        return alvo ? api("/goals/" + alvo, corpo, "PATCH") : api("/goals", corpo);
+      });
+      if (!ok) return;
+      editandoObjetivo = null;
+      fechar("dlg-objetivo");
+      return;
+    }
+
+    if (editandoObjetivo) {
+      var velho = objetivoPorId(editandoObjetivo);
+      if (velho) {
+        velho.nome = nome; velho.meta = meta; velho.saldoInicial = inicial;
+        velho.inicio = inicio; velho.prazo = prazo; velho.contaId = contaId;
+      }
+      editandoObjetivo = null;
+    } else {
+      state.objetivos.push({
+        id: uid("obj"), nome: nome, meta: meta, saldoInicial: inicial,
+        inicio: inicio, prazo: prazo, contaId: contaId, concluidoEm: null, movimentos: []
+      });
+    }
+    persist(); renderAll(); fechar("dlg-objetivo");
+  });
+
+  /** Excluir mora no pé da edição, à esquerda: é a ação destrutiva de um
+   * objetivo, e ela não cabia na linha sem passar de quatro botões. */
+  document.getElementById("obj-excluir").addEventListener("click", function () {
+    if (editandoObjetivo) excluirObjetivo(editandoObjetivo);
+  });
+
+  /* ---------- aplicar e resgatar ---------- */
+  function abrirMovObjetivo(id, tipo) {
+    var o = objetivoPorId(id);
+    if (!o) return;
+    var contas = contasParaObjetivo();
+    if (!contas.length) {
+      avisar("Sem conta para usar",
+        "Cadastre uma conta ativa e visível para aplicar no objetivo ou resgatar dele.");
+      return;
+    }
+    // Concluído não recebe mais aplicação — foi o que o usuário pediu. Resgatar
+    // continua valendo: trancar a saída deixaria o dinheiro preso em algo que
+    // já terminou, e o saldo geral errado para sempre.
+    if (tipo === "DEPOSIT" && objetivoConcluido(o)) {
+      avisar("Objetivo concluído", "Ele não recebe novas aplicações. Reabra o objetivo se quiser voltar a guardar.");
+      return;
+    }
+    var aplicar = tipo === "DEPOSIT";
+    var guardado = saldoDoObjetivo(o);
+    if (!aplicar && guardado <= 0) {
+      avisar("Nada para resgatar", "Este objetivo não tem valor guardado.");
+      return;
+    }
+
+    movendoObjetivo = { id: id, tipo: tipo };
+    document.getElementById("obm-titulo").textContent = aplicar ? "Aplicar no objetivo" : "Resgatar do objetivo";
+    document.getElementById("obm-ctx").textContent = o.nome + " · R$ " + money(guardado) + " guardados";
+    document.getElementById("obm-submit").textContent = aplicar ? "Aplicar" : "Resgatar";
+    document.getElementById("obm-conta-lbl").textContent = aplicar ? "Sai da conta" : "Entra na conta";
+    document.getElementById("obm-erro").textContent = "";
+    document.getElementById("obm-valor").value = "";
+    document.getElementById("obm-desc").value = "";
+    document.getElementById("obm-help").textContent = aplicar
+      ? "O valor sai da conta escolhida agora e passa a contar como valor em objetivos. O saldo geral não muda: o dinheiro só mudou de lugar."
+      : "O valor entra na conta escolhida. Se ele tinha saído de uma conta sua, o saldo geral não muda; se veio do saldo inicial do objetivo, o saldo geral sobe — esse dinheiro passa a ser conhecido pelo app.";
+    calObjetivoMov.fechar();
+    calObjetivoMov.definir(isoDate(dataDeHoje()), true);
+    preencherSelect(document.getElementById("obm-conta"), contas, o.contaId || contas[0].id);
+    abrir("dlg-objetivo-mov");
+  }
+  document.getElementById("obm-hoje").addEventListener("click", function () {
+    calObjetivoMov.definir(isoDate(dataDeHoje()), true);
+  });
+
+  document.getElementById("form-objetivo-mov").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    if (!movendoObjetivo) return;
+    var erro = document.getElementById("obm-erro");
+    var o = objetivoPorId(movendoObjetivo.id);
+    if (!o) return;
+    var aplicar = movendoObjetivo.tipo === "DEPOSIT";
+    var valor = parseFloat(document.getElementById("obm-valor").value);
+    var contaId = document.getElementById("obm-conta").value;
+    var data = calObjetivoMov.obter() || isoDate(dataDeHoje());
+    var desc = document.getElementById("obm-desc").value.trim();
+
+    if (!valor || valor <= 0) { erro.textContent = "Informe um valor maior que zero."; return; }
+    if (!aplicar && valor > saldoDoObjetivo(o) + 0.001) {
+      erro.textContent = "O objetivo tem R$ " + money(saldoDoObjetivo(o)) + " guardados — não dá para resgatar mais que isso.";
+      return;
+    }
+
+    var corpo = { bankAccountId: contaId, amount: valor, movementDate: data, description: desc || undefined };
+    if (MODO_API) {
+      var caminho = "/goals/" + o.id + (aplicar ? "/deposits" : "/withdrawals");
+      corpo.clientKey = uid("gm") + "-" + Date.now();
+      var ok = await comServidor(aplicar ? "aplicar no objetivo" : "resgatar do objetivo", function () {
+        return api(caminho, corpo);
+      });
+      if (!ok) return;
+      movendoObjetivo = null;
+      fechar("dlg-objetivo-mov");
+      return;
+    }
+
+    var mov = { id: uid("gm"), tipo: movendoObjetivo.tipo, valor: valor, contaId: contaId, desc: desc, data: data };
+    o.movimentos.push(mov);
+    aplicarEfeitoDoMovimento(mov, 1);
+    movendoObjetivo = null;
+    persist(); renderAll(); fechar("dlg-objetivo-mov");
+  });
+
+  /** Só no modo sem servidor: lá o saldo é mantido pelo app. Com API, quem
+   * mantém é o banco, e o app só relê. */
+  function aplicarEfeitoDoMovimento(mov, sinal) {
+    var conta = byId(state.accounts, mov.contaId);
+    if (!conta) return;
+    conta.saldo += (sinal || 1) * (mov.tipo === "DEPOSIT" ? -mov.valor : mov.valor);
+  }
+
+  /* ---------- concluir, reabrir, excluir ---------- */
+  function concluirObjetivo(id, concluir) {
+    var o = objetivoPorId(id);
+    if (!o || objetivoConcluido(o) === !!concluir) return;
+    if (MODO_API) {
+      comServidor(concluir ? "concluir o objetivo" : "reabrir o objetivo", function () {
+        return api("/goals/" + id, { isCompleted: !!concluir }, "PATCH");
+      });
+      return;
+    }
+    o.concluidoEm = concluir ? isoDate(dataDeHoje()) : null;
+    persist(); renderAll();
+  }
+
+  async function excluirObjetivo(id) {
+    var o = objetivoPorId(id);
+    if (!o) return;
+    var aplicado = aplicadoDoObjetivo(o);
+    // Apagar com valor aplicado faria esse dinheiro sumir do saldo geral sem
+    // voltar para conta nenhuma. O app pede o resgate em vez de escolher
+    // sozinho para onde o dinheiro vai.
+    if (aplicado > 0) {
+      avisar("Resgate antes de excluir",
+        "Este objetivo guarda R$ " + money(aplicado) + " que saíram das suas contas. Resgate esse valor para uma conta e depois exclua o objetivo.");
+      return;
+    }
+    pedirConfirmacao({
+      titulo: "Excluir objetivo",
+      ctx: o.nome + " · R$ " + money(saldoDoObjetivo(o)) + " guardados",
+      detalhe: saldoDoObjetivo(o) > 0
+        ? "O saldo inicial registrado aqui não está em nenhuma conta, então nenhum saldo muda. O histórico do objetivo é apagado."
+        : "Nenhum saldo muda. O histórico do objetivo é apagado.",
+      acao: "Excluir", destrutivo: true
+    }, async function () {
+      if (MODO_API) {
+        var ok = await comServidor("excluir o objetivo", function () { return api("/goals/" + id, null, "DELETE"); });
+        if (!ok) return;
+        if (dlgAberto("dlg-objetivo")) fechar("dlg-objetivo");
+        editandoObjetivo = null;
+        return;
+      }
+      (o.movimentos || []).forEach(function (m) { aplicarEfeitoDoMovimento(m, -1); });
+      state.objetivos = state.objetivos.filter(function (x) { return x.id !== id; });
+      if (dlgAberto("dlg-objetivo")) fechar("dlg-objetivo");
+      editandoObjetivo = null;
+      persist(); renderAll();
+    });
+  }
+
+  /* ---------- histórico do objetivo ---------- */
+  function abrirMovimentosDoObjetivo(id) {
+    var o = objetivoPorId(id);
+    if (!o) return;
+    objetivoAberto = id;
+    renderMovimentosDoObjetivo();
+    abrir("dlg-objetivo-mov-lista");
+  }
+  function renderMovimentosDoObjetivo() {
+    var o = objetivoPorId(objetivoAberto);
+    if (!o) return;
+    var p = progressoDoObjetivo(o);
+    var concluido = objetivoConcluido(o);
+    document.getElementById("obl-titulo").textContent = o.nome;
+    document.getElementById("obl-ctx").textContent =
+      "R$ " + money(p.guardado) + " de R$ " + money(o.meta) + (concluido ? " · concluído" : "");
+    document.getElementById("obl-resumo").textContent = concluido
+      ? "Concluído em " + fmtDataBR(o.concluidoEm)
+      : (p.falta <= 0
+        ? "Meta alcançada — nada mais a guardar."
+        : (p.noPrazo
+          ? "Faltam R$ " + money(p.falta) + " até " + fmtDataBR(o.prazo) + ": R$ " + money(p.mensal) +
+            " por mês " + (p.meses === 1 ? "no mês que falta." : "nos " + p.meses + " meses que faltam.")
+          : "O prazo (" + fmtDataBR(o.prazo) + ") já passou e faltam R$ " + money(p.falta) + ". Edite para postergar."));
+    document.getElementById("obl-concluir").textContent = concluido ? "Reabrir objetivo" : "Concluir objetivo";
+    var fora = p.guardado - aplicadoDoObjetivo(o);
+    var linhas = (o.movimentos || []).slice().sort(function (a, b) { return a.data < b.data ? 1 : -1; })
+      .map(function (m) {
+        var conta = byId(state.accounts, m.contaId);
+        var entrou = m.tipo === "DEPOSIT";
+        return '<div class="row">' +
+          '<span class="row-main"><span class="row-title"><span class="row-name">' +
+          (entrou ? "Aplicação" : "Resgate") + (m.desc ? " · " + esc(m.desc) : "") + '</span></span>' +
+          '<span class="row-meta">' + fmtDia(m.data) + (conta ? " · " + esc(conta.nome) : "") + '</span></span>' +
+          '<span class="row-val num' + (entrou ? " pos" : "") + '">' + (entrou ? "+" : "−") + money(m.valor) + '</span>' +
+          '<span class="row-acoes">' +
+          botaoIcone("trash", "excluir-movimento-objetivo", m.id, "Excluir movimento", "danger") +
+          '</span></div>';
+      }).join("");
+    var inicialHTML = fora > 0
+      ? '<div class="row"><span class="row-main"><span class="row-title"><span class="row-name">Saldo inicial</span></span>' +
+        '<span class="row-meta">dinheiro que já era seu, fora das contas do app</span></span>' +
+        '<span class="row-val num">' + money(fora) + '</span></div>'
+      : "";
+    document.getElementById("obl-lista").innerHTML =
+      (inicialHTML + linhas) || '<div class="empty">Nenhum movimento ainda.</div>';
+  }
+  document.getElementById("obl-editar").addEventListener("click", function () {
+    if (!objetivoAberto) return;
+    var id = objetivoAberto;
+    fechar("dlg-objetivo-mov-lista");
+    abrirObjetivo(id);
+  });
+  document.getElementById("obl-concluir").addEventListener("click", function () {
+    var o = objetivoPorId(objetivoAberto);
+    if (!o) return;
+    fechar("dlg-objetivo-mov-lista");
+    concluirObjetivo(o.id, !objetivoConcluido(o));
+  });
+
+  function excluirMovimentoDoObjetivo(movId) {
+    var o = (state.objetivos || []).filter(function (x) {
+      return (x.movimentos || []).filter(function (m) { return m.id === movId; }).length > 0;
+    })[0];
+    if (!o) return;
+    var mov = (o.movimentos || []).filter(function (m) { return m.id === movId; })[0];
+    pedirConfirmacao({
+      titulo: "Excluir movimento",
+      ctx: (mov.tipo === "DEPOSIT" ? "Aplicação" : "Resgate") + " · " + money(mov.valor),
+      detalhe: mov.tipo === "DEPOSIT"
+        ? "O valor volta para a conta de onde saiu."
+        : "O valor sai de volta da conta que o recebeu.",
+      acao: "Excluir", destrutivo: true
+    }, async function () {
+      if (MODO_API) {
+        var ok = await comServidor("excluir o movimento", function () {
+          return api("/goals/movements/" + movId, null, "DELETE");
+        });
+        if (!ok) return;
+        renderMovimentosDoObjetivo();
+        return;
+      }
+      aplicarEfeitoDoMovimento(mov, -1);
+      o.movimentos = o.movimentos.filter(function (m) { return m.id !== movId; });
+      persist(); renderAll(); renderMovimentosDoObjetivo();
+    });
+  }
+
   document.getElementById("form-pagar").addEventListener("submit", async function (e) {
     e.preventDefault();
     var erro = document.getElementById("pg-erro");
@@ -8102,6 +8806,12 @@
       var alvo = el.dataset.pagarFatura.split(":");
       return abrirPagarFatura(alvo[0], alvo[1]);
     }
+    if ((el = e.target.closest("[data-aplicar-objetivo]"))) return abrirMovObjetivo(el.dataset.aplicarObjetivo, "DEPOSIT");
+    if ((el = e.target.closest("[data-resgatar-objetivo]"))) return abrirMovObjetivo(el.dataset.resgatarObjetivo, "WITHDRAW");
+    if ((el = e.target.closest("[data-excluir-movimento-objetivo]"))) return excluirMovimentoDoObjetivo(el.dataset.excluirMovimentoObjetivo);
+    // Depois dos botões, de propósito: cada um deles devolve antes de chegar
+    // aqui, então sobrar para a linha significa que o toque foi no corpo dela.
+    if ((el = e.target.closest("[data-objetivo-movimentos]"))) return abrirMovimentosDoObjetivo(el.dataset.objetivoMovimentos);
     if ((el = e.target.closest("[data-editar-conta]"))) return abrirConta(el.dataset.editarConta);
     if ((el = e.target.closest("[data-saldo-conta]"))) return abrirSaldo(el.dataset.saldoConta);
     if ((el = e.target.closest("[data-arquivar-conta]"))) return alternarArquivo(el.dataset.arquivarConta);
@@ -8193,6 +8903,7 @@
       if (b.dataset.novo === "cartao") abrirCartao(null);
       if (b.dataset.novo === "categoria") abrirCategoria(null);
       if (b.dataset.novo === "conta") abrirConta(null);
+      if (b.dataset.novo === "objetivo") abrirObjetivo(null);
     });
   });
 
@@ -8503,10 +9214,11 @@
    * uso, não dado financeiro. Não vai para o servidor — nenhum campo novo,
    * nenhuma migração, e funciona offline e no modo demonstração. */
   var CHAVE_MENU = "gestor-menu-ordem";
-  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas"];
+  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas", "objetivos"];
   var MENU_NOME = {
     resumo: "Resumo", fluxo: "Fluxo de caixa", lancamentos: "Extrato",
-    cartoes: "Cartões", categorias: "Categorias", contas: "Contas"
+    cartoes: "Cartões", categorias: "Categorias", contas: "Contas",
+    objetivos: "Objetivos"
   };
   var ordemDoMenu = MENU_PADRAO.slice();
 

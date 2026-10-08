@@ -26,6 +26,7 @@ describe('BankAccountsService', () => {
       creditCard: { count: jest.fn() },
       invoicePayment: { count: jest.fn().mockResolvedValue(0) },
       transfer: { count: jest.fn().mockResolvedValue(0) },
+      goalMovement: { count: jest.fn().mockResolvedValue(0) },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -129,6 +130,20 @@ describe('BankAccountsService', () => {
     expect(prismaMock.transfer.count).toHaveBeenCalledWith({
       where: { OR: [{ fromAccountId: 'acc-1' }, { toAccountId: 'acc-1' }] },
     });
+  });
+
+  // Aplicar em objetivo também deixa histórico nesta conta, e a chave
+  // estrangeira é Restrict igual à da transferência.
+  it('delete() vira soft-delete quando a conta só tem movimento de objetivo', async () => {
+    prismaMock.bankAccount.findFirst.mockResolvedValue({ id: 'acc-1', userId: 'user-1' });
+    prismaMock.transaction.count.mockResolvedValue(0);
+    prismaMock.creditCard.count.mockResolvedValue(0);
+    prismaMock.goalMovement.count.mockResolvedValue(1);
+
+    const result = await service.delete('user-1', 'acc-1');
+
+    expect(prismaMock.bankAccount.delete).not.toHaveBeenCalled();
+    expect(result).toEqual({ deleted: false, archived: true });
   });
 
   it('delete() vira soft-delete quando há transações vinculadas', async () => {

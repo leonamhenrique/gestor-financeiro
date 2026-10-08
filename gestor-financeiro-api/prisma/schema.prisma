@@ -113,6 +113,8 @@ model User {
   categories          Category[]
   transactions        Transaction[]
   transfers           Transfer[]
+  goals               Goal[]
+  goalMovements       GoalMovement[]
   creditCards         CreditCard[]
   whatsappMessages    WhatsappMessageLog[]
   subscription        Subscription?
@@ -298,6 +300,8 @@ model BankAccount {
   transactions    Transaction[]
   transfersOut    Transfer[]       @relation("TransferFrom")
   transfersIn     Transfer[]       @relation("TransferTo")
+  goals           Goal[]
+  goalMovements   GoalMovement[]
   creditCards     CreditCard[]     // cartões vinculados a esta conta (fatura debitada daqui)
   invoicePayments InvoicePayment[] // pagamentos de fatura que saíram desta conta
 
@@ -439,6 +443,75 @@ model Transfer {
   @@index([fromAccountId])
   @@index([toAccountId])
   @@map("transfers")
+}
+
+enum GoalMovementType {
+  DEPOSIT   // aplicar: sai da conta, entra no objetivo
+  WITHDRAW  // resgatar: sai do objetivo, volta para uma conta
+}
+
+/// Objetivo de poupança: uma meta com prazo e um dinheiro guardado para ela.
+///
+/// O saldo do objetivo tem DUAS origens, e elas não se misturam de propósito:
+///
+///   initialBalance  dinheiro que já era do usuário ANTES de cadastrar o
+///                   objetivo e que nunca passou pelas contas do app. Conta
+///                   para o progresso da meta e para NADA mais — não entra no
+///                   saldo geral, senão cadastrar um objetivo criaria dinheiro.
+///   movimentos      aplicações e resgates. Esses saíram (ou voltaram para)
+///                   uma conta de verdade, então continuam contando no saldo
+///                   geral: guardar dinheiro não pode parecer ficar mais pobre.
+model Goal {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  name           String
+  startDate      DateTime  @map("start_date") @db.Date
+  targetDate     DateTime  @map("target_date") @db.Date
+  targetAmount   Decimal   @map("target_amount") @db.Decimal(14, 2)
+  initialBalance Decimal   @default(0) @map("initial_balance") @db.Decimal(14, 2)
+  /// Conta sugerida ao aplicar e ao resgatar. Sugestão, não trava: o dinheiro
+  /// pode vir de outra conta no dia em que vier.
+  accountId      String?   @map("account_id")
+  /// Concluído sai das escolhas de aplicar e resgatar, mas continua na lista
+  /// e guarda o que tem: concluir é terminar, não apagar.
+  completedAt    DateTime? @map("completed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account   BankAccount?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  movements GoalMovement[]
+
+  @@index([userId, targetDate])
+  @@index([accountId])
+  @@map("goals")
+}
+
+/// Uma aplicação ou um resgate. É o que move dinheiro entre uma conta e um
+/// objetivo — e, como a transferência, não é receita nem despesa: o
+/// patrimônio não muda, só o lugar onde ele está.
+model GoalMovement {
+  id            String           @id @default(uuid())
+  userId        String           @map("user_id")
+  goalId        String           @map("goal_id")
+  bankAccountId String           @map("bank_account_id")
+  type          GoalMovementType
+  amount        Decimal          @db.Decimal(14, 2)
+  description   String?
+  movementDate  DateTime         @map("movement_date") @db.Date
+  clientKey     String?          @map("client_key")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal        Goal        @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
+
+  @@unique([userId, clientKey])
+  @@index([userId, movementDate])
+  @@index([goalId])
+  @@index([bankAccountId])
+  @@map("goal_movements")
 }
 
 enum SeriesKind {
