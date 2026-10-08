@@ -1275,6 +1275,16 @@ seguidas disseram "a regra não aplicou" quando a regra aplicava; com
 `transition: none` injetado, a cascata apareceu certa. Vale para qualquer
 medição de estado neste app.
 
+**A mesma tela tem um nome só, nas duas superfícies.** O trilho e a barra de
+baixo são a mesma lista; chamar a mesma tela de "Lançamentos" em um e "Extrato"
+no outro faz a pessoa procurar duas vezes. Quando o rótulo muda, muda nos dois
+— e na lista de ordenação de Configurações, que nomeia os mesmos itens.
+
+**Mas o rótulo não é o id.** Os ids (`resumo`, `lancamentos`, `cartoes`…) são o
+que a ordem do menu guarda no aparelho: renomear o id junto com o rótulo
+mandaria o item para o fim do menu de todo mundo que já reordenou, porque o id
+salvo deixaria de ser conhecido. Rótulo se troca; id, não.
+
 **Marca, tema e perfil não entram.** Os itens reordenáveis são as telas; o que
 emoldura o menu fica onde está. No trilho isso é literal: os itens são sempre
 inseridos ANTES do `.nav-bottom`.
