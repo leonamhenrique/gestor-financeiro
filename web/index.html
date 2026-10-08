@@ -1069,6 +1069,22 @@
     transition: background-color 160ms ease-out;
   }
   .fab-opt:hover { background: var(--hover); }
+  /* O realce diz o que a opção É, com as mesmas tintas que o resto do app usa
+   * para dinheiro que sai, que entra e que só muda de lugar — o ponto colorido
+   * à esquerda já usa essas cores, e o fundo as repete em escala maior.
+   *
+   * "Por voz" fica no realce neutro de propósito: ela não é um tipo de
+   * lançamento, é um jeito de lançar. Pintá-la de alguma cor sugeriria um
+   * quarto tipo que não existe.
+   *
+   * `:focus-visible` junto porque quem navega pelo teclado precisa da mesma
+   * pista — e porque no toque não existe hover. */
+  .fab-opt[data-novo-tipo="EXPENSE"]:hover,
+  .fab-opt[data-novo-tipo="EXPENSE"]:focus-visible { background: var(--negative-fraco); }
+  .fab-opt[data-novo-tipo="INCOME"]:hover,
+  .fab-opt[data-novo-tipo="INCOME"]:focus-visible { background: var(--positive-fraco); }
+  #fab-transferencia:hover,
+  #fab-transferencia:focus-visible { background: var(--accent-fraco); }
   @media (min-width: 768px) { .fab-wrap { right: 32px; bottom: 32px; } }
 
   /* O `.ghost` é inline-flex, mas dentro de um `.blk` em coluna ele estica

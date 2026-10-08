@@ -1239,6 +1239,25 @@ ninguém reclamava, porque a tela não parecia quebrada — parecia sem cor.
 Medido depois de corrigir, contra a página: positivo 4,87 (claro) / 10,51
 (escuro), negativo 5,10 / 7,10, ocre 4,69 / 11,56, acento 5,62 / 13,47.
 
+### Realce que diz o que a opção é
+
+No menu do botão flutuante, o realce de hover usa a tinta do que a opção
+significa: despesa em `--negative-fraco`, receita em `--positive-fraco`,
+transferência em `--accent-fraco` — a mesma tinta que o ponto colorido à
+esquerda já usa, agora em escala maior. O realce deixa de ser só "você está
+aqui" e passa a confirmar a escolha antes do clique.
+
+**"Por voz" fica no realce neutro**, de propósito: não é um tipo de lançamento,
+é um jeito de lançar. Pintá-la sugeriria um quarto tipo que não existe.
+
+`:focus-visible` recebe o mesmo realce — quem navega pelo teclado precisa da
+mesma pista, e no toque não existe hover.
+
+Medido, tinta contra o fundo do menu: 1,11 a 1,19 nos dois temas (o realce
+neutro de antes dava 1,03), com o rótulo entre 13,8 e 15,1 sobre ela. É pouco
+em número e suficiente em tela porque a área é uma faixa de 44px, não um
+quadradinho — a mesma tinta que falha numa aba de 53px funciona aqui.
+
 ### A ordem do menu é do usuário
 
 Trilho lateral e barra de baixo são **duas pinturas da mesma lista**: a ordem
