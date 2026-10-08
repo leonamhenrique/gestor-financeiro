@@ -1393,6 +1393,24 @@ e a etiqueta era desenhada por cima dele — medido, e visível. No desktop a
 coluna CATEGORIA já diz "Transferência", então a etiqueta do título some lá de
 qualquer forma.
 
+**Ditada, a ordem das contas é a direção do dinheiro.** "Transferência de 10
+da conta Nubank para Inter": a primeira conta dita é a que paga, a segunda é a
+que recebe. Não há outra leitura possível dessa frase, e inverter a ordem
+inverte a transferência.
+
+Duas regras seguram isso de pé. A frase precisa **dizer** que é transferência
+(transferência, transferir, transferi): sem essa palavra, "de X para Y" é a
+forma de um pagamento comum — "paguei a conta de luz para o Itaú" tem a mesma
+estrutura e é despesa. E a busca pelas contas ignora as palavras que a própria
+frase usa como estrutura (conta, banco, para, dinheiro, saldo): sem isso, "da
+CONTA Nubank" casaria com qualquer conta cujo nome contenha "conta".
+
+O resumo do ditado troca "Conta" por **"Sai de" e "Entra em"** — dizer "Conta"
+duas vezes esconderia exatamente o que a pessoa precisa conferir. Não pede
+categoria, porque transferência não tem. E a mesma conta dos dois lados é
+tratada como contradição, não como "não entendi": a frase é repetida de volta
+para a pessoa ver o que disse.
+
 **Confirmada move as duas contas; prevista não move nada.** É a mesma regra do
 lançamento: previsto é intenção, e intenção não move dinheiro. O destino do
 formulário já começa na segunda conta, para o formulário nunca nascer num

@@ -3755,7 +3755,7 @@
    * de receber, o app entendia "paguei" mas não "recebi", e toda entrada
    * nascia prevista. `\b` em recebi para "recebimento" (substantivo, que
    * costuma vir seguido de "previsto") não entrar como passado. */
-  var PASSADO = /\bpaguei\b|\bpago\b|quitei|\bgastei\b|\bcomprei\b|ja foi|debitado|creditado|\bpix\b|\bdebito\b|confirmad|\brecebi\b|\bcaiu\b|\bentrou\b|\bganhei\b|depositaram|me pagaram|\bveio\b/;
+  var PASSADO = /\bpaguei\b|\bpago\b|quitei|\bgastei\b|\bcomprei\b|ja foi|debitado|creditado|\bpix\b|\bdebito\b|confirmad|\brecebi\b|\bcaiu\b|\bentrou\b|\bganhei\b|depositaram|me pagaram|\bveio\b|\btransferi\b|transferido|transferida/;
   var FUTURO = /previst|agendad|vai vencer|vai sair|vai cair|vai entrar|\ba pagar\b|\ba receber\b|pagarei|vou pagar|sera pago|receberei|vou receber|vao me pagar|sera creditado|sera depositado|vou gastar|gastarei|vou comprar|comprarei|vou quitar|quitarei|vamos gastar|vamos comprar/;
   /* Entrada de dinheiro. Vale no passado e no futuro: quem diz "recebi" e quem
    * diz "vou receber" descrevem a mesma receita — muda a situação, não o tipo.
@@ -3866,6 +3866,52 @@
    * nome não bate na lista dela, tenta o vínculo entre os dois: o cartão que é
    * pago por aquela conta, ou a conta que paga aquele cartão. Com um só
    * cadastrado, dizer a forma já basta. */
+  /** Palavras que dizem "isto é uma transferência". Sem uma delas, "de X para
+   * Y" não basta: "paguei a conta de luz para o Itaú" tem a mesma forma e é
+   * uma despesa. */
+  var TRANSFERENCIA = /transferenc|transferir|transferi\b|transfiro|transferido|transferida/;
+
+  /** As contas citadas, NA ORDEM em que aparecem na frase — é a ordem que diz
+   * quem é origem e quem é destino: a primeira é de onde sai, a segunda é
+   * onde entra. "Da conta Nubank para Inter" não tem outra leitura.
+   *
+   * Duas passadas, como em `acharPorNome`: primeiro os nomes inteiros, que
+   * são a evidência forte; depois palavras de 4+ letras do nome, para quem
+   * cadastrou "Banco do Brasil Conta Corrente" e diz só "Brasil". A segunda
+   * passada ignora palavras que a própria frase usa como estrutura (conta,
+   * banco, para, dinheiro), senão "da CONTA Nubank" casaria com qualquer
+   * conta cujo nome tenha a palavra "conta". */
+  var PALAVRAS_DE_ESTRUTURA = ["conta", "contas", "banco", "para", "dinheiro", "valor", "saldo", "corrente"];
+  function contasNaOrdemDaFala(texto) {
+    var contas = state.accounts.filter(function (a) { return a.isActive !== false; });
+    var achados = [];
+    var jaTem = function (id) { return achados.some(function (x) { return x.conta.id === id; }); };
+
+    contas.forEach(function (a) {
+      var nome = normalizarFala(a.nome);
+      if (!nome) return;
+      // TODAS as ocorrências, não só a primeira: quem diz "do Nubank para o
+      // Nubank" disse a mesma conta duas vezes, e o app precisa poder dizer
+      // isso em vez de fingir que não entendeu a segunda.
+      for (var i = texto.indexOf(nome); i >= 0; i = texto.indexOf(nome, i + nome.length)) {
+        achados.push({ conta: a, posicao: i, forte: true });
+      }
+    });
+    contas.forEach(function (a) {
+      if (jaTem(a.id)) return;
+      var melhor = -1;
+      normalizarFala(a.nome).split(/\s+/).forEach(function (palavra) {
+        if (palavra.length < 4 || PALAVRAS_DE_ESTRUTURA.indexOf(palavra) >= 0) return;
+        var i = texto.indexOf(palavra);
+        if (i >= 0 && (melhor < 0 || i < melhor)) melhor = i;
+      });
+      if (melhor >= 0) achados.push({ conta: a, posicao: melhor, forte: false });
+    });
+
+    return achados.sort(function (x, y) { return x.posicao - y.posicao; })
+      .map(function (x) { return x.conta; });
+  }
+
   function destinoDaFala(texto) {
     var contasAtivas = state.accounts.filter(function (a) { return a.isActive; });
     var cartao = acharPorNome(state.cards, texto);
@@ -3894,11 +3940,46 @@
   /** Interpreta a frase ditada e devolve o lançamento que ela descreve, mais a
    * lista do que faltou. Nunca lança sozinho: o que sai daqui vai para a tela
    * de conferência e para o formulário. */
+  /** A frase disse "transferência". Daqui em diante a leitura é outra: duas
+   * contas na ordem em que foram ditas, valor, data e situação. Sem categoria
+   * — transferência não tem, e cobrá-la aqui seria pedir o que não existe. */
+  function transferenciaDaFala(texto, frase, r) {
+    r.transferencia = true;
+    r.tipo = "TRANSFER";
+    r.categoriaId = null;
+    r.contaId = null;
+    r.cartaoId = null;
+    r.faltando = [];
+
+    r.valor = valorDaFala(texto);
+    if (!r.valor) r.faltando.push("valor");
+
+    var contas = contasNaOrdemDaFala(texto);
+    r.deId = contas[0] ? contas[0].id : null;
+    r.paraId = contas[1] ? contas[1].id : null;
+    if (!r.deId) r.faltando.push("conta de origem");
+    if (!r.paraId) r.faltando.push("conta de destino");
+
+    var hoje = dataDeHoje();
+    r.data = dataDaFala(texto, hoje) || isoDate(hoje);
+    if (PASSADO.test(texto)) r.confirmada = true;
+    if (FUTURO.test(texto)) r.confirmada = false;
+    if (r.data > isoDate(hoje)) r.confirmada = false;
+
+    var mDescT = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
+    if (mDescT) r.desc = mDescT[1].trim().slice(0, 60);
+    return r;
+  }
+
   function interpretarFala(frase) {
     var texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
     var r = { frase: frase, tipo: "EXPENSE", valor: null, categoriaId: null, contaId: null,
       cartaoId: null, faturaMes: null, data: null, confirmada: false, desc: "", faltando: [] };
     if (!texto) { r.faltando = ["valor", "destino", "categoria"]; return r; }
+
+    // Transferência é outro tipo de lançamento, e sai por outro caminho: não
+    // tem categoria, não tem cartão, e o que importa é a ORDEM das contas.
+    if (TRANSFERENCIA.test(texto)) return transferenciaDaFala(texto, frase, r);
 
     if (ENTRADA.test(texto)) r.tipo = "INCOME";
     if (/despesa|gastei|paguei|comprei|pagamento de|gasto/.test(texto) && !ENTRADA.test(texto)) r.tipo = "EXPENSE";
@@ -3958,6 +4039,22 @@
   /** Frase do resultado, para o usuário conferir antes de lançar. */
   function resumoDaFala(r) {
     var linhas = [];
+    // Transferência tem outro resumo porque é outra coisa: não há categoria
+    // para mostrar nem fatura para escolher, e as duas contas têm papéis
+    // diferentes — dizer "Conta" duas vezes esconderia justamente o que a
+    // pessoa precisa conferir, que é a direção.
+    if (r.transferencia) {
+      var nomeDa = function (id) { var c = id ? byId(state.accounts, id) : null; return c ? c.nome : null; };
+      var de = nomeDa(r.deId), para = nomeDa(r.paraId);
+      var temConta = state.accounts.some(function (a) { return a.isActive !== false; });
+      linhas.push({ rotulo: "Tipo", valor: "Transferência", ok: true });
+      linhas.push({ rotulo: "Valor", valor: r.valor ? brl(r.valor) : "não identificado", ok: !!r.valor });
+      linhas.push({ rotulo: "Sai de", valor: de || (temConta ? "não identificada" : "nada cadastrado ainda"), ok: !!de });
+      linhas.push({ rotulo: "Entra em", valor: para || (temConta ? "não identificada" : "nada cadastrado ainda"), ok: !!para });
+      linhas.push({ rotulo: "Data", valor: fmtDataBR(r.data), ok: true });
+      linhas.push({ rotulo: "Situação", valor: r.confirmada ? "Confirmada" : "Prevista", ok: true });
+      return linhas;
+    }
     linhas.push({ rotulo: "Tipo", valor: r.tipo === "INCOME" ? "Receita" : "Despesa", ok: true });
     linhas.push({ rotulo: "Valor", valor: r.valor ? brl(r.valor) : "não identificado", ok: !!r.valor });
     var destino = r.cartaoId ? (byId(state.cards, r.cartaoId) || {}).nome
@@ -6735,7 +6832,11 @@
     }).join("");
     // Faltando algo, o caminho não é travar: é abrir o formulário com o que deu
     // para entender e deixar o usuário completar.
-    var completo = !falaAtual.faltando.length;
+    // A mesma conta dos dois lados não é "faltando", é contraditório — e sem
+    // isto o botão de lançar ficaria ativo para um pedido que o servidor
+    // recusa.
+    var completo = !falaAtual.faltando.length &&
+      !(falaAtual.transferencia && falaAtual.deId && falaAtual.deId === falaAtual.paraId);
     document.getElementById("voz-lancar").disabled = !completo;
     document.getElementById("voz-revisar").disabled = false;
     document.getElementById("voz-erro").textContent = completo ? "" : recadoDoQueFaltou(falaAtual);
@@ -6746,6 +6847,24 @@
    * comparar, o recado precisa dizer isso — senão parece que o microfone
    * entendeu errado, e a pessoa repete a frase mais devagar sem sucesso. */
   function recadoDoQueFaltou(r) {
+    if (r.transferencia) {
+      var ativas = state.accounts.filter(function (a) { return a.isActive !== false; });
+      if (ativas.length < 2) {
+        return "Transferência precisa de duas contas, e você tem " + (ativas.length === 1 ? "uma" : "nenhuma") +
+          ". Cadastre outra na tela de Contas.";
+      }
+      if (r.deId && r.deId === r.paraId) {
+        return "Você disse a mesma conta duas vezes. Diga de qual sai e para qual vai, nessa ordem.";
+      }
+      if (!r.deId && !r.paraId) {
+        return "Não achei nenhuma das contas. Diga os nomes como estão cadastrados: primeiro de onde sai, depois para onde vai.";
+      }
+      if (!r.paraId) {
+        return "Entendi de qual conta sai, mas não para qual vai. A segunda conta dita é a que recebe.";
+      }
+      if (!r.deId) return "Não achei a conta de origem. A primeira conta dita é a que paga.";
+      return "Faltou " + r.faltando.join(", ") + ". Complete no formulário ou diga de novo.";
+    }
     var semDestino = !state.accounts.some(function (a) { return a.isActive; }) && !state.cards.length;
     var semCategoria = !categoriasLancaveis(r.tipo).length;
     var tipo = r.tipo === "INCOME" ? "receita" : "despesa";
@@ -6970,6 +7089,7 @@
   document.getElementById("voz-revisar").addEventListener("click", function () {
     if (!falaAtual) return;
     fechar("dlg-voz");
+    if (falaAtual.transferencia) { abrirTransferencia({ daFala: falaAtual }); return; }
     abrirLancamento(opcoesDaFala(falaAtual));
   });
 
@@ -6977,6 +7097,7 @@
     if (!falaAtual || falaAtual.faltando.length) return;
     if (bloqueado()) return;
     var r = falaAtual;
+    if (r.transferencia) { await lancarTransferenciaDaFala(r); return; }
     if (MODO_API) {
       var corpoVoz = {
         type: r.tipo, amount: r.valor, categoryId: r.categoriaId,
@@ -7522,15 +7643,19 @@
     document.getElementById("tr-titulo").textContent = tr ? "Editar transferência" : "Nova transferência";
     document.getElementById("tr-submit").textContent = tr ? "Salvar" : "Transferir";
     document.getElementById("tr-erro").textContent = "";
-    document.getElementById("tr-valor").value = tr ? tr.valor : "";
-    document.getElementById("tr-desc").value = tr ? tr.desc : "";
+    // Vindo do ditado, o formulário abre com o que a frase deu — inclusive
+    // incompleto. É o caminho de quem disse quase tudo e prefere terminar na
+    // mão a repetir a frase inteira.
+    var f = opcoes.daFala || null;
+    document.getElementById("tr-valor").value = tr ? tr.valor : (f && f.valor ? f.valor : "");
+    document.getElementById("tr-desc").value = tr ? tr.desc : (f ? f.desc || "" : "");
     calTransferencia.fechar();
-    calTransferencia.definir(tr ? tr.data : isoDate(dataDeHoje()), true);
-    preencherSelect(document.getElementById("tr-origem"), contas, tr ? tr.deId : contas[0].id);
+    calTransferencia.definir(tr ? tr.data : (f && f.data ? f.data : isoDate(dataDeHoje())), true);
+    preencherSelect(document.getElementById("tr-origem"), contas, tr ? tr.deId : ((f && f.deId) || contas[0].id));
     // O destino começa na SEGUNDA conta: começando na mesma, o primeiro
     // formulário que a pessoa vê já está num estado inválido.
-    preencherSelect(document.getElementById("tr-destino"), contas, tr ? tr.paraId : contas[1].id);
-    document.getElementById("tr-confirmado").checked = tr ? !!tr.confirmada : true;
+    preencherSelect(document.getElementById("tr-destino"), contas, tr ? tr.paraId : ((f && f.paraId) || contas[1].id));
+    document.getElementById("tr-confirmado").checked = tr ? !!tr.confirmada : (f ? !!f.confirmada : true);
     abrir("dlg-transferencia");
   }
 
@@ -7594,6 +7719,35 @@
     }
     persist(); renderAll(); fechar("dlg-transferencia");
   });
+
+  /** A transferência ditada vai pelo mesmo caminho da que é digitada: mesma
+   * fila offline, mesma chave de idempotência, mesmo efeito em saldo. O que
+   * muda é só de onde vieram os valores. */
+  async function lancarTransferenciaDaFala(r) {
+    var corpo = {
+      fromAccountId: r.deId, toAccountId: r.paraId, amount: r.valor,
+      transferDate: r.data, isConfirmed: r.confirmada,
+      description: r.desc || undefined
+    };
+    if (MODO_API) {
+      corpo.clientKey = uid("tr") + "-" + Date.now();
+      if (!navigator.onLine) {
+        enfileirar(corpo, "transferencia");
+        fechar("dlg-voz");
+        avisar("Transferência guardada", "Ela sobe sozinha quando a conexão voltar.");
+        return;
+      }
+      var ok = await comServidor("transferir", function () { return api("/transfers", corpo); });
+      if (!ok) return;
+      fechar("dlg-voz");
+      return;
+    }
+    var nova = { id: uid("tr"), valor: r.valor, data: r.data, deId: r.deId, paraId: r.paraId,
+      desc: r.desc || "", confirmada: r.confirmada };
+    state.transferencias.push(nova);
+    aplicarEfeitoTransferencia(nova, 1);
+    persist(); renderAll(); fechar("dlg-voz");
+  }
 
   /** Confirmar e desfazer pela linha, sem abrir a edição. No servidor é o
    * mesmo PATCH que a edição usa: ele é quem sabe desfazer o efeito antigo e
