@@ -289,7 +289,11 @@
   /* Empilhado, quem escolhe vem antes de quem é escolhido: filtro antes da
    * lista, cartão antes da fatura dele. */
   @media (max-width: 767px) {
-    .split--extrato .rail, .split--cartoes .rail { order: -1; }
+    /* Planejamento entra aqui pelo mesmo motivo, com outra palavra: o trilho
+     * não escolhe nada, mas carrega a RESPOSTA — quanto do teto já foi
+     * gasto. A lista por categoria é o detalhamento dela, e detalhe vem
+     * depois. */
+    .split--extrato .rail, .split--cartoes .rail, .split--planejamento .rail { order: -1; }
   }
 
   .lbl { font-size: 10px; font-weight: 400; color: var(--fg-subtle); text-transform: uppercase; letter-spacing: 0.16em; }
@@ -300,6 +304,11 @@
   .v-head h1 { font-size: 17px; font-weight: 600; margin: 0; }
   .v-head .sub { font-size: 12px; color: var(--fg-subtle); margin-top: 4px; }
   .v-cta { display: flex; }
+  /* Fileira de botões DENTRO de um bloco. Não é `.v-cta`: aquela é a vaga do
+   * botão no grid da tela, e no desktop vem com `align-self: center` para
+   * sentar ao lado do título — reusada aqui, ela centrava os botões no meio
+   * da coluna (medido: 444px de margem numa coluna de 862). */
+  .acoes-linha { display: flex; gap: 8px; flex-wrap: wrap; }
 
   /* ---------- herói ---------- */
   .hero-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -311,6 +320,13 @@
   .up { color: var(--positive); }
   .down { color: var(--negative); }
   .hero-ctx { font-size: 12px; color: var(--fg-subtle); }
+  /* Porcentagem ao lado do número grande. Não é `.delta`: aquele vem com
+   * seta de subiu/desceu, e aqui subir não é boa notícia nem má — é o quanto
+   * do teto foi usado. Quem dá o recado é a cor. */
+  .hero-pct { font-size: 13px; color: var(--fg-muted); }
+  .hero-pct.warn { color: var(--seg-aviso-tinta); }
+  .hero-pct.caro { color: var(--seg-despesa-tinta); }
+  .row-val.caro { color: var(--seg-despesa-tinta); }
 
   /* ---------- sparkline ---------- */
   .spark { width: 100%; height: 56px; display: block; }
@@ -608,6 +624,14 @@
   .bar > i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--fg); transition: width 200ms ease-out; }
   .bar > i.accent { background: var(--accent); }
   .bar > i.warn { background: var(--bar-aviso); }
+  /* Meta estourada. Esta barra está SEMPRE cheia — "caro" só acontece acima
+   * de 100%, e a largura é limitada a 100% —, então não existe trilho visível
+   * ao lado dela para comparar: quem a delimita é a página. Medido contra a
+   * página: 7,10:1 no escuro e 5,92:1 no claro. (Contra o trilho ela daria
+   * 2,02:1 no escuro, e isso não é defeito: é um par que o olho nunca vê.)
+   * `--seg-despesa-tinta` e não `--negative` para acompanhar a célula de
+   * despesa, que no tema claro usa o vermelho um passo mais escuro. */
+  .bar > i.caro { background: var(--seg-despesa-tinta); }
 
   /* ---------- faixa de meses (resultado mês a mês) ----------
    * Sem card: as colunas se separam por hairline vertical, do mesmo jeito que
@@ -933,6 +957,35 @@
     .list--objetivos .row-acoes .icon-btn::after { inset: -7px -5px; }
   }
   .row--concluido .row-name { color: var(--fg-muted); }
+
+  /* ---------- linha de meta do planejamento ----------
+   * Mesma anatomia da linha de objetivo: nome, meta em texto, barra. A barra
+   * ganha um terceiro estado além de cheio/vazio — a meta pode ser
+   * ULTRAPASSADA, e aí ela deixa de ser "quanto já andei" para ser "o quanto
+   * passei". A cor diz qual dos dois. */
+  .list--planejamento .row-main { gap: 5px; }
+  .list--planejamento .bar { display: block; width: 100%; max-width: 320px; }
+  @media (max-width: 767px) {
+    .list--planejamento .row-meta { white-space: normal; overflow: visible; }
+  }
+
+  /* A lista de metas dentro da camada: caixa de marcar à esquerda, valor à
+   * direita. O valor é campo de formulário, não texto, então a linha não é
+   * clicável e o alvo de toque é o próprio campo. */
+  .list--metas .row { align-items: flex-start; gap: 10px; }
+  .list--metas .row-main { gap: 4px; }
+  .list--metas .meta-valor {
+    width: 124px; flex-shrink: 0; text-align: right;
+    font-family: inherit; font-size: 13px; padding: 8px 10px;
+    background: none; color: var(--fg);
+    border: 1px solid var(--controle-borda); border-radius: var(--r-sm);
+  }
+  .list--metas .meta-valor:focus { outline: none; border-color: var(--accent); }
+  .list--metas .meta-valor:disabled { color: var(--fg-subtle); border-color: var(--hairline-strong); }
+  /* Em iOS, campo com menos de 16px faz a página dar zoom ao receber foco. */
+  @media (max-width: 767px) {
+    .list--metas .meta-valor { font-size: 16px; width: 112px; }
+  }
 
   /* ---------- toque em largura de desktop ----------
    * Tablet entra pelo shell de desktop (>=768) e ali o halo de 44px estava
@@ -1347,18 +1400,28 @@
   /* ---------- barra inferior (seção 10) ---------- */
   .tabbar {
     position: fixed; left: 0; right: 0; bottom: 0; height: 56px; z-index: 5;
-    /* `minmax(0, 1fr)`, não `1fr`: o atalho significa `minmax(auto, 1fr)`, e
-     * `auto` deixa a coluna CRESCER além da sua fatia para caber o rótulo.
-     * Com seis abas em 375px a soma dava 388 e a última ficava cortada pela
-     * borda da tela — e com cinco já cortava em 320. O zero no mínimo prende
-     * cada aba à sua fatia; quem cede é o texto, logo abaixo. */
-    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+    /* `minmax(44px, 1fr)`: a fatia de cada aba é elástica, mas nunca menor que
+     * o alvo de toque. O mínimo era 0 — o atalho `1fr` significa
+     * `minmax(auto, 1fr)` e deixava a coluna CRESCER além da fatia para caber
+     * o rótulo, o que cortava a última aba na borda da tela. Zero resolveu
+     * aquilo e criou outro: com oito telas, 320px dariam 40px por aba, abaixo
+     * dos 44 que o dedo precisa. Agora quem cede é a BARRA, que rola na
+     * horizontal quando as abas não cabem — mesma saída da faixa de meses, e
+     * a única que não esconde aba nem encolhe alvo. Em 375px as oito cabem
+     * (46,8px cada) e não há rolagem nenhuma. */
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(44px, 1fr);
+    overflow-x: auto; overscroll-behavior-x: contain;
     background: var(--bg); border-top: 1px solid var(--hairline);
     /* A barra encosta no fundo do aparelho; a área segura entra como altura
      * extra para os ícones não ficarem sob a barra de gestos. */
     height: calc(56px + env(safe-area-inset-bottom, 0px));
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* Sem barra de rolagem desenhada: ela cairia por cima dos rótulos, que
+     * já estão no limite de altura. A barra é navegação, não conteúdo — quem
+     * rola aqui rola com o dedo, e a aba cortada na borda é o próprio convite. */
+    scrollbar-width: none;
   }
+  .tabbar::-webkit-scrollbar { display: none; }
   .tab {
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
     background: none; border: none; border-top: 2px solid transparent;
@@ -1505,6 +1568,13 @@
        * e nota de rodapé não abre a página. */
       .split--objetivos { grid-template-columns: minmax(0, 1fr); }
       .split--objetivos > .rail { border-left: none; padding-left: 0; }
+      /* Planejamento pela mesma régua: a linha da meta é alta (nome, frase e
+       * barra) e não cabe em coluna estreita. Aqui o trilho sobe para a
+       * FRENTE, ao contrário do de Objetivos: ele carrega o número do mês —
+       * quanto já foi gasto do teto —, que é a resposta que a pessoa veio
+       * buscar; a lista por categoria é o detalhamento dela. */
+      .split--planejamento { grid-template-columns: minmax(0, 1fr); }
+      .split--planejamento > .rail { border-left: none; padding-left: 0; order: -1; }
       .view[data-view="pendencias"] .split--par { grid-template-columns: minmax(0, 1fr); }
       /* Em coluna única o trilho não divide nada: o filete e o recuo sairiam
        * indentando a segunda seção sem nada do lado. */
@@ -1675,6 +1745,10 @@
     <button class="nav-item" type="button" data-goto="objetivos" data-ordem-id="objetivos">
       <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>
       <span>Objetivos</span>
+    </button>
+    <button class="nav-item" type="button" data-goto="planejamento" data-ordem-id="planejamento">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 3.5v8.5h8.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Planejamento</span>
     </button>
 
     <div class="nav-bottom">
@@ -2213,6 +2287,101 @@
         </aside>
       </div>
     </section>
+
+    <!-- Planejamento: o teto de gasto do mês, repartido por categoria, e o
+         quanto dele já foi usado. O gasto é recontado aqui a cada desenho,
+         pela MESMA data de relatório do resto do app (compra ou vencimento da
+         fatura) — o planejamento guarda só a intenção. -->
+    <section class="view" data-view="planejamento">
+      <div class="blk v-head" style="--i:0"><h1>Planejamento</h1><div class="sub" id="pl-sub"></div></div>
+      <div class="blk v-cta" style="--i:0">
+        <div class="month-nav">
+          <button class="icon-btn" type="button" id="pl-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <span class="month-label num" id="pl-mes-label"></span>
+          <button class="icon-btn" type="button" id="pl-mes-prox" aria-label="Próximo mês"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="pill" type="button" id="pl-hoje">Mês atual</button>
+        </div>
+      </div>
+
+      <!-- Mês sem planejamento. Dois caminhos, e o de copiar vem junto porque
+           quem já planejou um mês raramente quer começar do zero no seguinte. -->
+      <div class="blk" id="pl-vazio" style="--i:1" hidden>
+        <div class="lbl">Nada planejado</div>
+        <div class="field-help" id="pl-vazio-texto"></div>
+        <div class="acoes-linha">
+          <button class="ghost" type="button" id="pl-criar">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+            Criar planejamento
+          </button>
+          <button class="ghost" type="button" id="pl-copiar">Copiar de outro mês</button>
+        </div>
+      </div>
+
+      <div class="split split--planejamento" id="pl-corpo" hidden>
+        <div class="col-main">
+          <div class="blk" style="--i:1">
+            <div class="lbl-row"><div class="lbl">O que conta como gasto</div></div>
+            <div class="pills" id="pl-filtros">
+              <button class="pill" type="button" data-filtro="previsto">Previsto</button>
+              <button class="pill" type="button" data-filtro="cartao">Gastos no cartão</button>
+              <button class="pill" type="button" data-filtro="ocultas">Contas ocultas</button>
+            </div>
+            <div class="field-help" id="pl-filtros-ajuda"></div>
+          </div>
+
+          <div class="blk" style="--i:2">
+            <div class="lbl-row"><div class="lbl">Metas por categoria</div><div class="lbl-total num" id="pl-metas-total"></div></div>
+            <div class="list list--planejamento" id="pl-lista"></div>
+          </div>
+        </div>
+
+        <aside class="rail">
+          <div class="rail-fixo">
+          <div class="blk" style="--i:3">
+            <div class="lbl">Do planejamento do mês</div>
+            <div class="hero-line">
+              <div class="hero-num num" id="pl-gasto"></div>
+              <div class="hero-pct num" id="pl-pct"></div>
+            </div>
+            <div class="bar"><i id="pl-barra" style="width:0%"></i></div>
+            <div class="hero-ctx" id="pl-ctx"></div>
+          </div>
+
+          <div class="blk" style="--i:4">
+            <div class="lbl">No mês, de verdade</div>
+            <div class="seg seg--1">
+              <div class="seg-cell seg-cell--receita">
+                <div class="lbl">Receitas</div>
+                <div class="seg-val num" id="pl-receitas"></div>
+                <div class="seg-meta" id="pl-receitas-meta"></div>
+              </div>
+              <div class="seg-cell seg-cell--despesa">
+                <div class="lbl">Despesas</div>
+                <div class="seg-val num" id="pl-despesas"></div>
+                <div class="seg-meta">o mesmo gasto que as metas acima medem</div>
+              </div>
+              <div class="seg-cell">
+                <div class="lbl">Balanço</div>
+                <div class="seg-val num" id="pl-balanco"></div>
+                <div class="seg-meta">receitas menos despesas</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="blk" style="--i:5">
+            <div class="acoes-linha">
+              <button class="ghost" type="button" id="pl-editar">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M14.5 5.5 18.5 9.5M4 20l1-4L15.5 5.5a2 2 0 0 1 2.9 0l.1.1a2 2 0 0 1 0 2.9L8 19l-4 1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>
+                Editar
+              </button>
+              <button class="ghost danger" type="button" id="pl-remover">Remover</button>
+            </div>
+          </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
   </main>
 
   <nav class="tabbar" id="tabbar">
@@ -2243,6 +2412,10 @@
     <button class="tab" type="button" data-goto="objetivos" data-ordem-id="objetivos">
       <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>
       <span>Objetivos</span>
+    </button>
+    <button class="tab" type="button" data-goto="planejamento" data-ordem-id="planejamento">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 3.5v8.5h8.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Planejamento</span>
     </button>
   </nav>
 
@@ -2423,6 +2596,63 @@
     </div>
     <div class="layer-foot">
       <button type="submit" class="primary" id="tr-submit">Transferir</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-planejamento">
+  <form id="form-planejamento">
+    <div class="layer-head"><h3 id="pf-titulo">Novo planejamento</h3><div class="ctx" id="pf-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+
+    <!-- Passo 1: os dois números que mandam no resto. -->
+    <div class="layer-body" id="pf-passo-1">
+      <div class="field"><label class="lbl" for="pf-receita">Receita esperada no mês</label><input id="pf-receita" type="number" step="0.01" min="0" placeholder="0,00">
+        <div class="field-help">Quanto você espera receber. Não precisa bater com o que já está lançado — serve de referência para o teto abaixo.</div>
+      </div>
+      <div class="field"><label class="lbl" for="pf-total">Quanto quer gastar no mês</label><input id="pf-total" type="number" step="0.01" min="0" required placeholder="0,00"></div>
+      <div class="field">
+        <div class="bar"><i id="pf-barra" style="width:0%"></i></div>
+        <div class="field-help" id="pf-sugestao"></div>
+      </div>
+      <div class="field-error" id="pf-erro-1"></div>
+    </div>
+
+    <!-- Passo 2: repartir o teto. -->
+    <div class="layer-body" id="pf-passo-2" hidden>
+      <div class="seg">
+        <div class="seg-cell">
+          <div class="lbl">Teto do mês</div>
+          <div class="seg-val num" id="pf-teto"></div>
+        </div>
+        <div class="seg-cell">
+          <div class="lbl">Ainda por repartir</div>
+          <div class="seg-val num" id="pf-sobra"></div>
+          <div class="seg-meta">vira a meta de "outras categorias"</div>
+        </div>
+      </div>
+      <div class="field-help">Marque as categorias que quer acompanhar de perto e diga quanto pretende gastar em cada uma. O que não for repartido continua valendo como teto: ele vira a meta de tudo que ficou de fora.</div>
+      <div class="list list--metas" id="pf-categorias"></div>
+      <div class="field-error" id="pf-erro-2"></div>
+    </div>
+
+    <div class="layer-foot">
+      <button type="button" class="ghost esquerda" id="pf-voltar" hidden>Voltar</button>
+      <button type="button" class="primary" id="pf-proximo">Próximo</button>
+      <button type="submit" class="primary" id="pf-salvar" hidden>Salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-planejamento-copiar">
+  <form id="form-planejamento-copiar">
+    <div class="layer-head"><h3>Copiar planejamento</h3><div class="ctx" id="pc-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <div class="layer-body">
+      <div class="field"><label class="lbl" for="pc-mes">Copiar de</label><select id="pc-mes"></select></div>
+      <div class="field-help">Vem tudo: a receita esperada, o teto do mês e as metas de cada categoria. Depois é só ajustar o que mudou.</div>
+      <div class="field-error" id="pc-erro"></div>
+    </div>
+    <div class="layer-foot">
+      <button type="submit" class="primary" id="pc-submit">Copiar</button>
     </div>
   </form>
 </dialog>
@@ -2753,6 +2983,9 @@
       // aplicar e resgatar não são receita nem despesa, e nenhum relatório
       // percorre esta lista.
       objetivos: [],
+      // Planejamento também tem lista própria: ele é intenção, e intenção não
+      // é lançamento. Nenhum relatório percorre esta lista.
+      planejamentos: [],
       accounts: [
         { id: "a1", nome: "Nubank", tipo: "CHECKING", saldo: 4312.90, saldoInicial: 500.00, cor: "#A98CF0", isActive: true, oculto: false },
         { id: "a2", nome: "Itaú", tipo: "SAVINGS", saldo: 18760.45, saldoInicial: 19370.45, cor: "#F0946E", isActive: true, oculto: false },
@@ -2795,6 +3028,7 @@
   // guardado — sem isto, a primeira tela a percorrê-la quebraria.
   if (!Array.isArray(state.transferencias)) state.transferencias = [];
   if (!Array.isArray(state.objetivos)) state.objetivos = [];
+  if (!Array.isArray(state.planejamentos)) state.planejamentos = [];
   (state.objetivos || []).forEach(function (o) { if (!Array.isArray(o.movimentos)) o.movimentos = []; });
   (state.cards || []).forEach(function (k) { if (!k.pagamentos) k.pagamentos = []; });
   (state.accounts || []).forEach(function (a) {
@@ -4628,7 +4862,8 @@
       api("/credit-cards?includeInactive=true"),
       api("/transactions?includeHidden=true"),
       api("/transfers"),
-      api("/goals")
+      api("/goals"),
+      api("/budgets")
     ]);
     state.accounts = partes[0].map(contaDaApi);
     state.categories = partes[1].map(categoriaDaApi);
@@ -4636,6 +4871,7 @@
     state.transactions = partes[3].map(lancamentoDaApi);
     state.transferencias = partes[4].map(transferenciaDaApi);
     state.objetivos = partes[5].map(objetivoDaApi);
+    state.planejamentos = partes[6].map(planejamentoDaApi);
     var pagamentos = await Promise.all(state.cards.map(function (k) {
       return api("/credit-cards/" + k.id + "/payments");
     }));
@@ -6577,7 +6813,7 @@
       // Todo caminho que muda dado termina aqui: é o ponto certo para esquecer o
       // que foi lembrado sobre as pendências.
       pendenciasLembradas = null;
-      renderResumo(); renderTelaPendencias(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderObjetivos(); renderPerfil();
+      renderResumo(); renderTelaPendencias(); renderExtrato(); renderCartoes(); renderCategorias(); renderContas(); renderObjetivos(); renderPlanejamento(); renderPerfil();
       atualizarBannerDaFila();
       // A camada do dia fica aberta enquanto o usuário confirma, edita ou exclui
       // a partir dela, então precisa refletir a mudança na hora.
@@ -8105,6 +8341,592 @@
     });
   }
 
+  /* ================= planejamento mensal =================
+   * O teto de gasto do mês, repartido por categoria, e o quanto dele já foi
+   * usado.
+   *
+   * O que está GRAVADO é só a intenção: receita esperada, teto do mês e meta
+   * de cada categoria. O realizado é recontado aqui a cada desenho, pela
+   * mesma `dataDeRelatorio` do resto do app — então trocar a configuração de
+   * exibição de relatório (por compra ou por vencimento da fatura) muda este
+   * acompanhamento junto, como deve. Gravar o realizado seria gravar a
+   * resposta de ontem.
+   *
+   * A pai e a filha: quando a pai tem meta, a meta da filha está DENTRO dela.
+   * É detalhe de como a pai se reparte, não dinheiro a mais — e a mesma regra
+   * vale para o gasto, onde o gasto da filha soma no da pai. */
+  var CHAVE_PLAN_FILTROS = "gestor-plan-filtros";
+  var filtrosDoPlano = { previsto: true, cartao: true, ocultas: false };
+  try {
+    var guardadoPlan = JSON.parse(localStorage.getItem(CHAVE_PLAN_FILTROS) || "null");
+    if (guardadoPlan) {
+      filtrosDoPlano = {
+        previsto: !!guardadoPlan.previsto,
+        cartao: !!guardadoPlan.cartao,
+        ocultas: !!guardadoPlan.ocultas
+      };
+    }
+  } catch (e) {}
+  var planMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
+
+  function planejamentoDaApi(b) {
+    return {
+      mes: b.month,
+      receita: Number(b.income || 0),
+      total: Number(b.total || 0),
+      itens: (b.items || []).map(function (i) {
+        return { categoriaId: i.categoryId, valor: Number(i.amount), somaFilhas: !!i.fromChildren };
+      })
+    };
+  }
+  function planejamentoDoMes(mk) {
+    return (state.planejamentos || []).filter(function (p) { return p.mes === mk; })[0] || null;
+  }
+  function itemDoPlano(pl, catId) {
+    if (!pl) return null;
+    return pl.itens.filter(function (i) { return i.categoriaId === catId; })[0] || null;
+  }
+  function temMeta(pl, catId) { return !!itemDoPlano(pl, catId); }
+
+  /** Soma das metas das filhas de uma categoria dentro deste plano. */
+  function somaDasFilhasDoPlano(pl, catId) {
+    return filhasDe(catId).reduce(function (s, f) {
+      var i = itemDoPlano(pl, f.id);
+      return s + (i ? i.valor : 0);
+    }, 0);
+  }
+
+  /** Quanto do teto já está prometido. Cada galho conta UMA vez: a meta da
+   * filha só entra quando a pai dela não tem meta, senão o mesmo dinheiro
+   * contaria duas vezes e o teto caberia menos do que diz. */
+  function comprometidoDoPlano(pl) {
+    if (!pl) return 0;
+    return pl.itens.reduce(function (s, i) {
+      var c = byId(state.categories, i.categoriaId);
+      if (c && c.paiId && temMeta(pl, c.paiId)) return s;
+      return s + i.valor;
+    }, 0);
+  }
+  /** O que sobra do teto é a meta implícita de "outras categorias". */
+  function sobraDoPlano(pl) {
+    return pl ? Math.max(0, pl.total - comprometidoDoPlano(pl)) : 0;
+  }
+
+  /* ---------- o que conta como gasto ---------- */
+  /** Pagamento de fatura nunca entra: ele é a fatura saindo da conta, e as
+   * compras que a formaram já contaram. Mesma regra do mapa de calor. */
+  function gastoEntraNoPlano(t, f) {
+    if (t.tipo !== "EXPENSE" || t.pagamentoFaturaCartaoId) return false;
+    if (!f.previsto && !t.confirmada) return false;
+    if (!f.cartao && t.cartaoId) return false;
+    if (!f.ocultas && !transacaoVisivel(t)) return false;
+    return true;
+  }
+  function receitaEntraNoPlano(t, f) {
+    if (t.tipo !== "INCOME") return false;
+    if (!f.previsto && !t.confirmada) return false;
+    if (!f.cartao && t.cartaoId) return false;
+    if (!f.ocultas && !transacaoVisivel(t)) return false;
+    return true;
+  }
+  /** Os lançamentos que caem neste mês pela data de RELATÓRIO — a mesma que
+   * o resto do app usa, e por isso o planejamento acompanha a configuração
+   * de compra x vencimento da fatura sem regra própria. */
+  function lancamentosDoPlano(vm, f) {
+    var mk = monthKey(vm);
+    return state.transactions.filter(function (t) { return dataDeRelatorio(t).slice(0, 7) === mk; });
+  }
+  /** Gasto DIRETO de cada categoria, sem herdar o das filhas. */
+  function gastoPorCategoriaDoPlano(vm, f) {
+    var acc = { "": 0 };
+    lancamentosDoPlano(vm, f).forEach(function (t) {
+      if (!gastoEntraNoPlano(t, f)) return;
+      var k = t.categoriaId || "";
+      acc[k] = (acc[k] || 0) + t.valor;
+    });
+    return acc;
+  }
+  /** O gasto de uma categoria inclui o das filhas: a árvore tem um nível só,
+   * então somar as diretas basta. */
+  function gastoComFilhas(acc, catId) {
+    return filhasDe(catId).reduce(function (s, f) { return s + (acc[f.id] || 0); }, acc[catId] || 0);
+  }
+  function totalGastoDoPlano(acc) {
+    return Object.keys(acc).reduce(function (s, k) { return s + acc[k]; }, 0);
+  }
+  function receitasDoPlanoNoMes(vm, f) {
+    return lancamentosDoPlano(vm, f).reduce(function (s, t) {
+      return receitaEntraNoPlano(t, f) ? s + t.valor : s;
+    }, 0);
+  }
+
+  /** O estado da barra de uma meta. Três, não dois: cheio e vazio não dizem
+   * que a meta foi ULTRAPASSADA, que é o caso que a pessoa precisa ver. */
+  function nivelDaMeta(gasto, meta) {
+    if (meta <= 0) return gasto > 0 ? "caro" : "accent";
+    var pct = gasto / meta;
+    if (pct > 1) return "caro";
+    if (pct >= 0.8) return "warn";
+    return "accent";
+  }
+  function pctDaMeta(gasto, meta) {
+    if (meta > 0) return Math.round((gasto / meta) * 100);
+    return gasto > 0 ? 100 : 0;
+  }
+
+  /**
+   * As linhas da tela, na ordem em que são desenhadas: cada categoria com
+   * meta, a filha logo abaixo da pai, e "outras categorias" no fim.
+   *
+   * "Outras categorias" fecha a conta: é o resto do teto contra o resto do
+   * gasto. Sem ela, a soma das linhas não bateria com o total do mês e a
+   * tela estaria escondendo dinheiro.
+   */
+  function linhasDoPlanejamento(vm, f) {
+    var pl = planejamentoDoMes(monthKey(vm));
+    if (!pl) return [];
+    var acc = gastoPorCategoriaDoPlano(vm, f);
+    var linhas = [];
+    var gastoDosGalhos = 0;
+
+    function linha(c, filha) {
+      var item = itemDoPlano(pl, c.id);
+      var meta = item ? item.valor : 0;
+      var gasto = gastoComFilhas(acc, c.id);
+      linhas.push({
+        id: c.id, nome: c.nome, cor: c.cor, filha: !!filha,
+        meta: meta, gasto: gasto, resta: meta - gasto,
+        pct: pctDaMeta(gasto, meta), nivel: nivelDaMeta(gasto, meta),
+        somaFilhas: !!(item && item.somaFilhas)
+      });
+    }
+
+    raizesDe("EXPENSE").forEach(function (raiz) {
+      var filhasComMeta = filhasDe(raiz.id).filter(function (c) { return temMeta(pl, c.id); });
+      if (!temMeta(pl, raiz.id) && !filhasComMeta.length) return;
+      if (temMeta(pl, raiz.id)) {
+        linha(raiz, false);
+        gastoDosGalhos += gastoComFilhas(acc, raiz.id);
+      }
+      filhasComMeta.forEach(function (c) {
+        linha(c, temMeta(pl, raiz.id));
+        // Com meta na pai, o gasto da filha já entrou pelo galho dela.
+        if (!temMeta(pl, raiz.id)) gastoDosGalhos += gastoComFilhas(acc, c.id);
+      });
+    });
+
+    var sobra = sobraDoPlano(pl);
+    var resto = Math.max(0, totalGastoDoPlano(acc) - gastoDosGalhos);
+    linhas.push({
+      id: null, nome: "Outras categorias", cor: null, filha: false, outras: true,
+      meta: sobra, gasto: resto, resta: sobra - resto,
+      pct: pctDaMeta(resto, sobra), nivel: nivelDaMeta(resto, sobra)
+    });
+    return linhas;
+  }
+
+  /* ---------- render ---------- */
+  function textoDosFiltrosDoPlano() {
+    var partes = [];
+    partes.push(filtrosDoPlano.previsto ? "confirmado e previsto" : "só o confirmado");
+    partes.push(filtrosDoPlano.cartao ? "com gastos no cartão" : "sem gastos no cartão");
+    if (filtrosDoPlano.ocultas) partes.push("incluindo contas ocultas");
+    var regime = relatorioPor === "compra"
+      ? "Compra no cartão conta no mês da compra"
+      : "Compra no cartão conta no mês em que a fatura vence";
+    return "Contando " + partes.join(", ") + ". " + regime + " — é a configuração de exibição de relatório, em Perfil.";
+  }
+
+  function renderPlanejamento() {
+    var mk = monthKey(planMes);
+    var pl = planejamentoDoMes(mk);
+    document.getElementById("pl-mes-label").textContent = rotuloMes(planMes);
+    document.getElementById("pl-vazio").hidden = !!pl;
+    document.getElementById("pl-corpo").hidden = !pl;
+    document.getElementById("pl-sub").textContent = pl
+      ? "Teto de " + brl(pl.total) + " para " + rotuloMes(planMes).toLowerCase()
+      : "Nenhum teto definido para " + rotuloMes(planMes).toLowerCase();
+
+    document.querySelectorAll("#pl-filtros .pill").forEach(function (b) {
+      var ligado = !!filtrosDoPlano[b.dataset.filtro];
+      b.classList.toggle("on", ligado);
+      b.setAttribute("aria-pressed", ligado ? "true" : "false");
+    });
+    document.getElementById("pl-filtros-ajuda").textContent = textoDosFiltrosDoPlano();
+
+    if (!pl) {
+      var outros = (state.planejamentos || []).length;
+      document.getElementById("pl-vazio-texto").textContent = outros
+        ? "Defina quanto quer gastar em " + rotuloMes(planMes).toLowerCase() +
+          " e a tela passa a acompanhar o quanto disso já foi usado. Dá para começar do zero ou copiar de um mês que você já planejou."
+        : "Defina quanto quer gastar no mês e reparta esse teto entre as categorias que quer acompanhar de perto. A partir daí a tela mostra o quanto de cada meta já foi usado.";
+      document.getElementById("pl-copiar").hidden = !outros;
+      // A lista some junto: escondida ela não aparece, mas deixar as linhas do
+      // mês anterior ali faz elas piscarem no próximo desenho.
+      document.getElementById("pl-lista").innerHTML = "";
+      return;
+    }
+
+    var acc = gastoPorCategoriaDoPlano(planMes, filtrosDoPlano);
+    var gasto = totalGastoDoPlano(acc);
+    var receitas = receitasDoPlanoNoMes(planMes, filtrosDoPlano);
+    var pct = pctDaMeta(gasto, pl.total);
+    var nivel = nivelDaMeta(gasto, pl.total);
+
+    document.getElementById("pl-gasto").innerHTML = heroNum(gasto);
+    var elPct = document.getElementById("pl-pct");
+    elPct.textContent = pct + "%";
+    elPct.className = "hero-pct num" + (nivel === "accent" ? "" : " " + nivel);
+    var barra = document.getElementById("pl-barra");
+    barra.style.width = Math.min(100, pct) + "%";
+    barra.className = nivel;
+    document.getElementById("pl-ctx").textContent = pl.total <= 0
+      ? "Nenhum teto definido para o mês."
+      : (gasto <= pl.total
+        ? "de " + brl(pl.total) + " planejados · ainda cabem " + brl(pl.total - gasto)
+        : "de " + brl(pl.total) + " planejados · passou " + brl(gasto - pl.total));
+
+    document.getElementById("pl-receitas").textContent = brl(receitas);
+    document.getElementById("pl-receitas-meta").textContent = pl.receita > 0
+      ? "você esperava " + brl(pl.receita)
+      : "nenhuma receita esperada informada";
+    document.getElementById("pl-despesas").textContent = brl(gasto);
+    document.getElementById("pl-balanco").textContent = brl(receitas - gasto);
+
+    var linhas = linhasDoPlanejamento(planMes, filtrosDoPlano);
+    document.getElementById("pl-metas-total").textContent =
+      brl(comprometidoDoPlano(pl)) + " repartidos";
+    document.getElementById("pl-lista").innerHTML = linhas.map(linhaDoPlanejamentoHTML).join("");
+  }
+
+  function linhaDoPlanejamentoHTML(l) {
+    var passou = l.resta < 0;
+    return '<div class="row' + (l.filha ? " row--filha" : "") + '">' +
+      '<span class="row-main">' +
+      '<span class="row-title">' +
+      (l.cor ? '<span class="dot" style="background:' + l.cor + '"></span>' : "") +
+      '<span class="row-name">' + esc(l.nome) + '</span>' +
+      (l.somaFilhas ? '<span class="tag">soma das filhas</span>' : "") + '</span>' +
+      '<span class="row-meta">' + l.pct + '% da meta de ' + brl(l.meta) + ' · ' +
+      (passou ? "passou " + brl(-l.resta) : "ainda cabem " + brl(l.resta)) + '</span>' +
+      '<span class="bar"><i class="' + l.nivel + '" style="width:' + Math.min(100, l.pct) + '%"></i></span>' +
+      '</span>' +
+      '<span class="row-val num' + (passou ? " caro" : "") + '">' + money(l.gasto) + '</span>' +
+      '</div>';
+  }
+
+  /* ---------- navegação de mês ---------- */
+  /** `passoMes` muda o mês NO LUGAR e não devolve nada — passar o retorno
+   * dele adiante zera o mês visível e o desenho morre no meio, deixando a
+   * tela com os números do mês anterior. Foi o que aconteceu aqui. */
+  function andarNoPlano(delta) {
+    passoMes(planMes, delta);
+    renderPlanejamento();
+  }
+  document.getElementById("pl-mes-ant").addEventListener("click", function () { andarNoPlano(-1); });
+  document.getElementById("pl-mes-prox").addEventListener("click", function () { andarNoPlano(1); });
+  document.getElementById("pl-hoje").addEventListener("click", function () {
+    planMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
+    renderPlanejamento();
+  });
+  document.getElementById("pl-filtros").addEventListener("click", function (e) {
+    var b = e.target.closest(".pill");
+    if (!b) return;
+    filtrosDoPlano[b.dataset.filtro] = !filtrosDoPlano[b.dataset.filtro];
+    try { localStorage.setItem(CHAVE_PLAN_FILTROS, JSON.stringify(filtrosDoPlano)); } catch (err) {}
+    renderPlanejamento();
+  });
+
+  /* ---------- criar e editar ---------- */
+  var metasEmEdicao = {};   // { categoriaId: { ligada, valor, somaFilhas } }
+  var editandoPlanejamento = null;
+
+  function abrirPlanejamento(editar) {
+    var mk = monthKey(planMes);
+    var pl = editar ? planejamentoDoMes(mk) : null;
+    editandoPlanejamento = pl ? mk : null;
+
+    document.getElementById("pf-titulo").textContent = pl ? "Editar planejamento" : "Novo planejamento";
+    document.getElementById("pf-ctx").textContent = rotuloMes(planMes);
+    document.getElementById("pf-receita").value = pl && pl.receita ? pl.receita : "";
+    document.getElementById("pf-total").value = pl ? pl.total : "";
+    document.getElementById("pf-erro-1").textContent = "";
+    document.getElementById("pf-erro-2").textContent = "";
+
+    metasEmEdicao = {};
+    state.categories.forEach(function (c) {
+      if (c.tipo !== "EXPENSE") return;
+      var i = pl ? itemDoPlano(pl, c.id) : null;
+      metasEmEdicao[c.id] = {
+        ligada: !!i,
+        valor: i ? i.valor : 0,
+        somaFilhas: !!(i && i.somaFilhas)
+      };
+    });
+
+    passoDoPlanejamento(1);
+    atualizarSugestaoDoPlano();
+    abrir("dlg-planejamento");
+  }
+
+  function passoDoPlanejamento(n) {
+    document.getElementById("pf-passo-1").hidden = n !== 1;
+    document.getElementById("pf-passo-2").hidden = n === 1;
+    document.getElementById("pf-voltar").hidden = n === 1;
+    document.getElementById("pf-proximo").hidden = n !== 1;
+    document.getElementById("pf-salvar").hidden = n === 1;
+    document.getElementById("dlg-planejamento").scrollTop = 0;
+  }
+
+  /** A barra do passo 1 compara o teto com a receita esperada. Os 80% não são
+   * trava: são a conta que a pessoa provavelmente não fez. */
+  function atualizarSugestaoDoPlano() {
+    var receita = parseFloat(document.getElementById("pf-receita").value) || 0;
+    var total = parseFloat(document.getElementById("pf-total").value) || 0;
+    var pct = receita > 0 ? Math.round((total / receita) * 100) : 0;
+    var barra = document.getElementById("pf-barra");
+    barra.style.width = Math.min(100, pct) + "%";
+    barra.className = receita > 0 ? (pct > 100 ? "caro" : (pct > 80 ? "warn" : "accent")) : "accent";
+    var el = document.getElementById("pf-sugestao");
+    if (receita <= 0) {
+      el.textContent = "Sugerimos que o gasto do mês não passe de 80% do que entra. Informe a receita esperada para ver a conta.";
+      return;
+    }
+    if (total <= 0) { el.textContent = "80% de " + brl(receita) + " seriam " + brl(receita * 0.8) + "."; return; }
+    el.textContent = pct > 100
+      ? "São " + pct + "% da sua receita: você planejou gastar mais do que espera receber."
+      : (pct > 80
+        ? "São " + pct + "% da sua receita. Sugerimos não passar de 80% — " + brl(receita * 0.8) + "."
+        : "São " + pct + "% da sua receita, dentro dos 80% que sugerimos. Sobrariam " + brl(receita - total) + ".");
+  }
+  ["pf-receita", "pf-total"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", atualizarSugestaoDoPlano);
+  });
+
+  function tetoDoFormulario() { return parseFloat(document.getElementById("pf-total").value) || 0; }
+
+  /** Recalcula as pais marcadas como "soma das filhas". Fica aqui, e não no
+   * desenho, porque a conta tem que valer também na hora de salvar. */
+  function aplicarSomaDasFilhasNoFormulario() {
+    Object.keys(metasEmEdicao).forEach(function (id) {
+      var m = metasEmEdicao[id];
+      if (!m.somaFilhas) return;
+      m.valor = filhasDe(id).reduce(function (s, f) {
+        var mf = metasEmEdicao[f.id];
+        return s + (mf && mf.ligada ? mf.valor : 0);
+      }, 0);
+    });
+  }
+  function comprometidoDoFormulario() {
+    aplicarSomaDasFilhasNoFormulario();
+    return Object.keys(metasEmEdicao).reduce(function (s, id) {
+      var m = metasEmEdicao[id];
+      if (!m.ligada) return s;
+      var c = byId(state.categories, id);
+      var pai = c && c.paiId ? metasEmEdicao[c.paiId] : null;
+      if (pai && pai.ligada) return s;      // já contada dentro da pai
+      return s + m.valor;
+    }, 0);
+  }
+
+  function renderMetasDoFormulario() {
+    var teto = tetoDoFormulario();
+    var usado = comprometidoDoFormulario();
+    document.getElementById("pf-teto").textContent = brl(teto);
+    var sobra = document.getElementById("pf-sobra");
+    sobra.textContent = brl(teto - usado);
+    sobra.classList.toggle("vazio", teto - usado === 0);
+    sobra.style.color = usado > teto ? "var(--seg-despesa-tinta)" : "";
+
+    var html = "";
+    raizesDe("EXPENSE").forEach(function (raiz) {
+      html += linhaDeMetaHTML(raiz, false);
+      filhasDe(raiz.id).forEach(function (f) { html += linhaDeMetaHTML(f, true); });
+    });
+    document.getElementById("pf-categorias").innerHTML =
+      html || '<div class="empty">Nenhuma categoria de despesa cadastrada.</div>';
+  }
+
+  function linhaDeMetaHTML(c, filha) {
+    var m = metasEmEdicao[c.id] || { ligada: false, valor: 0, somaFilhas: false };
+    var comFilhas = !filha && temFilhas(c.id);
+    var travado = m.somaFilhas && comFilhas;
+    return '<div class="row' + (filha ? " row--filha" : "") + '">' +
+      '<span class="row-main">' +
+      '<label class="check"><input type="checkbox" data-meta-ligada="' + c.id + '"' + (m.ligada ? " checked" : "") + '>' +
+      '<span class="dot" style="background:' + c.cor + '"></span>' +
+      '<span class="row-name">' + esc(c.nome) + '</span></label>' +
+      (comFilhas
+        ? '<label class="check"><input type="checkbox" data-meta-soma="' + c.id + '"' +
+          (m.somaFilhas ? " checked" : "") + (m.ligada ? "" : " disabled") + '>' +
+          '<span class="row-meta">Usar total das subcategorias</span></label>'
+        : "") +
+      '</span>' +
+      '<input class="meta-valor num" type="number" step="0.01" min="0" data-meta-valor="' + c.id + '"' +
+      ' value="' + (m.ligada && m.valor ? m.valor : "") + '" placeholder="0,00"' +
+      (m.ligada && !travado ? "" : " disabled") + '>' +
+      '</div>';
+  }
+
+  document.getElementById("pf-categorias").addEventListener("change", function (e) {
+    var el = e.target;
+    if (el.dataset.metaLigada) {
+      var m = metasEmEdicao[el.dataset.metaLigada];
+      m.ligada = el.checked;
+      if (!m.ligada) { m.valor = 0; m.somaFilhas = false; }
+      renderMetasDoFormulario();
+      return;
+    }
+    if (el.dataset.metaSoma) {
+      metasEmEdicao[el.dataset.metaSoma].somaFilhas = el.checked;
+      renderMetasDoFormulario();
+    }
+  });
+  document.getElementById("pf-categorias").addEventListener("input", function (e) {
+    var el = e.target;
+    if (!el.dataset.metaValor) return;
+    metasEmEdicao[el.dataset.metaValor].valor = parseFloat(el.value) || 0;
+    // Só os números do topo são redesenhados: refazer a lista aqui tiraria o
+    // foco do campo no meio da digitação.
+    var teto = tetoDoFormulario();
+    var usado = comprometidoDoFormulario();
+    document.getElementById("pf-sobra").textContent = brl(teto - usado);
+    document.getElementById("pf-sobra").style.color = usado > teto ? "var(--seg-despesa-tinta)" : "";
+    Object.keys(metasEmEdicao).forEach(function (id) {
+      if (!metasEmEdicao[id].somaFilhas) return;
+      var campo = document.querySelector('[data-meta-valor="' + id + '"]');
+      if (campo && campo !== el) campo.value = metasEmEdicao[id].valor || "";
+    });
+  });
+
+  document.getElementById("pf-proximo").addEventListener("click", function () {
+    var erro = document.getElementById("pf-erro-1");
+    var total = parseFloat(document.getElementById("pf-total").value);
+    if (!total || total <= 0) { erro.textContent = "Informe quanto você quer gastar no mês."; return; }
+    erro.textContent = "";
+    renderMetasDoFormulario();
+    passoDoPlanejamento(2);
+  });
+  document.getElementById("pf-voltar").addEventListener("click", function () { passoDoPlanejamento(1); });
+
+  document.getElementById("form-planejamento").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var erro = document.getElementById("pf-erro-2");
+    var total = tetoDoFormulario();
+    var usado = comprometidoDoFormulario();
+    if (usado > total + 0.001) {
+      erro.textContent = "As metas somam " + brl(usado) + " e o teto do mês é " + brl(total) +
+        ". Aumente o teto ou diminua alguma meta.";
+      return;
+    }
+    erro.textContent = "";
+
+    var itens = Object.keys(metasEmEdicao)
+      .filter(function (id) { return metasEmEdicao[id].ligada; })
+      .map(function (id) {
+        return { categoryId: id, amount: metasEmEdicao[id].valor, fromChildren: metasEmEdicao[id].somaFilhas };
+      });
+    var corpo = {
+      income: parseFloat(document.getElementById("pf-receita").value) || 0,
+      total: total,
+      items: itens
+    };
+    var mk = monthKey(planMes);
+
+    if (MODO_API) {
+      var ok = await comServidor(editandoPlanejamento ? "salvar o planejamento" : "criar o planejamento", function () {
+        return api("/budgets/" + mk, corpo, "PUT");
+      });
+      if (!ok) return;
+      editandoPlanejamento = null;
+      fechar("dlg-planejamento");
+      return;
+    }
+
+    gravarPlanejamentoLocal(mk, corpo);
+    editandoPlanejamento = null;
+    fechar("dlg-planejamento");
+  });
+
+  /** Só no modo sem servidor. */
+  function gravarPlanejamentoLocal(mk, corpo) {
+    state.planejamentos = (state.planejamentos || []).filter(function (p) { return p.mes !== mk; });
+    state.planejamentos.push({
+      mes: mk, receita: corpo.income, total: corpo.total,
+      itens: corpo.items.map(function (i) {
+        return { categoriaId: i.categoryId, valor: i.amount, somaFilhas: !!i.fromChildren };
+      })
+    });
+    state.planejamentos.sort(function (a, b) { return a.mes < b.mes ? 1 : -1; });
+    persist(); renderAll();
+  }
+
+  document.getElementById("pl-criar").addEventListener("click", function () {
+    if (bloqueado()) return;
+    abrirPlanejamento(false);
+  });
+  document.getElementById("pl-editar").addEventListener("click", function () { abrirPlanejamento(true); });
+
+  document.getElementById("pl-remover").addEventListener("click", function () {
+    var mk = monthKey(planMes);
+    var pl = planejamentoDoMes(mk);
+    if (!pl) return;
+    pedirConfirmacao({
+      titulo: "Remover planejamento",
+      ctx: rotuloMes(planMes) + " · teto de " + brl(pl.total),
+      detalhe: "As metas deste mês são apagadas. Nenhum lançamento muda — o planejamento só olhava para eles.",
+      acao: "Remover", destrutivo: true
+    }, async function () {
+      if (MODO_API) {
+        await comServidor("remover o planejamento", function () { return api("/budgets/" + mk, null, "DELETE"); });
+        return;
+      }
+      state.planejamentos = (state.planejamentos || []).filter(function (p) { return p.mes !== mk; });
+      persist(); renderAll();
+    });
+  });
+
+  /* ---------- copiar de outro mês ---------- */
+  document.getElementById("pl-copiar").addEventListener("click", function () {
+    if (bloqueado()) return;
+    var mk = monthKey(planMes);
+    var outros = (state.planejamentos || []).filter(function (p) { return p.mes !== mk; });
+    if (!outros.length) {
+      avisar("Nada para copiar", "Você ainda não tem planejamento em nenhum outro mês.");
+      return;
+    }
+    document.getElementById("pc-ctx").textContent = "para " + rotuloMes(planMes);
+    document.getElementById("pc-erro").textContent = "";
+    preencherSelect(document.getElementById("pc-mes"), outros.map(function (p) {
+      return { id: p.mes, nome: rotuloMes(parseMonthKey(p.mes)) + " · " + brl(p.total) };
+    }), outros[0].mes);
+    abrir("dlg-planejamento-copiar");
+  });
+
+  document.getElementById("form-planejamento-copiar").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var de = document.getElementById("pc-mes").value;
+    var mk = monthKey(planMes);
+    var origem = planejamentoDoMes(de);
+    if (!origem) { document.getElementById("pc-erro").textContent = "Esse mês não tem planejamento."; return; }
+
+    if (MODO_API) {
+      var ok = await comServidor("copiar o planejamento", function () {
+        return api("/budgets/" + mk + "/copy", { fromMonth: de });
+      });
+      if (!ok) return;
+      fechar("dlg-planejamento-copiar");
+      return;
+    }
+    gravarPlanejamentoLocal(mk, {
+      income: origem.receita, total: origem.total,
+      items: origem.itens.map(function (i) {
+        return { categoryId: i.categoriaId, amount: i.valor, fromChildren: i.somaFilhas };
+      })
+    });
+    fechar("dlg-planejamento-copiar");
+  });
+
   /* ================= objetivos de poupança ================= */
   var calObjetivoInicio = montarCalendario(document.getElementById("obj-inicio-cal"), {});
   var calObjetivoPrazo = montarCalendario(document.getElementById("obj-prazo-cal"), {});
@@ -9214,11 +10036,11 @@
    * uso, não dado financeiro. Não vai para o servidor — nenhum campo novo,
    * nenhuma migração, e funciona offline e no modo demonstração. */
   var CHAVE_MENU = "gestor-menu-ordem";
-  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas", "objetivos"];
+  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas", "objetivos", "planejamento"];
   var MENU_NOME = {
     resumo: "Resumo", fluxo: "Fluxo de caixa", lancamentos: "Extrato",
     cartoes: "Cartões", categorias: "Categorias", contas: "Contas",
-    objetivos: "Objetivos"
+    objetivos: "Objetivos", planejamento: "Planejamento"
   };
   var ordemDoMenu = MENU_PADRAO.slice();
 
@@ -9252,6 +10074,9 @@
       var aba = abas && abas.querySelector('.tab[data-goto="' + id + '"]');
       if (aba) abas.appendChild(aba);
     });
+    // Reordenar move a aba acesa de lugar; com a barra rolando, ela pode ter
+    // ido parar fora da vista no meio do gesto.
+    if (typeof mostrarAbaAtiva === "function") mostrarAbaAtiva();
   }
 
   /** Um caminho só para trocar a ordem — a tela e o teste usam este. */
@@ -9300,15 +10125,30 @@
    * ficaria sem saber de onde veio. */
   var TELA_PAI = { pendencias: "resumo" };
 
+  /** Com a barra de baixo rolando (ver `.tabbar`), a aba acesa pode estar
+   * fora da vista: numa tela de 320 as oito não cabem, e abrir a última pelo
+   * menu deixava a barra parada no começo, sem nada marcado à vista. Isto
+   * traz a aba acesa para dentro, pelo caminho mais curto. */
+  function mostrarAbaAtiva() {
+    var barra = document.getElementById("tabbar");
+    var aba = barra.querySelector(".tab.on");
+    if (!aba || barra.scrollWidth <= barra.clientWidth) return;
+    var esq = aba.offsetLeft, dir = esq + aba.offsetWidth;
+    if (esq < barra.scrollLeft) barra.scrollLeft = esq;
+    else if (dir > barra.scrollLeft + barra.clientWidth) barra.scrollLeft = dir - barra.clientWidth;
+  }
+
   function irPara(view) {
     var aba = TELA_PAI[view] || view;
     document.querySelectorAll(".view").forEach(function (v) { v.classList.toggle("on", v.dataset.view === view); });
     document.querySelectorAll("[data-goto]").forEach(function (b) { b.classList.toggle("on", b.dataset.goto === aba); });
+    mostrarAbaAtiva();
     if (view === "resumo") renderResumo();
     if (view === "pendencias") renderTelaPendencias();
     // O relatório é buscado no servidor: só vale a pena pedir quando a tela
     // de fato abre, e não a cada `renderAll` de qualquer outra mudança.
     if (view === "fluxo") renderFluxo();
+    if (view === "planejamento") renderPlanejamento();
     window.scrollTo(0, 0);
   }
   document.querySelectorAll("[data-goto]").forEach(function (b) {

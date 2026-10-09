@@ -1443,6 +1443,109 @@ lançamento: previsto é intenção, e intenção não move dinheiro. O destino 
 formulário já começa na segunda conta, para o formulário nunca nascer num
 estado inválido.
 
+### Planejamento guarda intenção; o realizado é recontado
+
+O que fica gravado é só o que a pessoa **decidiu**: quanto espera receber,
+quanto se permite gastar, e o teto de cada categoria. Quanto já foi gasto
+**não é gravado** — é recontado a cada desenho, sobre os lançamentos.
+
+Não é economia de campo. O gasto depende da **configuração de exibição de
+relatório** (compra no cartão conta no mês da compra, ou no mês em que a
+fatura vence), que é escolha do aparelho e muda sem avisar o servidor.
+Gravá-lo seria gravar a resposta de ontem para uma pergunta que muda a cada
+lançamento novo — e a cada troca daquela configuração.
+
+Por isso a tela usa a mesma `dataDeRelatorio` do resto do app, e não uma
+regra própria: trocar o modo em Perfil muda o acompanhamento junto. Medido no
+mês de exemplo: por fatura, R$ 3.821,80; por compra, R$ 3.571,80 — a diferença
+é uma compra de setembro que caiu na fatura que vence em outubro.
+
+O **pagamento de fatura nunca conta**, nos dois modos: ele é a fatura saindo
+da conta, e as compras que a formaram já contaram. Mesma regra do mapa de
+calor.
+
+### A meta da filha está DENTRO da meta da pai
+
+Quando a pai tem meta, a meta da filha é **detalhe de como a pai se reparte**,
+não dinheiro a mais. Somar as duas contaria o mesmo dinheiro duas vezes e o
+teto do mês passaria a caber menos do que diz.
+
+Daí saem três contas que andam juntas:
+
+- **Comprometido**: cada galho conta uma vez. A meta da filha só entra quando
+  a pai dela não tem meta.
+- **Gasto**: ao contrário, aqui a filha SOMA na pai — o gasto da filha é gasto
+  da pai. Alimentação com Supermercado e Restaurante mostra os três valores, e
+  o da pai é a soma dos outros dois.
+- **"Usar total das subcategorias"**: a meta da pai vira a soma das filhas e
+  se recalcula sozinha. O recálculo mora no serviço, não na tela, porque tem
+  que valer também ao **copiar de outro mês** — senão a pai levaria um número
+  velho para o mês novo.
+
+**As partes nunca somam mais que o todo.** Repartir mais que o teto é recusado,
+pelo app e pelo servidor, com os dois números na mensagem. Sem essa trava, a
+sobra de "outras categorias" ficaria negativa, e o todo não cabe dentro das
+partes.
+
+### "Outras categorias" fecha a conta
+
+É a última linha, e é o resto contra o resto: o que sobrou do teto contra o que
+foi gasto fora dos galhos planejados. Sem ela, a soma das linhas não bateria
+com o total do mês e a tela estaria escondendo dinheiro.
+
+Vem no fim porque é o resto — resto vem depois das partes que a pessoa escolheu
+acompanhar.
+
+### A barra da meta tem três estados, não dois
+
+Cheio e vazio não dizem que a meta foi **ultrapassada**, que é justamente o
+caso que a pessoa precisa ver.
+
+| Estado | Quando | Cor |
+|---|---|---|
+| no rumo | abaixo de 80% | `--accent` |
+| chegando | de 80% a 100% | `--bar-aviso` |
+| passou | acima de 100% | `--seg-despesa-tinta` |
+
+A barra de "passou" está **sempre cheia** — a largura é limitada a 100% —, e
+por isso não existe trilho visível ao lado dela: quem a delimita é a página.
+Medido contra a página, 7,10:1 no escuro e 5,92:1 no claro. Contra o trilho ela
+daria 2,02:1 no escuro, e isso não é defeito: é um par que o olho nunca vê. As
+outras duas, que podem aparecer parciais, são medidas contra o trilho —
+`accent` 3,84 / 3,03 e `warn` 3,29 / 3,27.
+
+A porcentagem no texto **não é limitada**: a barra para em 100%, a frase diz
+140%. Barra é proporção, e proporção não passa do fim; número é número.
+
+### Os três filtros dizem o que conta como gasto
+
+*Previsto* (ligado), *gastos no cartão* (ligado) e *contas ocultas*
+(desligado) — os mesmos recortes que o resto do app já faz, reunidos onde a
+pergunta é "quanto já gastei". Ficam no aparelho, como a configuração de
+relatório, e a frase embaixo deles diz em palavras o que está sendo contado,
+incluindo o modo de data vigente. Sem essa frase, dois aparelhos do mesmo
+usuário mostrariam números diferentes sem explicação à vista.
+
+### A barra de baixo rola quando as abas não cabem
+
+Com oito telas, 320px dariam 40px por aba — abaixo dos 44 que o dedo precisa.
+A fatia passou a ser `minmax(44px, 1fr)` e a barra rola na horizontal: em 375px
+as oito cabem (46,8px cada) e não há rolagem; em 320 cada uma fica nos 44
+exatos e a barra anda.
+
+É a saída que não esconde aba nem encolhe alvo — a mesma da faixa de meses. A
+barra de rolagem é escondida (ela cairia sobre os rótulos, que já estão no
+limite de altura), e **a aba acesa é trazida para a vista** a cada troca de
+tela e a cada reordenação: sem isso, abrir a última tela pelo menu deixava a
+barra parada no começo, sem nada marcado à vista.
+
+### `.v-cta` é vaga no grid, não fileira de botões
+
+No desktop `.v-cta` vem com `align-self: center; justify-self: end` para o
+botão sentar ao lado do título da tela. Reusada DENTRO de um bloco, aquele
+`align-self` centrava a fileira no meio da coluna — medido, 444px de margem
+numa coluna de 862. Fileira de botões dentro de bloco usa `.acoes-linha`.
+
 ### Objetivo de poupança: dois dinheiros diferentes
 
 Um objetivo guarda dinheiro de duas origens, e tratá-las igual quebra o saldo
@@ -1844,6 +1947,7 @@ Alvo de toque mínimo cai de 44px para **32px** em ponteiro fino — nunca menos
 | Detalhe de categoria | `.split` — barras e evolução à esquerda; lançamentos no `.rail` |
 | Fluxo de caixa | `.split` a partir de **1280** — KPIs, gráfico de doze meses e categorias à esquerda; previsto e insights no `.rail`. Abaixo de 1280, coluna única |
 | Objetivos | `.split` a partir de **1280** — objetivos em andamento e concluídos à esquerda; de onde vem o guardado no `.rail`. Abaixo de 1280, coluna única, com o trilho DEPOIS da lista |
+| Planejamento | `.split` a partir de **1280** — filtros e metas por categoria à esquerda; quanto do teto já foi gasto, totais do mês e ações no `.rail`. Abaixo de 1280, coluna única, com o trilho ANTES da lista |
 | Nova transação | camada de 480px sobre a tela anterior |
 
 A coluna principal é a do **conteúdo longo**, não a do que vem primeiro na
@@ -1857,7 +1961,9 @@ Empilhado, a ordem se inverte: quem **escolhe** vem antes de quem é escolhido
 
 Mas só quem escolhe. O trilho de Objetivos não escolhe nada — ele explica de
 onde vem o dinheiro guardado —, então empilhado ele fica **depois** da lista:
-nota de rodapé não abre a página.
+nota de rodapé não abre a página. O de Planejamento também não escolhe, e
+mesmo assim fica **antes**: ele carrega a resposta que a pessoa veio buscar —
+quanto do teto já foi gasto —, e a lista por categoria é o detalhamento dela.
 
 Em 768px, Objetivos sem esse corte dava uma coluna principal de **254px** contra
 um trilho de 320: todos os 5 nomes e as 10 metas cortados, "Notebook novo" em

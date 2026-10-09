@@ -115,6 +115,8 @@ model User {
   transfers           Transfer[]
   goals               Goal[]
   goalMovements       GoalMovement[]
+  budgets             Budget[]
+  budgetItems         BudgetItem[]
   creditCards         CreditCard[]
   whatsappMessages    WhatsappMessageLog[]
   subscription        Subscription?
@@ -331,6 +333,7 @@ model Category {
   parent       Category?     @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
   children     Category[]    @relation("CategoryTree")
   transactions Transaction[]
+  budgetItems  BudgetItem[]
 
   // Nome único entre IRMÃS (mesmo pai, mesmo tipo), sem diferenciar
   // maiúsculas e acentos — conferido no service. "Moradia > Luz" e
@@ -443,6 +446,62 @@ model Transfer {
   @@index([fromAccountId])
   @@index([toAccountId])
   @@map("transfers")
+}
+
+/// Planejamento de um mês: quanto a pessoa espera receber, quanto se permite
+/// gastar, e o teto de cada categoria.
+///
+/// Guarda só a INTENÇÃO. O quanto já foi gasto não mora aqui: ele é recontado
+/// na leitura, a partir dos lançamentos e da configuração de exibição de
+/// relatório (por data de compra ou por vencimento da fatura), que é escolha
+/// do aparelho. Gravar o realizado seria gravar a resposta de ontem para uma
+/// pergunta que muda a cada lançamento novo — e a cada troca daquela
+/// configuração.
+model Budget {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  /// "AAAA-MM". Mês é o grão do planejamento, então o mês é a chave.
+  month     String   @db.VarChar(7)
+  /// Receita que a pessoa ESPERA no mês. Não é a receita lançada — serve de
+  /// referência para a sugestão dos 80% e para a tela comparar as duas.
+  income    Decimal  @default(0) @db.Decimal(14, 2)
+  /// Teto de gasto do mês inteiro. As metas por categoria são repartição
+  /// dele, nunca soma por cima.
+  total     Decimal  @db.Decimal(14, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items BudgetItem[]
+
+  @@unique([userId, month])
+  @@index([userId])
+  @@map("budgets")
+}
+
+/// Meta de uma categoria dentro de um planejamento.
+model BudgetItem {
+  id         String  @id @default(uuid())
+  userId     String  @map("user_id")
+  budgetId   String  @map("budget_id")
+  categoryId String  @map("category_id")
+  amount     Decimal @db.Decimal(14, 2)
+  /// "Usar total das subcategorias": a meta do pai é a soma das filhas e se
+  /// recalcula sozinha quando uma filha muda. O valor fica gravado mesmo
+  /// assim — quem lê a lista não precisa refazer a conta, e desmarcar a opção
+  /// deixa o número de partida certo.
+  fromChildren Boolean @default(false) @map("from_children")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budget   Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetId, categoryId])
+  @@index([userId])
+  @@index([categoryId])
+  @@map("budget_items")
 }
 
 enum GoalMovementType {
