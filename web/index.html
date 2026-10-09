@@ -972,6 +972,21 @@
   /* A lista de metas dentro da camada: caixa de marcar à esquerda, valor à
    * direita. O valor é campo de formulário, não texto, então a linha não é
    * clicável e o alvo de toque é o próprio campo. */
+  /* A ÚNICA lista do app que rola dentro da camada, e a exceção tem motivo:
+   * ela é a única cujo tamanho não é escolhido pelo app — é uma linha por
+   * categoria de despesa, e isso não tem teto. Com 20 categorias a camada
+   * ficava 673px mais alta que a tela e o "Salvar" só aparecia depois de
+   * rolar tudo. Com a lista limitada, o teto do mês e o que falta repartir
+   * ficam à vista em cima e os botões embaixo, que é onde a conta é feita.
+   * Em tela alta cabem mais linhas; o piso de 200px impede a lista virar uma
+   * fresta numa janela baixa. */
+  .list--metas {
+    max-height: max(200px, calc(100vh - 430px));
+    overflow-y: auto; overscroll-behavior-y: contain;
+    /* Calha para o polegar da rolagem: sem ela ele cai por cima do campo de
+     * valor, que é justamente o que está encostado na borda direita. */
+    padding-right: 12px;
+  }
   .list--metas .row { align-items: flex-start; gap: 10px; }
   .list--metas .row-main { gap: 4px; }
   .list--metas .meta-valor {
@@ -982,9 +997,15 @@
   }
   .list--metas .meta-valor:focus { outline: none; border-color: var(--accent); }
   .list--metas .meta-valor:disabled { color: var(--fg-subtle); border-color: var(--hairline-strong); }
-  /* Em iOS, campo com menos de 16px faz a página dar zoom ao receber foco. */
+  /* Em iOS, campo com menos de 16px faz a página dar zoom ao receber foco —
+   * e o iPad faz isso igual ao iPhone, por isso o recorte é por PONTEIRO e
+   * não só por largura. A altura mínima vem junto: em 768px o campo media
+   * 36px, abaixo dos 44 da regra 4. */
   @media (max-width: 767px) {
-    .list--metas .meta-valor { font-size: 16px; width: 112px; }
+    .list--metas .meta-valor { width: 112px; }
+  }
+  @media (max-width: 767px), (pointer: coarse) {
+    .list--metas .meta-valor { font-size: 16px; min-height: 44px; }
   }
 
   /* ---------- toque em largura de desktop ----------
@@ -1315,7 +1336,10 @@
    * se sobreporem, o que é pior que alvo pequeno (o toque na borda pega a
    * caixa errada). Então a linha cresce de verdade, e o texto continua
    * centrado nela pelo `align-items`. */
-  @media (max-width: 767px) {
+  /* `pointer: coarse` junto com a largura, e não só a largura: num tablet a
+   * tela é larga e o dedo é o mesmo. Em 768px a linha media 22px — metade da
+   * regra 4 — em toda camada que tem caixa de marcar. */
+  @media (max-width: 767px), (pointer: coarse) {
     .check { min-height: 44px; }
   }
 
@@ -1516,6 +1540,10 @@
     /* Mesmo motivo do corpo: solto, o aviso de tela vazia herdava a coluna
      * estreita que a navegação de ano cria. */
     .view[data-view="fluxo"] #fx-vazio { grid-column: 1 / -1; }
+    /* Idem no Planejamento: medido, o aviso herdava 291px de uma tela de 768
+     * — a coluna que a navegação de mês cria do outro lado — e os dois botões
+     * de "criar" e "copiar" quebravam em duas linhas tendo 606px disponíveis. */
+    .view[data-view="planejamento"] #pl-vazio { grid-column: 1 / -1; }
 
     .split {
       display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
@@ -5193,6 +5221,10 @@
     HOJE = new Date();
     resumoMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
     extratoMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
+    // O Planejamento também tem mês próprio, e ele nasceu com o "hoje" da
+    // demonstração. Sem esta linha a tela abria em setembro de 2026 enquanto
+    // o resto do app já estava no mês de verdade.
+    planMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
     cartaoSel = null; faturaMes = null;
     carregarFila();
     try {

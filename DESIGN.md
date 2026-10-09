@@ -1539,12 +1539,59 @@ limite de altura), e **a aba acesa é trazida para a vista** a cada troca de
 tela e a cada reordenação: sem isso, abrir a última tela pelo menu deixava a
 barra parada no começo, sem nada marcado à vista.
 
+### Tablet: o dedo é o mesmo, a tela é que é larga
+
+Três alvos da camada de metas ficavam abaixo dos 44px em 768px porque a regra
+que os levantava era por LARGURA (`max-width: 767px`) e não por ponteiro:
+
+| Alvo | Antes | Depois |
+|---|---|---|
+| caixa de marcar categoria | 22px | 44px |
+| campo de valor da meta | 36px | 44px |
+
+O recorte passou a ser `(max-width: 767px), (pointer: coarse)`. Vale para
+`.check` no app inteiro — toda camada que tem caixa de marcar tinha o mesmo
+22px num tablet. O **16px do campo** entra na mesma regra e pelo mesmo motivo
+do celular: o iPad dá zoom ao focar um campo com menos que isso, igual ao
+iPhone.
+
+### A lista de metas é a única lista que rola dentro de uma camada
+
+A regra da camada é que a rolagem seja dela inteira — cabeçalho, campos e
+rodapé na mesma corrente, com só o cabeçalho grudado para o X continuar
+alcançável. A lista de metas é a exceção, e a exceção tem motivo: ela é a
+única lista do app cujo tamanho **não é escolhido pelo app** — é uma linha por
+categoria de despesa, e isso não tem teto.
+
+Medido com 20 categorias num tablet de 1024 de altura: a camada ficava 673px
+mais alta que a tela, e o "Salvar" só aparecia depois de rolar tudo. Com a
+lista limitada a `max(200px, calc(100vh - 430px))`, o teto do mês e o que
+falta repartir ficam à vista em cima, os botões embaixo, e a lista rola entre
+os dois — 8 linhas em pé, 4 deitado.
+
+A calha de 12px à direita não é enfeite: sem ela o polegar da rolagem cai
+sobre o campo de valor, que é justamente quem encosta naquela borda.
+
+### Tela com mês próprio precisa acordar junto com o "hoje"
+
+No modo demonstração o `HOJE` do app é fixo, para o exemplo cair sempre igual;
+ao entrar no servidor ele vira a data de verdade. Toda tela que guarda um mês
+próprio precisa ser reposicionada nesse momento — Resumo e Extrato já eram, e
+o Planejamento nasceu sem isso: abria em setembro de 2026 enquanto o resto do
+app já estava no mês corrente.
+
 ### `.v-cta` é vaga no grid, não fileira de botões
 
 No desktop `.v-cta` vem com `align-self: center; justify-self: end` para o
 botão sentar ao lado do título da tela. Reusada DENTRO de um bloco, aquele
 `align-self` centrava a fileira no meio da coluna — medido, 444px de margem
 numa coluna de 862. Fileira de botões dentro de bloco usa `.acoes-linha`.
+
+O aviso de tela vazia cai na mesma armadilha por outro caminho: solto no grid
+da `.view`, ele herda a coluna estreita que a navegação de mês cria do outro
+lado — medido, 291px numa tela de 768, com os dois botões quebrando em duas
+linhas tendo 606px disponíveis. Ele declara `grid-column: 1 / -1`, como o
+`#fx-vazio` do Fluxo já fazia.
 
 ### Objetivo de poupança: dois dinheiros diferentes
 
