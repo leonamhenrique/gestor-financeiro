@@ -1548,12 +1548,26 @@ que os levantava era por LARGURA (`max-width: 767px`) e não por ponteiro:
 |---|---|---|
 | caixa de marcar categoria | 22px | 44px |
 | campo de valor da meta | 36px | 44px |
+| pill de filtro na 2ª linha (celular) | 40px | 44px |
 
 O recorte passou a ser `(max-width: 767px), (pointer: coarse)`. Vale para
 `.check` no app inteiro — toda camada que tem caixa de marcar tinha o mesmo
 22px num tablet. O **16px do campo** entra na mesma regra e pelo mesmo motivo
 do celular: o iPad dá zoom ao focar um campo com menos que isso, igual ao
 iPhone.
+
+### Fileira de pills que quebra precisa de vão para a banda de toque
+
+O pill tem 32px de altura e uma banda de toque de 44 por `::after`. Numa
+fileira de uma linha isso basta. Quando ela QUEBRA, as bandas de duas linhas
+a 8px de distância se sobrepõem em 4px — e o dedo na borda pega o pill de
+baixo, que é pior que alvo pequeno. Medido nos filtros do Planejamento em
+375px: o pill de cima valia 40px.
+
+`row-gap: 14px` sob `pointer: coarse` afasta as linhas o suficiente para
+nenhuma banda encostar na outra (46px de distância, medidos). Em fileira de
+uma linha só nada muda: `row-gap` não existe sem quebra. É a mesma aritmética
+que o `.check` já seguia — alvo que cresce não pode invadir o vizinho.
 
 ### A lista de metas é a única lista que rola dentro de uma camada
 
@@ -1565,9 +1579,19 @@ categoria de despesa, e isso não tem teto.
 
 Medido com 20 categorias num tablet de 1024 de altura: a camada ficava 673px
 mais alta que a tela, e o "Salvar" só aparecia depois de rolar tudo. Com a
-lista limitada a `max(200px, calc(100vh - 430px))`, o teto do mês e o que
+lista limitada a `max(200px, calc(100vh - 460px))`, o teto do mês e o que
 falta repartir ficam à vista em cima, os botões embaixo, e a lista rola entre
-os dois — 8 linhas em pé, 4 deitado.
+os dois — 7 linhas num tablet em pé, 4 num celular de 812.
+
+Os 460px reservados são medidos: o resto da camada ocupa 397px no celular,
+mais que no tablet porque lá a fonte do campo é menor, e sobre eles vão os
+48px que a camada guarda da borda da tela. Com 430 a camada ainda rolava 32px
+num aparelho de 812 e o "Salvar" ficava fora.
+
+Num aparelho muito baixo (568px) o piso de 200px manda e a camada volta a
+rolar como um todo: com 397px fixos de cabeçalho e rodapé, não há arranjo que
+caiba. Ali rolar a camada uma vez é a falha mais gentil — o "Salvar"
+continua a uma rolagem de distância, e a lista não vira uma fresta.
 
 A calha de 12px à direita não é enfeite: sem ela o polegar da rolagem cai
 sobre o campo de valor, que é justamente quem encosta naquela borda.

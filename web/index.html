@@ -337,6 +337,15 @@
 
   /* ---------- pills ---------- */
   .pills { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  /* Quando a fileira QUEBRA, o vão entre as linhas precisa caber a banda de
+   * toque, senão as bandas de duas linhas se sobrepõem e o dedo na borda pega
+   * o pill de baixo — pior que alvo pequeno. O pill tem 32px e a banda 44, a
+   * 8px de distância sobravam 4px de sobreposição e o pill de cima media 40.
+   * Com 14px nenhuma encosta na outra. Em fileira de uma linha só nada muda:
+   * `row-gap` não existe sem quebra. */
+  @media (pointer: coarse) {
+    .pills { row-gap: 14px; }
+  }
   .pill {
     position: relative; font-family: inherit; font-size: 12px; padding: 7px 14px;
     border-radius: var(--r-pill); border: 1px solid var(--controle-borda);
@@ -979,9 +988,15 @@
    * rolar tudo. Com a lista limitada, o teto do mês e o que falta repartir
    * ficam à vista em cima e os botões embaixo, que é onde a conta é feita.
    * Em tela alta cabem mais linhas; o piso de 200px impede a lista virar uma
-   * fresta numa janela baixa. */
+   * fresta numa janela baixa.
+   *
+   * Os 460px reservados são medidos, não chutados: o resto da camada (topo,
+   * os dois números, a explicação e o pé) ocupa 397px no celular — mais que
+   * no tablet, porque lá a fonte do campo é menor —, e sobre eles vão os 48px
+   * de margem que a própria camada guarda da borda da tela. Com 430 a camada
+   * ainda rolava 32px num aparelho de 812 e o "Salvar" ficava fora. */
   .list--metas {
-    max-height: max(200px, calc(100vh - 430px));
+    max-height: max(200px, calc(100vh - 460px));
     overflow-y: auto; overscroll-behavior-y: contain;
     /* Calha para o polegar da rolagem: sem ela ele cai por cima do campo de
      * valor, que é justamente o que está encostado na borda direita. */
@@ -8631,15 +8646,19 @@
     document.getElementById("pl-lista").innerHTML = linhas.map(linhaDoPlanejamentoHTML).join("");
   }
 
+  /** "Soma das subcategorias" vai na META, não numa etiqueta ao lado do nome.
+   * Etiqueta ali disputa a linha do título: medido em 320px, ela deixava
+   * "Alimentacao" com 69px para 113 de texto — e era a ÚNICA coisa cortada na
+   * tela inteira. A meta tem a linha para ela e quebra em duas no celular. */
   function linhaDoPlanejamentoHTML(l) {
     var passou = l.resta < 0;
     return '<div class="row' + (l.filha ? " row--filha" : "") + '">' +
       '<span class="row-main">' +
       '<span class="row-title">' +
       (l.cor ? '<span class="dot" style="background:' + l.cor + '"></span>' : "") +
-      '<span class="row-name">' + esc(l.nome) + '</span>' +
-      (l.somaFilhas ? '<span class="tag">soma das filhas</span>' : "") + '</span>' +
-      '<span class="row-meta">' + l.pct + '% da meta de ' + brl(l.meta) + ' · ' +
+      '<span class="row-name">' + esc(l.nome) + '</span></span>' +
+      '<span class="row-meta">' + l.pct + '% da meta de ' + brl(l.meta) +
+      (l.somaFilhas ? ", soma das subcategorias" : "") + ' · ' +
       (passou ? "passou " + brl(-l.resta) : "ainda cabem " + brl(l.resta)) + '</span>' +
       '<span class="bar"><i class="' + l.nivel + '" style="width:' + Math.min(100, l.pct) + '%"></i></span>' +
       '</span>' +
