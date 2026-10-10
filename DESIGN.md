@@ -1556,6 +1556,18 @@ O recorte passou a ser `(max-width: 767px), (pointer: coarse)`. Vale para
 do celular: o iPad dá zoom ao focar um campo com menos que isso, igual ao
 iPhone.
 
+### Texto corrido tem medida, bloco não impõe sozinho
+
+`.blk` não limita largura de propósito: bloco também carrega tabela, gráfico e
+faixa de meses, que querem a largura toda. Quem limita é o conteúdo —
+`.list`, `.calor` e `.cats` já trazem `max-width: var(--read-max)`.
+
+Um `.field-help` solto num bloco escapa disso. Medido num desktop de 1920: a
+frase do estado vazio do Planejamento corria **1120px numa linha só**, 164
+caracteres, e a explicação dos filtros fazia o mesmo nos 1117px da coluna
+única em 1279. Texto corrido numa tela larga pede a medida: 720px, que ali deu
+duas linhas de ~82 caracteres.
+
 ### A barra de baixo desliza, e o nome manda na largura da aba
 
 Repartir a tela em fatias iguais obriga o rótulo a caber na fatia. Com oito

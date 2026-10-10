@@ -989,6 +989,13 @@
    * ganha um terceiro estado além de cheio/vazio — a meta pode ser
    * ULTRAPASSADA, e aí ela deixa de ser "quanto já andei" para ser "o quanto
    * passei". A cor diz qual dos dois. */
+  /* Texto corrido respeita a medida de leitura. Sem isto, a frase do estado
+   * vazio corria 1120px numa linha só — 164 caracteres —, e a explicação dos
+   * filtros fazia o mesmo nos 1117px da coluna única em 1279. É o mesmo
+   * `--read-max` que a lista, o mapa de calor e as barras já usam; `.blk` não
+   * o impõe sozinho porque bloco também carrega tabela e gráfico, que querem
+   * a largura toda. */
+  .view[data-view="planejamento"] .field-help { max-width: var(--read-max); }
   .list--planejamento .row-main { gap: 5px; }
   .list--planejamento .bar { display: block; width: 100%; max-width: 320px; }
   @media (max-width: 767px) {
