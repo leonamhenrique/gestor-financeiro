@@ -1556,6 +1556,35 @@ O recorte passou a ser `(max-width: 767px), (pointer: coarse)`. Vale para
 do celular: o iPad dá zoom ao focar um campo com menos que isso, igual ao
 iPhone.
 
+### `touch-action` é lido quando o dedo encosta, não depois
+
+Arrastar para reordenar só recebe os eventos se o navegador **não** tiver
+pegado o gesto para rolar. Quem decide isso é o `touch-action` do elemento, e
+ele é lido no INÍCIO do toque. Ligá-lo depois — junto com a classe que marca
+"estou arrastando", 400ms adiante — não desfaz a decisão: o navegador já
+começou a rolagem, fica com o gesto e manda `pointercancel`. No celular o
+arraste do menu nunca chegava a acontecer.
+
+Nas listas com alça o problema nunca apareceu porque `.arrasto` já nasce com
+`touch-action: none`. Faltava nos dois lugares que arrastam o item inteiro,
+sem alça: a barra de baixo e o trilho lateral.
+
+**A direção é a do arraste, não `none`.** Bloquear tudo custaria mais do que
+precisa:
+
+| Onde | Arrasta na | `touch-action` | O que continua funcionando |
+|---|---|---|---|
+| barra de baixo | horizontal | `pan-y` | deslizar para cima rola a página |
+| trilho lateral | vertical | `pan-x` | — (o trilho tem 72px) |
+
+**E um gesto só não cabe em dois donos.** Quando as abas não cabem na tela
+(320px com oito telas), a barra precisa rolar na horizontal — e é esse mesmo
+gesto que o arraste usa. Ali a rolagem ganha: sem ela a última aba fica
+inalcançável, enquanto reordenar continua possível em Configurações. Quem
+decide é medição, não largura escrita à mão — `ajustarToqueDaBarra` compara
+`scrollWidth` com `clientWidth` e liga a classe, no carregamento, a cada
+reordenação e a cada giro do aparelho.
+
 ### Fileira de pills que quebra precisa de vão para a banda de toque
 
 O pill tem 32px de altura e uma banda de toque de 44 por `::after`. Numa

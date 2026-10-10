@@ -915,9 +915,24 @@
     background: var(--accent-fraco);
     outline: 2px solid var(--accent-borda); outline-offset: -2px; border-radius: var(--r-sm);
   }
-  /* Com um item levantado, o dedo move o item — não rola a página. Vale só
-   * durante o gesto: fora dele, deslizar sobre o menu rola como sempre. */
-  body.ordenando .nav-item, body.ordenando .tab { touch-action: none; }
+  /* ---------- o dedo move o item, e não a página ----------
+   * `touch-action` é lido pelo navegador no INÍCIO do toque. A regra que
+   * existia aqui ligava `none` junto com a classe `.ordenando`, ou seja
+   * DEPOIS dos 400ms de segurar — tarde demais: o gesto já tinha começado
+   * como rolagem, o navegador ficava com ele e mandava `pointercancel`. No
+   * celular o arraste nunca chegava a acontecer. (Nas listas com alça isso
+   * nunca apareceu porque `.arrasto` já nasce com `touch-action: none`.)
+   *
+   * A direção é a do arraste, não `none`: a barra de baixo reordena na
+   * HORIZONTAL, então ela bloqueia só o pan horizontal e deixa o vertical
+   * passar — deslizar para cima em cima da barra continua rolando a página.
+   * O trilho lateral reordena na vertical, e bloqueia o contrário. */
+  .nav-item[data-ordem-id] { touch-action: pan-x; }
+  /* Só quando a barra NÃO precisa rolar. Onde as abas não cabem (320px com
+   * oito telas), a rolagem ganha do arraste: sem ela a última aba fica
+   * inalcançável, e reordenar continua possível em Configurações. Quem liga
+   * e desliga a classe é `ajustarToqueDaBarra`, que mede. */
+  .tabbar--fixa .tab[data-ordem-id] { touch-action: pan-y; }
   .ordenando, .ordenando * { cursor: grabbing !important; user-select: none; }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -10128,7 +10143,23 @@
     // Reordenar move a aba acesa de lugar; com a barra rolando, ela pode ter
     // ido parar fora da vista no meio do gesto.
     if (typeof mostrarAbaAtiva === "function") mostrarAbaAtiva();
+    ajustarToqueDaBarra();
   }
+
+  /** Decide, medindo, quem fica com o gesto horizontal na barra de baixo.
+   *
+   * Cabendo todas as abas não há o que rolar, e aí o dedo pode arrastar para
+   * reordenar. Não cabendo — oito telas numa tela de 320 —, a rolagem é o que
+   * torna a última aba alcançável, e ela ganha; reordenar segue em
+   * Configurações. Os dois não cabem no mesmo gesto. */
+  function ajustarToqueDaBarra() {
+    var barra = document.getElementById("tabbar");
+    if (!barra) return;
+    barra.classList.toggle("tabbar--fixa", barra.scrollWidth <= barra.clientWidth);
+  }
+  ajustarToqueDaBarra();
+  // A largura muda ao girar o aparelho, e com ela quem fica com o gesto.
+  window.addEventListener("resize", ajustarToqueDaBarra);
 
   /** Um caminho só para trocar a ordem — a tela e o teste usam este. */
   function definirOrdemDoMenu(ids, guardar) {
