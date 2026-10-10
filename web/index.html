@@ -7283,17 +7283,32 @@
   });
 
   /**
-   * "Lançar e criar novo" devolve o formulário com a DATA que acabou de ser
-   * usada, não com a de hoje.
+   * "Lançar e criar novo" devolve o formulário com DATA, CONTA (ou cartão) e
+   * CATEGORIA do lançamento que acabou de sair — não com os padrões.
    *
-   * Quem lança em sequência está quase sempre pondo um mesmo dia em dia — as
-   * notas de ontem, o extrato da semana passada. Voltando para hoje, a data
-   * tinha que ser corrigida a cada lançamento, e o botão que existe para
-   * poupar passos cobrava um. Abrir a tela do zero continua trazendo hoje: a
-   * data só viaja de um lançamento para o seguinte.
+   * Quem lança em sequência está quase sempre repetindo o contexto e trocando
+   * só o valor: as notas de ontem, todas no cartão, todas em alimentação.
+   * Voltando ao padrão, o botão que existe para poupar passos cobrava três
+   * correções a cada lançamento. O que SEMPRE limpa é valor e descrição —
+   * esses são o lançamento em si, e repeti-los seria lançar duas vezes a
+   * mesma coisa.
+   *
+   * O tipo vai junto com a categoria, e não por escolha própria: categoria
+   * TEM tipo, e uma categoria de receita não existe num formulário de
+   * despesa. Levar uma sem o outro seria não levar nada.
+   *
+   * Abrir a camada do zero continua trazendo hoje e os padrões: o que foi
+   * usado só viaja de um lançamento para o seguinte.
    */
-  function reabrirParaOutroLancamento(destino, cartaoId, data) {
-    abrirLancamento({ cartaoId: destino === "cartao" ? cartaoId : null, data: data });
+  function reabrirParaOutroLancamento(destino, cartaoId, contaId, categoriaId, data) {
+    var cat = categoriaId ? byId(state.categories, categoriaId) : null;
+    abrirLancamento({
+      cartaoId: destino === "cartao" ? cartaoId : null,
+      contaId: destino === "conta" ? contaId : null,
+      categoriaId: cat ? cat.id : null,
+      tipo: cat ? cat.tipo : undefined,
+      data: data
+    });
     document.getElementById("l-valor").focus();
   }
 
@@ -7348,7 +7363,7 @@
         if (!resultado.ok) return;
         editandoLancamento = null;
         if (e.submitter && e.submitter.id === "l-lancar-novo") {
-          reabrirParaOutroLancamento(destino, cartaoId, data);
+          reabrirParaOutroLancamento(destino, cartaoId, contaId, categoriaId, data);
         } else {
           fechar("dlg-lancamento");
         }
@@ -7387,7 +7402,7 @@
       if (!okL) return;
       editandoLancamento = null;
       if (e.submitter && e.submitter.id === "l-lancar-novo") {
-        reabrirParaOutroLancamento(destino, cartaoId, data);
+        reabrirParaOutroLancamento(destino, cartaoId, contaId, categoriaId, data);
       } else {
         fechar("dlg-lancamento");
       }
@@ -7445,7 +7460,7 @@
     editandoLancamento = null;
 
     if (e.submitter && e.submitter.id === "l-lancar-novo") {
-      reabrirParaOutroLancamento(destino, cartaoId, data);
+      reabrirParaOutroLancamento(destino, cartaoId, contaId, categoriaId, data);
     } else {
       fechar("dlg-lancamento");
     }

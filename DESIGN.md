@@ -2201,17 +2201,26 @@ blur. O que a separa do conteúdo é uma hairline.
 
 ## 11. Formulários e camadas
 
-### "Criar novo" guarda a data, não o resto
+### "Criar novo" guarda o contexto, não o lançamento
 
-O formulário de lançamento abre no dia de hoje. Mas **"Lançar e criar novo"
-devolve o formulário com a data que acabou de ser usada**, e não com a de
-hoje: quem lança em sequência está quase sempre pondo um mesmo dia em dia — as
-notas de ontem, o extrato da semana passada —, e voltar para hoje fazia o
-botão que existe para poupar passos cobrar um a cada lançamento.
+O formulário de lançamento abre no dia de hoje, com os padrões. Mas **"Lançar
+e criar novo" devolve o formulário com data, conta (ou cartão) e categoria do
+lançamento que acabou de sair**.
 
-A data só viaja de um lançamento para o seguinte: fechar a camada e abrir de
-novo traz hoje outra vez. Valor e descrição continuam limpando, que é o
-sentido do botão, e o foco volta para o valor.
+Quem lança em sequência está quase sempre repetindo o contexto e trocando só o
+valor: as notas de ontem, todas no cartão, todas em alimentação. Voltando aos
+padrões, o botão que existe para poupar passos cobrava três correções a cada
+lançamento.
+
+| O que faz | Por quê |
+|---|---|
+| data, conta/cartão, categoria **ficam** | é o contexto, e ele se repete |
+| valor e descrição **limpam** | são o lançamento em si; repetir seria lançar duas vezes a mesma coisa |
+| o tipo segue a categoria | categoria TEM tipo: uma de receita não existe num formulário de despesa, e levar uma sem o outro seria não levar nada |
+
+O que foi usado só viaja de um lançamento para o seguinte. Fechar a camada e
+abrir de novo traz hoje e os padrões outra vez. O foco volta para o valor, que
+é o único campo que a pessoa sempre vai digitar.
 
 Campo também não é caixa. O que desenha um input é o contorno — nunca um fundo
 próprio, que reintroduziria o card pela porta dos fundos.
