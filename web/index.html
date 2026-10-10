@@ -928,11 +928,13 @@
    * passar — deslizar para cima em cima da barra continua rolando a página.
    * O trilho lateral reordena na vertical, e bloqueia o contrário. */
   .nav-item[data-ordem-id] { touch-action: pan-x; }
-  /* Só quando a barra NÃO precisa rolar. Onde as abas não cabem (320px com
-   * oito telas), a rolagem ganha do arraste: sem ela a última aba fica
-   * inalcançável, e reordenar continua possível em Configurações. Quem liga
-   * e desliga a classe é `ajustarToqueDaBarra`, que mede. */
-  .tabbar--fixa .tab[data-ordem-id] { touch-action: pan-y; }
+  /* Sempre, e não só quando a barra cabe na tela: agora quem rola a barra na
+   * horizontal é o app (ver `deslizarBarra`), não o navegador. Era a única
+   * forma de os dois gestos conviverem — deslizar para o lado e segurar para
+   * reordenar disputam o mesmo movimento, e o navegador, ficando com ele,
+   * cancelava o arraste. Pedindo `pan-y` nós recebemos o horizontal inteiro e
+   * decidimos: parado por 400ms vira arraste, andou antes vira rolagem. */
+  .tab[data-ordem-id] { touch-action: pan-y; }
   .ordenando, .ordenando * { cursor: grabbing !important; user-select: none; }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -1454,17 +1456,25 @@
   /* ---------- barra inferior (seção 10) ---------- */
   .tabbar {
     position: fixed; left: 0; right: 0; bottom: 0; height: 56px; z-index: 5;
-    /* `minmax(44px, 1fr)`: a fatia de cada aba é elástica, mas nunca menor que
-     * o alvo de toque. O mínimo era 0 — o atalho `1fr` significa
-     * `minmax(auto, 1fr)` e deixava a coluna CRESCER além da fatia para caber
-     * o rótulo, o que cortava a última aba na borda da tela. Zero resolveu
-     * aquilo e criou outro: com oito telas, 320px dariam 40px por aba, abaixo
-     * dos 44 que o dedo precisa. Agora quem cede é a BARRA, que rola na
-     * horizontal quando as abas não cabem — mesma saída da faixa de meses, e
-     * a única que não esconde aba nem encolhe alvo. Em 375px as oito cabem
-     * (46,8px cada) e não há rolagem nenhuma. */
-    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(44px, 1fr);
+    /* `minmax(44px, max-content)`: cada aba tem a largura do NOME dela, nunca
+     * menos que o alvo de toque. Repartir a tela em fatias iguais obrigava o
+     * rótulo a caber na fatia, e com oito telas num celular isso virava
+     * "RESU…", "EXTR…", "CART…" — a barra toda pela metade. Aqui a conta se
+     * inverte: o nome manda na largura, e quem cede é a BARRA, que desliza
+     * para os lados. Mesma saída da faixa de meses, inclusive o esmaecido das
+     * pontas contando que há mais.
+     *
+     * O preço é real e escolhido: nem toda aba fica à vista ao mesmo tempo.
+     * Em troca nenhuma aparece pela metade, e a acesa é sempre trazida para
+     * dentro (ver `mostrarAbaAtiva`). */
+    /* `max-content` puro, e o piso de 44px no próprio item: escrito como
+     * `minmax(44px, max-content)` a faixa colapsa de volta para frações
+     * iguais — medido, as oito colunas voltavam a 46,875px e o rótulo
+     * transbordava por cima da aba vizinha em vez de alargá-la. */
+    display: grid; grid-auto-flow: column; grid-auto-columns: max-content;
     overflow-x: auto; overscroll-behavior-x: contain;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
     background: var(--bg); border-top: 1px solid var(--hairline);
     /* A barra encosta no fundo do aparelho; a área segura entra como altura
      * extra para os ícones não ficarem sob a barra de gestos. */
@@ -1476,6 +1486,8 @@
     scrollbar-width: none;
   }
   .tabbar::-webkit-scrollbar { display: none; }
+  /* Cabendo tudo, o esmaecido só apagaria as pontas sem haver o que rolar. */
+  .tabbar.inteira { -webkit-mask-image: none; mask-image: none; }
   .tab {
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
     background: none; border: none; border-top: 2px solid transparent;
@@ -1484,13 +1496,13 @@
   }
   .tab.on { color: var(--fg); border-top-color: var(--accent); }
   .tab svg { width: 20px; height: 20px; }
-  /* O rótulo trunca em vez de empurrar a aba: nome cortado com reticências
-   * ainda se lê, aba empurrada para fora da tela não. */
+  /* O rótulo manda na largura da aba: é por ele que a barra desliza. Nada de
+   * reticências — era isso que a barra deslizante veio resolver. */
   .tab span {
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em;
-    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    white-space: nowrap;
   }
-  .tab { min-width: 0; padding: 0 2px; }
+  .tab { padding: 0 12px; min-width: 44px; }
 
   /* ---------- desktop (seção 9) ---------- */
   @media (min-width: 768px) {
@@ -10143,23 +10155,77 @@
     // Reordenar move a aba acesa de lugar; com a barra rolando, ela pode ter
     // ido parar fora da vista no meio do gesto.
     if (typeof mostrarAbaAtiva === "function") mostrarAbaAtiva();
-    ajustarToqueDaBarra();
+    marcarBarraInteira();
   }
 
-  /** Decide, medindo, quem fica com o gesto horizontal na barra de baixo.
-   *
-   * Cabendo todas as abas não há o que rolar, e aí o dedo pode arrastar para
-   * reordenar. Não cabendo — oito telas numa tela de 320 —, a rolagem é o que
-   * torna a última aba alcançável, e ela ganha; reordenar segue em
-   * Configurações. Os dois não cabem no mesmo gesto. */
-  function ajustarToqueDaBarra() {
+  /** O esmaecido das pontas só faz sentido havendo o que rolar. */
+  function marcarBarraInteira() {
     var barra = document.getElementById("tabbar");
     if (!barra) return;
-    barra.classList.toggle("tabbar--fixa", barra.scrollWidth <= barra.clientWidth);
+    barra.classList.toggle("inteira", barra.scrollWidth <= barra.clientWidth + 1);
   }
-  ajustarToqueDaBarra();
-  // A largura muda ao girar o aparelho, e com ela quem fica com o gesto.
-  window.addEventListener("resize", ajustarToqueDaBarra);
+
+  /**
+   * Deslizar a barra de baixo com o dedo — feito aqui, e não pelo navegador.
+   *
+   * O motivo é o arraste: deslizar para o lado e segurar para reordenar são o
+   * MESMO movimento, e `touch-action` só sabe dar o gesto inteiro para um dos
+   * dois. Pedindo `pan-y` nas abas, o horizontal chega para o app, e aí a
+   * regra fica clara: andou antes dos 400ms, é rolagem; ficou parado até lá,
+   * é arraste (quem levanta o item é `ativarOrdenacao`, e aqui a gente sai de
+   * cena olhando a classe `ordenando`).
+   *
+   * Sem inércia, de propósito: a barra tem o tamanho de duas telas, não de
+   * vinte, e um lançamento com atrito falso seria mais código para imitar
+   * pior o que o navegador faria de graça — que é justamente o que não dá
+   * para ter aqui.
+   */
+  function deslizarBarra(id) {
+    var barra = document.getElementById(id);
+    if (!barra) return;
+    var TOLERANCIA = 8;
+    var toque = null, rolando = false, engolir = false;
+
+    barra.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0) return;
+      toque = { x: e.clientX, y: e.clientY, scroll: barra.scrollLeft, id: e.pointerId };
+      rolando = false;
+    });
+
+    barra.addEventListener("pointermove", function (e) {
+      if (!toque || document.body.classList.contains("ordenando")) return;
+      var dx = e.clientX - toque.x;
+      if (!rolando) {
+        // Vertical ganha: deslizar para cima em cima da barra rola a página,
+        // e `pan-y` deixa o navegador cuidar disso.
+        if (Math.abs(e.clientY - toque.y) > TOLERANCIA) { toque = null; return; }
+        if (Math.abs(dx) <= TOLERANCIA) return;
+        rolando = true;
+        try { barra.setPointerCapture(toque.id); } catch (err) {}
+      }
+      if (e.cancelable) e.preventDefault();
+      barra.scrollLeft = toque.scroll - dx;
+    });
+
+    function soltar() {
+      if (rolando) engolir = true;   // quem rolou não quis trocar de tela
+      toque = null; rolando = false;
+    }
+    barra.addEventListener("pointerup", soltar);
+    barra.addEventListener("pointercancel", soltar);
+    // Na captura, antes de a aba ouvir — o mesmo caminho que o arraste usa.
+    barra.addEventListener("click", function (e) {
+      if (!engolir) return;
+      engolir = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+  }
+  deslizarBarra("tabbar");
+  marcarBarraInteira();
+  mostrarAbaAtiva();
+  // A largura muda ao girar o aparelho, e com ela o que cabe na barra.
+  window.addEventListener("resize", function () { marcarBarraInteira(); mostrarAbaAtiva(); });
 
   /** Um caminho só para trocar a ordem — a tela e o teste usam este. */
   function definirOrdemDoMenu(ids, guardar) {

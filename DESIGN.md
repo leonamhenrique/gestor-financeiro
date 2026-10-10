@@ -1556,6 +1556,46 @@ O recorte passou a ser `(max-width: 767px), (pointer: coarse)`. Vale para
 do celular: o iPad dá zoom ao focar um campo com menos que isso, igual ao
 iPhone.
 
+### A barra de baixo desliza, e o nome manda na largura da aba
+
+Repartir a tela em fatias iguais obriga o rótulo a caber na fatia. Com oito
+telas num celular isso virava "RESU…", "EXTR…", "CART…" — a barra inteira pela
+metade. A conta se inverteu: cada aba tem a largura do NOME dela
+(`grid-auto-columns: max-content`, piso de 44px no item), e quem cede é a
+barra, que desliza para os lados. As pontas esmaecem, como na faixa de meses,
+contando que há mais.
+
+**O preço é real e escolhido**: nem toda aba fica à vista ao mesmo tempo —
+medido, 669px de barra para 375px de tela, 1,78 tela. Em troca nenhuma aparece
+pela metade, a acesa é sempre trazida para dentro, e a ordem é do usuário, que
+põe na frente o que mais usa.
+
+Escrever a faixa como `minmax(44px, max-content)` **não funciona**: medido, as
+oito colunas voltam a 46,875px e o rótulo transborda por cima da aba vizinha
+em vez de alargá-la. `max-content` puro, com o piso de 44px no próprio item.
+
+### Deslizar e arrastar são o mesmo movimento, então o app fica com os dois
+
+Rolar a barra para o lado e segurar para reordenar disputam o gesto
+horizontal, e `touch-action` só sabe dar o gesto inteiro para um dos dois:
+deixando com o navegador, o arraste morre; tirando do navegador, a barra não
+rola.
+
+A saída é pedir `pan-y` nas abas — o navegador fica só com o vertical, que
+continua rolando a página — e **rolar a barra no JS**. Aí a regra é uma só, e
+é o tempo que decide: andou antes dos 400ms, é rolagem; ficou parado até lá, é
+arraste. Quem rolou não troca de tela: o clique do fim é engolido, como no
+arraste.
+
+Sem inércia, de propósito. A barra tem o tamanho de duas telas, não de vinte,
+e imitar o lançamento do navegador seria mais código para fazer pior o que
+não dá para ter aqui.
+
+**O que o arraste não faz**: puxar uma aba para fora da parte visível. A barra
+não se move sozinha durante o gesto, então dá para mover uma aba algumas
+casas, não da oitava para a primeira. Para uma reorganização inteira existe a
+lista em Configurações, que mostra as oito de uma vez.
+
 ### `touch-action` é lido quando o dedo encosta, não depois
 
 Arrastar para reordenar só recebe os eventos se o navegador **não** tiver
