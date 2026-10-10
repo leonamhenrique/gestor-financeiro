@@ -2201,6 +2201,18 @@ blur. O que a separa do conteúdo é uma hairline.
 
 ## 11. Formulários e camadas
 
+### "Criar novo" guarda a data, não o resto
+
+O formulário de lançamento abre no dia de hoje. Mas **"Lançar e criar novo"
+devolve o formulário com a data que acabou de ser usada**, e não com a de
+hoje: quem lança em sequência está quase sempre pondo um mesmo dia em dia — as
+notas de ontem, o extrato da semana passada —, e voltar para hoje fazia o
+botão que existe para poupar passos cobrar um a cada lançamento.
+
+A data só viaja de um lançamento para o seguinte: fechar a camada e abrir de
+novo traz hoje outra vez. Valor e descrição continuam limpando, que é o
+sentido do botão, e o foco volta para o valor.
+
 Campo também não é caixa. O que desenha um input é o contorno — nunca um fundo
 próprio, que reintroduziria o card pela porta dos fundos.
 

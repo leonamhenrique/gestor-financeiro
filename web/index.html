@@ -7282,6 +7282,21 @@
     abrirCategoria(null, tipoAtual());
   });
 
+  /**
+   * "Lançar e criar novo" devolve o formulário com a DATA que acabou de ser
+   * usada, não com a de hoje.
+   *
+   * Quem lança em sequência está quase sempre pondo um mesmo dia em dia — as
+   * notas de ontem, o extrato da semana passada. Voltando para hoje, a data
+   * tinha que ser corrigida a cada lançamento, e o botão que existe para
+   * poupar passos cobrava um. Abrir a tela do zero continua trazendo hoje: a
+   * data só viaja de um lançamento para o seguinte.
+   */
+  function reabrirParaOutroLancamento(destino, cartaoId, data) {
+    abrirLancamento({ cartaoId: destino === "cartao" ? cartaoId : null, data: data });
+    document.getElementById("l-valor").focus();
+  }
+
   document.getElementById("form-lancamento").addEventListener("submit", async function (e) {
     e.preventDefault();
     var erro = document.getElementById("l-erro");
@@ -7333,8 +7348,7 @@
         if (!resultado.ok) return;
         editandoLancamento = null;
         if (e.submitter && e.submitter.id === "l-lancar-novo") {
-          abrirLancamento({ cartaoId: destino === "cartao" ? cartaoId : null });
-          document.getElementById("l-valor").focus();
+          reabrirParaOutroLancamento(destino, cartaoId, data);
         } else {
           fechar("dlg-lancamento");
         }
@@ -7373,8 +7387,7 @@
       if (!okL) return;
       editandoLancamento = null;
       if (e.submitter && e.submitter.id === "l-lancar-novo") {
-        abrirLancamento({ cartaoId: destino === "cartao" ? cartaoId : null });
-        document.getElementById("l-valor").focus();
+        reabrirParaOutroLancamento(destino, cartaoId, data);
       } else {
         fechar("dlg-lancamento");
       }
@@ -7432,9 +7445,7 @@
     editandoLancamento = null;
 
     if (e.submitter && e.submitter.id === "l-lancar-novo") {
-      var manterCartao = destino === "cartao" ? cartaoId : null;
-      abrirLancamento({ cartaoId: manterCartao });
-      document.getElementById("l-valor").focus();
+      reabrirParaOutroLancamento(destino, cartaoId, data);
     } else {
       fechar("dlg-lancamento");
     }
