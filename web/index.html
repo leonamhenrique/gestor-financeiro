@@ -1421,6 +1421,12 @@
     font-size: 13px; cursor: pointer; transition: border-color 180ms ease-out;
   }
   .opt:hover { border-color: var(--accent-borda); }
+  /* Opção destrutiva na lista: tinta do negativo no título, e o contorno
+   * acende em vermelho em vez de acento. O metadado fica neutro — o aviso é
+   * a ação, não o parágrafo. */
+  .opt.danger { color: var(--negative); }
+  .opt.danger .opt-meta { color: var(--fg-subtle); }
+  .opt.danger:hover { border-color: var(--negative-borda); }
   .opt .opt-meta { display: block; font-size: 11px; color: var(--fg-subtle); margin-top: 4px; }
   .opt-linha { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
@@ -2926,8 +2932,32 @@
       <button type="button" class="opt" data-perfil="suporte">Suporte<span class="opt-meta">Relatar um problema.</span></button>
       <button type="button" class="opt" data-perfil="ideias">Ideias e sugestões<span class="opt-meta">Contar o que faria o app melhor.</span></button>
       <button type="button" class="opt" data-perfil="sair">Sair da conta<span class="opt-meta">Encerrar a sessão neste dispositivo.</span></button>
+      <button type="button" class="opt danger" data-perfil="excluir">Excluir minha conta<span class="opt-meta">Apaga a conta e tudo que está nela, para sempre.</span></button>
     </div>
   </div>
+</dialog>
+
+<dialog id="dlg-excluir-conta">
+  <form id="form-excluir-conta">
+    <div class="layer-head"><h3>Excluir minha conta</h3><div class="ctx" id="ex-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <div class="layer-body">
+      <div class="banner">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5M12 16.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.4h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        <span>Isto não tem volta. Não é desativar nem pausar: os dados são apagados do servidor.</span>
+      </div>
+      <div class="field">
+        <div class="lbl">O que vai embora</div>
+        <div class="list" id="ex-resumo"></div>
+      </div>
+      <div class="field-help">O que é seu continua seu até o fim: se quiser guardar uma cópia, saia desta tela e anote o que precisa antes de voltar. Depois de confirmar, não há como recuperar — nem por nós.</div>
+      <div class="field"><label class="lbl" for="ex-senha">Confirme sua senha</label><input id="ex-senha" type="password" autocomplete="current-password" required></div>
+      <div class="field-error" id="ex-erro"></div>
+    </div>
+    <div class="layer-foot">
+      <button type="button" class="ghost esquerda" data-fechar>Cancelar</button>
+      <button type="submit" class="ghost danger" id="ex-submit">Excluir para sempre</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="dlg-config">
@@ -10104,9 +10134,107 @@
     if (acao === "instalar") instalarApp();
     if (acao === "zerar") comecarDoZero();
     if (acao === "sair") sairDaConta();
+    if (acao === "excluir") abrirExcluirConta();
     if (acao === "suporte") abrirMensagem("suporte");
     if (acao === "ideias") abrirMensagem("ideias");
   });
+  /* ================= excluir a conta =================
+   * A única operação do app que não tem volta. Três coisas a protegem, e
+   * nenhuma é enfeite:
+   *
+   *   1. A tela DIZ o que vai embora, contado dos dados reais — "5 contas,
+   *      312 lançamentos" pesa diferente de "todos os seus dados".
+   *   2. Pede a senha de novo. Uma sessão esquecida aberta num aparelho
+   *      emprestado não pode bastar para destruir a vida financeira de
+   *      alguém.
+   *   3. O botão é destrutivo e diz o que faz: "Excluir para sempre".
+   *
+   * Não existe "desativar". A Play exige exclusão de verdade, e a LGPD
+   * também — e guardar os dados de quem pediu para sair, chamando de pausa,
+   * seria as duas coisas pela metade. */
+  function abrirExcluirConta() {
+    var itens = [
+      ["conta bancária", "contas bancárias", state.accounts.length],
+      ["cartão", "cartões", state.cards.length],
+      ["lançamento", "lançamentos", state.transactions.length],
+      ["transferência", "transferências", (state.transferencias || []).length],
+      ["objetivo", "objetivos", (state.objetivos || []).length],
+      ["planejamento", "planejamentos", (state.planejamentos || []).length],
+      ["categoria sua", "categorias suas", state.categories.filter(function (c) { return !c.padrao; }).length]
+    ].filter(function (i) { return i[2] > 0; });
+
+    document.getElementById("ex-ctx").textContent = state.perfil.email || "";
+    document.getElementById("ex-resumo").innerHTML = itens.length
+      ? itens.map(function (i) {
+          return '<div class="row"><span class="row-main"><span class="row-title">' +
+            '<span class="row-name">' + esc(i[2] === 1 ? i[0] : i[1]) + '</span></span></span>' +
+            '<span class="row-val num">' + i[2] + '</span></div>';
+        }).join("")
+      : '<div class="empty">Esta conta ainda não tem nada cadastrado.</div>';
+    document.getElementById("ex-senha").value = "";
+    document.getElementById("ex-erro").textContent = "";
+    abrir("dlg-excluir-conta");
+  }
+
+  document.getElementById("form-excluir-conta").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var erro = document.getElementById("ex-erro");
+    var senha = document.getElementById("ex-senha").value;
+    if (!senha) { erro.textContent = "Confirme sua senha para continuar."; return; }
+
+    if (!MODO_API) {
+      // Sem servidor não há conta para apagar: o que existe é o exemplo
+      // guardado no aparelho, e dizer "apaguei sua conta" seria mentira.
+      erro.textContent = "No modo demonstração não existe conta no servidor para apagar. Use “Começar do zero” para limpar os dados deste aparelho.";
+      return;
+    }
+
+    var botao = document.getElementById("ex-submit");
+    botao.disabled = true;
+    botao.setAttribute("aria-busy", "true");
+    try {
+      var r = await chamarApi("/auth/me", { password: senha }, "DELETE");
+      if (!r.ok) {
+        // 401 aqui é senha errada, não sessão morta: a rota só é chamada por
+        // quem já está dentro, e `chamarApi` já tentou renovar antes.
+        erro.textContent = r.status === 401
+          ? "Senha incorreta."
+          : mensagemDaApi(r.json, r.status);
+        return;
+      }
+    } catch (err) {
+      erro.textContent = "Sem conexão agora. Excluir a conta precisa de internet.";
+      return;
+    } finally {
+      botao.disabled = false;
+      botao.removeAttribute("aria-busy");
+    }
+
+    // Deu certo: o aparelho precisa esquecer tudo antes de qualquer tela
+    // tentar desenhar com os dados de uma conta que não existe mais.
+    fechar("dlg-excluir-conta");
+    if (dlgAberto("dlg-perfil")) fechar("dlg-perfil");
+    esquecerContaApagada();
+  });
+
+  /** Sair é sair; aqui não há para onde voltar. Esvazia o que `sairDaConta`
+   * não esvazia, apaga a identidade — o e-mail não serve mais para entrar —
+   * e entrega o resto ao caminho de sempre, com o recado explicando o que
+   * aconteceu, para ninguém achar que foi erro.
+   *
+   * Não troca o `state` por um `seed()` novo: as listas são normalizadas uma
+   * vez na partida (assinatura, perfil, campos que versões antigas não
+   * tinham), e um objeto recém-criado chega sem nada disso — o primeiro
+   * desenho morre lendo `state.assinatura.status`. Esvaziar o que existe é o
+   * que mantém o formato de pé. */
+  function esquecerContaApagada() {
+    state.transferencias = [];
+    state.objetivos = [];
+    state.planejamentos = [];
+    state.perfil = { nome: "", email: "" };
+    sairDaConta("Conta excluída. Seus dados foram apagados do servidor.");
+  }
+
   /* ---------- configurações ---------- */
   var AJUDA_RELATORIO = {
     fatura: "Uma compra no cartão conta no mês em que a fatura dela vence — é quando o dinheiro sai da conta. Compra de 20/09 numa fatura que vence em outubro pesa em outubro.",

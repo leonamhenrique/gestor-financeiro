@@ -297,6 +297,54 @@ export class AuthService {
     return this.abrirSessao(user);
   }
 
+  /**
+   * Apaga a conta e TUDO que é dela. Não desativa, não congela: apaga.
+   *
+   * Pede a senha de novo porque é a única operação do app que não tem volta —
+   * e porque uma sessão esquecida aberta num aparelho emprestado não pode
+   * bastar para destruir a vida financeira de alguém.
+   *
+   * A ORDEM NÃO É DECORAÇÃO. Quase tudo pende do usuário por `onDelete:
+   * Cascade`, mas um punhado de chaves é `Restrict` de propósito — são elas
+   * que impedem apagar uma conta bancária que ainda tem histórico, e é por
+   * isso que o app arquiva em vez de apagar. Numa cascata, essas mesmas
+   * chaves disparam no meio do caminho e derrubam a exclusão inteira: o
+   * Postgres confere `Restrict` na hora, e nada garante que a transferência
+   * seja apagada antes da conta que ela aponta. Então o que REFERENCIA sai
+   * primeiro, à mão, e o resto desce pela cascata.
+   *
+   * Mexer no schema para trocar esses `Restrict` por `Cascade` resolveria
+   * aqui e abriria um buraco no uso normal — apagar uma conta levaria junto,
+   * calado, o histórico dela. A ordem explícita custa dez linhas e não abre
+   * mão de nada.
+   */
+  async deleteAccount(userId: string, senha: string): Promise<{ id: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !(await this.hasher.conferir(senha, user.passwordHash))) {
+      throw new UnauthorizedException('Senha incorreta.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Pagamento de fatura aponta para conta bancária (Restrict).
+      await tx.invoicePayment.deleteMany({
+        where: { invoice: { creditCard: { userId } } },
+      });
+      // 2. Transferência aponta para DUAS contas bancárias (Restrict).
+      await tx.transfer.deleteMany({ where: { userId } });
+      // 3. Movimento de objetivo aponta para conta bancária (Restrict).
+      await tx.goalMovement.deleteMany({ where: { userId } });
+      // 4. Lançamento aponta para categoria (Restrict).
+      await tx.transaction.deleteMany({ where: { userId } });
+      // 5. Categoria filha aponta para a mãe (Restrict): as folhas primeiro.
+      await tx.category.deleteMany({ where: { userId, parentId: { not: null } } });
+      // 6. O resto desce pela cascata: contas, cartões, faturas, objetivos,
+      //    planejamentos, séries, assinatura, tokens e os logs do WhatsApp.
+      await tx.user.delete({ where: { id: userId } });
+    });
+
+    return { id: userId };
+  }
+
   // ----------------------------------------------------------
   // Helpers
   // ----------------------------------------------------------

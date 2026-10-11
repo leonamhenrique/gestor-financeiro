@@ -30,7 +30,13 @@ function casa(linha: Linha, where: Linha) {
 }
 
 function bancoEmMemoria() {
-  const tabelas: Record<string, Linha[]> = { user: [], refreshToken: [], passwordResetToken: [] };
+  const tabelas: Record<string, Linha[]> = {
+    user: [], refreshToken: [], passwordResetToken: [],
+    // As tabelas que a exclusão de conta precisa apagar NA ORDEM certa.
+    invoicePayment: [], transfer: [], goalMovement: [], transaction: [], category: [],
+  };
+  /** O diário das operações: é nele que a ORDEM se prova. */
+  const diario: string[] = [];
 
   function tabela(nome: string) {
     const linhas = tabelas[nome];
@@ -69,16 +75,32 @@ function bancoEmMemoria() {
         alvo.forEach((l) => Object.assign(l, data));
         return { count: alvo.length };
       },
+      delete: async ({ where }: any) => {
+        diario.push(nome + '.delete');
+        const i = linhas.findIndex((x) => casa(x, where));
+        if (i < 0) throw new Error('not found');
+        return linhas.splice(i, 1)[0];
+      },
+      deleteMany: async ({ where }: any) => {
+        diario.push(nome + '.deleteMany');
+        // `where` aninhado (pagamento → fatura → cartão → dono) não tem como
+        // ser simulado aqui, e não é o que este teste prova: o que importa é
+        // QUANDO cada tabela é chamada. A linha some de qualquer jeito.
+        const fica = where && where.parentId ? linhas.filter((x) => x.parentId == null) : [];
+        const apagadas = linhas.length - fica.length;
+        linhas.length = 0;
+        fica.forEach((l) => linhas.push(l));
+        return { count: apagadas };
+      },
     };
   }
 
   const prisma: any = {
-    user: tabela('user'),
-    refreshToken: tabela('refreshToken'),
-    passwordResetToken: tabela('passwordResetToken'),
     $transaction: async (cb: any) => cb(prisma),
     _tabelas: tabelas,
+    _diario: diario,
   };
+  Object.keys(tabelas).forEach((nome) => { prisma[nome] = tabela(nome); });
   return prisma;
 }
 
@@ -123,6 +145,67 @@ describe('AuthService', () => {
     it('recusa e-mail repetido, sem diferenciar maiúsculas', async () => {
       await service.register(cadastro);
       await expect(service.register({ ...cadastro, email: 'ANA@EX.COM' })).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  // ----------------------------------------------------------
+  // Apagar a conta
+  // ----------------------------------------------------------
+  describe('exclusão da conta', () => {
+    beforeEach(() => service.register(cadastro));
+    const dono = () => prisma._tabelas.user[0].id;
+
+    it('pede a senha: sem ela, nada é apagado', async () => {
+      await expect(service.deleteAccount(dono(), 'senha-errada')).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma._tabelas.user).toHaveLength(1);
+      expect(prisma._diario).toEqual([]);
+    });
+
+    it('conta que não existe não apaga nada', async () => {
+      await expect(service.deleteAccount(randomUUID(), 'segura123')).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma._tabelas.user).toHaveLength(1);
+    });
+
+    it('com a senha certa, o usuário some', async () => {
+      const id = dono();
+      expect(await service.deleteAccount(id, 'segura123')).toEqual({ id });
+      expect(prisma._tabelas.user).toHaveLength(0);
+    });
+
+    /** O teste que dá sentido ao resto. Quase tudo desce pela cascata, mas
+     * um punhado de chaves é `Restrict` — e elas derrubam a exclusão inteira
+     * se dispararem no meio do caminho. Quem REFERENCIA sai primeiro. */
+    it('apaga na ordem que as chaves estrangeiras exigem', async () => {
+      await service.deleteAccount(dono(), 'segura123');
+      expect(prisma._diario).toEqual([
+        'invoicePayment.deleteMany',  // aponta para conta bancária
+        'transfer.deleteMany',        // aponta para duas contas bancárias
+        'goalMovement.deleteMany',    // aponta para conta bancária
+        'transaction.deleteMany',     // aponta para categoria
+        'category.deleteMany',        // filha aponta para a mãe
+        'user.delete',                // e o resto desce pela cascata
+      ]);
+    });
+
+    it('o usuário é o ÚLTIMO a sair: antes dele, nada de cascata pela metade', async () => {
+      await service.deleteAccount(dono(), 'segura123');
+      expect(prisma._diario[prisma._diario.length - 1]).toBe('user.delete');
+    });
+
+    it('entre as categorias, as filhas saem antes — a mãe é Restrict', async () => {
+      prisma._tabelas.category.push({ id: 'mae', userId: dono(), parentId: null });
+      prisma._tabelas.category.push({ id: 'filha', userId: dono(), parentId: 'mae' });
+      await service.deleteAccount(dono(), 'segura123');
+      // A mãe fica para a cascata do usuário; a filha é apagada à mão antes.
+      expect(prisma._tabelas.category.map((c: Linha) => c.id)).toEqual(['mae']);
+    });
+
+    it('tudo numa transação só: a conta não fica pela metade', async () => {
+      const chamadas: string[] = [];
+      const original = prisma.$transaction;
+      prisma.$transaction = async (cb: any) => { chamadas.push('tx'); return original(cb); };
+      await service.deleteAccount(dono(), 'segura123');
+      expect(chamadas).toEqual(['tx']);
     });
   });
 

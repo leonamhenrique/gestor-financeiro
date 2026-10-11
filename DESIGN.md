@@ -2201,6 +2201,31 @@ blur. O que a separa do conteúdo é uma hairline.
 
 ## 11. Formulários e camadas
 
+### Excluir a conta é excluir, e a tela diz o tamanho disso
+
+Não existe "desativar". A conta sai do servidor e os dados vão junto — a Play
+exige isso de quem deixa criar conta, a LGPD também, e guardar o dado de quem
+pediu para sair chamando de pausa seria as duas coisas pela metade.
+
+Três coisas protegem a ação, e nenhuma é enfeite:
+
+1. **A tela conta o que vai embora**, dos dados reais: "3 contas bancárias, 1
+   cartão, 12 lançamentos, 2 planejamentos, 8 categorias suas". Um número
+   pesa diferente de "todos os seus dados" — e o singular e o plural saem
+   certos, porque "1 cartões" é a frase de quem não olhou.
+2. **Pede a senha de novo.** Uma sessão esquecida aberta num aparelho
+   emprestado não pode bastar para destruir a vida financeira de alguém.
+3. **O botão diz o que faz**: "Excluir para sempre", em vermelho, ao lado de
+   um "Cancelar" neutro — e o aviso acima já disse que não tem volta.
+
+Depois de apagar, o aparelho esquece: listas vazias, perfil em branco, e o
+e-mail **não** fica no campo de entrada, porque ele não serve mais para
+entrar. O recado explica o que aconteceu, senão a tela de login parece erro.
+
+**No modo demonstração a opção recusa, e explica.** Ali não existe conta no
+servidor para apagar; dizer "apaguei sua conta" seria mentira. A tela manda
+para "Começar do zero", que é o que de fato limpa aquele aparelho.
+
 ### "Criar novo" guarda o contexto, não o lançamento
 
 O formulário de lançamento abre no dia de hoje, com os padrões. Mas **"Lançar

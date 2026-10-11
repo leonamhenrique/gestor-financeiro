@@ -72,6 +72,15 @@ export class ResetPasswordDto {
   newPassword!: string;
 }
 
+/** Apagar a conta pede a senha de novo: é a única operação sem volta, e uma
+ * sessão esquecida aberta não pode bastar para disparar ela. */
+export class DeleteAccountDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  password!: string;
+}
+
 export class ChangePasswordDto {
   @IsString()
   @MinLength(1)

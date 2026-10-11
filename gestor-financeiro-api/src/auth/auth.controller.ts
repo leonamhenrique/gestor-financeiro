@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -14,6 +15,7 @@ import { AuthService, SessaoEmitida } from './auth.service';
 import { Public } from './public.decorator';
 import {
   ChangePasswordDto,
+  DeleteAccountDto,
   ForgotPasswordDto,
   LoginDto,
   RefreshDto,
@@ -110,5 +112,19 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ) {
     return this.entregar(req, res, await this.auth.changePassword(req.user.id, dto.currentPassword, dto.newPassword));
+  }
+
+  /** Apagar a conta. O cookie de sessão cai junto — a conta não existe mais,
+   * e deixar o aparelho com um cookie apontando para um id morto só rende
+   * erro na próxima tela que ele abrir. */
+  @Delete('me')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteAccount(
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+    @Body() dto: DeleteAccountDto,
+  ) {
+    await this.auth.deleteAccount(req.user.id, dto.password);
+    apagarCookieSessao(res);
   }
 }
