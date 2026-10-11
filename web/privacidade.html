@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Política de Privacidade · Gestor Financeiro</title>
+<meta name="description" content="O que o Gestor Financeiro coleta, por que, com quem compartilha e como apagar tudo.">
+<link rel="icon" href="icons/icone-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="pagina.css">
+</head>
+<body>
+<main>
+  <div class="marca">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 3 21 12l-9 9-9-9 9-9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+    Gestor Financeiro
+  </div>
+
+  <h1>Política de Privacidade</h1>
+  <p class="data">Última atualização: 11 de outubro de 2026</p>
+  <p>
+    Esta política explica o que o Gestor Financeiro guarda sobre você, por que guarda,
+    com quem compartilha e como você apaga tudo. Está escrita para ser lida, não para
+    cumprir tabela.
+  </p>
+
+  <h2>Quem é o responsável</h2>
+  <p>
+    <strong>[NOME OU RAZÃO SOCIAL DO RESPONSÁVEL]</strong>, inscrito sob
+    <strong>[CPF OU CNPJ]</strong>, é o controlador dos dados tratados aqui, nos termos
+    da Lei Geral de Proteção de Dados (Lei 13.709/2018).
+  </p>
+  <p>
+    Para qualquer assunto desta política — dúvidas, correções, exclusão, reclamações —
+    escreva para <strong>[E-MAIL DE CONTATO]</strong>.
+  </p>
+
+  <h2>O que o app guarda</h2>
+
+  <h3>Dados de cadastro</h3>
+  <ul>
+    <li><strong>Nome e e-mail</strong>, informados por você ao criar a conta. O e-mail
+      identifica a conta e é por onde chega a redefinição de senha.</li>
+    <li><strong>Senha</strong>, guardada apenas como um <em>hash</em> scrypt com sal
+      aleatório. A senha em si não é gravada em lugar nenhum e não pode ser recuperada
+      — nem por nós.</li>
+  </ul>
+
+  <h3>Dados financeiros que você digita</h3>
+  <ul>
+    <li>Contas bancárias: apelido, tipo e saldos que <strong>você informa</strong>.</li>
+    <li>Cartões de crédito: apelido, limite, dias de fechamento e vencimento.</li>
+    <li>Lançamentos, transferências, objetivos de poupança e planejamentos mensais.</li>
+    <li>Categorias que você criar.</li>
+  </ul>
+  <p>
+    <strong>O app não se conecta ao seu banco.</strong> Não há Open Finance, não há
+    leitura de extrato, não há acesso a conta bancária nenhuma. Tudo que aparece ali
+    foi digitado por você ou calculado a partir do que você digitou.
+  </p>
+
+  <h3>Dados de pagamento, se você assinar</h3>
+  <p>
+    Quando houver assinatura paga, os dados do cartão são processados pelo meio de
+    pagamento e <strong>não passam pelos nossos servidores</strong>. Guardamos apenas
+    o identificador que o meio de pagamento devolve, mais bandeira, os quatro últimos
+    dígitos e a validade — o suficiente para você reconhecer o cartão na tela.
+    <strong>O número completo e o código de segurança nunca são recebidos nem
+    gravados.</strong>
+  </p>
+
+  <h3>Dados técnicos</h3>
+  <ul>
+    <li>Sessões ativas, guardadas como <em>hash</em> do token, para manter você logado
+      e permitir encerrar sessões.</li>
+    <li>Contagem de tentativas de login erradas, para bloquear ataques de adivinhação
+      de senha.</li>
+  </ul>
+
+  <h2>O que o app NÃO faz</h2>
+  <ul>
+    <li><strong>Não tem rastreadores.</strong> Nenhuma ferramenta de analytics, nenhum
+      pixel, nenhum SDK de publicidade.</li>
+    <li><strong>Não guarda seu IP nem identificador do aparelho.</strong></li>
+    <li><strong>Não vende, aluga nem compartilha seus dados</strong> com ninguém para
+      fins de publicidade, perfilamento ou qualquer outro.</li>
+    <li><strong>Não usa seus dados financeiros para treinar nada.</strong></li>
+  </ul>
+
+  <h2>Quem mais encosta nos dados</h2>
+  <p>
+    Só a infraestrutura necessária para o app existir. Cada um recebe apenas o que
+    precisa para fazer a parte dele:
+  </p>
+  <ul>
+    <li><strong>Cloudflare Pages</strong> — serve as telas do app. Como qualquer
+      servidor web, recebe o endereço IP de quem acessa.</li>
+    <li><strong>Render</strong> — hospeda o servidor e o banco de dados onde seus
+      lançamentos ficam.</li>
+    <li><strong>Resend</strong> — envia o e-mail de redefinição de senha, quando você
+      pede. Recebe seu e-mail apenas nesse momento.</li>
+    <li><strong>Google Fonts</strong> — entrega a fonte usada nas telas. Ao carregar a
+      fonte, o navegador informa o IP ao Google.</li>
+    <li><strong>Meio de pagamento</strong> — apenas se e quando houver assinatura paga.</li>
+  </ul>
+
+  <h2>Ditado por voz</h2>
+  <p>
+    O app permite lançar falando. Quem transforma a fala em texto é o
+    <strong>serviço de reconhecimento de voz do seu navegador</strong> — no Chrome e no
+    Android, isso significa que o áudio é enviado aos servidores do Google, conforme a
+    política de privacidade deles. O app não grava o áudio, não o armazena e só recebe
+    o texto resultante. Se preferir não usar isso, basta não conceder a permissão de
+    microfone: todo o resto do app funciona igual.
+  </p>
+
+  <h2>Por quanto tempo guardamos</h2>
+  <p>
+    Enquanto a sua conta existir. <strong>Quando você exclui a conta, os dados são
+    apagados do banco</strong> — não são desativados, congelados nem movidos para um
+    arquivo morto. Cópias de segurança do banco são rotativas e também expiram.
+  </p>
+
+  <h2>Como apagar tudo</h2>
+  <p>Dois caminhos, e os dois apagam de verdade:</p>
+  <ul>
+    <li><strong>Dentro do app</strong>: Perfil → Excluir minha conta.</li>
+    <li><strong>Pela web</strong>, se você já desinstalou:
+      <a href="excluir-conta.html">página de exclusão de conta</a>.</li>
+  </ul>
+
+  <h2>Seus direitos</h2>
+  <p>
+    A LGPD garante a você: confirmar se tratamos seus dados, acessá-los, corrigi-los,
+    pedir anonimização ou exclusão, pedir portabilidade, saber com quem compartilhamos
+    e revogar consentimento. O app já entrega acesso e correção direto nas telas, e
+    exclusão pelos dois caminhos acima. Para o resto, escreva para
+    <strong>[E-MAIL DE CONTATO]</strong>; respondemos em até 15 dias.
+  </p>
+
+  <h2>Segurança</h2>
+  <ul>
+    <li>Todo o tráfego é HTTPS.</li>
+    <li>Senhas com <em>hash</em> scrypt e sal por usuário.</li>
+    <li>A sessão fica num cookie <code>httpOnly</code>, que o JavaScript da página não
+      consegue ler.</li>
+    <li>No banco, cada tabela tem <em>Row Level Security</em> por dono: mesmo um erro
+      de programação não devolve a linha de outra pessoa.</li>
+  </ul>
+  <p class="nota">
+    Nenhum sistema é inviolável. Se houver incidente com risco relevante aos seus
+    dados, comunicaremos você e a ANPD, como a lei exige.
+  </p>
+
+  <h2>Crianças e adolescentes</h2>
+  <p>
+    O app não é destinado a menores de 18 anos e não coleta dados de quem sabemos ser
+    menor de idade.
+  </p>
+
+  <h2>Mudanças nesta política</h2>
+  <p>
+    Se algo mudar, a data no topo muda junto. Mudanças que afetem como tratamos seus
+    dados serão avisadas no app antes de valer.
+  </p>
+
+  <div class="rodape">
+    <a href="/">Voltar ao app</a>
+    <a href="excluir-conta.html">Excluir minha conta</a>
+  </div>
+</main>
+</body>
+</html>

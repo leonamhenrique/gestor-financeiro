@@ -1,0 +1,131 @@
+/* ============================================================
+   pagina.css — as páginas públicas (privacidade, exclusão de conta)
+   ============================================================
+   Elas vivem fora do app: abrem sem login, são linkadas na Play Console e
+   precisam existir para quem já desinstalou. Não dá para reusar o estilo do
+   app, que mora inteiro dentro do index.html — então aqui vai o mínimo dos
+   mesmos tokens, para a pessoa reconhecer de onde veio.
+
+   Sem seletor de tema: a página segue o sistema. Um botão de tema aqui
+   guardaria preferência num lugar que a pessoa visita uma vez.
+   ============================================================ */
+
+:root {
+  --bg: #070B12;
+  --fg: #E2EEF8;
+  --fg-muted: rgba(226, 238, 248, 0.72);
+  --fg-subtle: rgba(226, 238, 248, 0.54);
+  --hairline: rgba(255, 255, 255, 0.06);
+  --controle-borda: rgba(255, 255, 255, 0.34);
+  --accent: #6EE7F0;
+  --accent-borda: rgba(110, 231, 240, 0.47);
+  --negative: #FF6B6B;
+  --negative-borda: rgba(255, 107, 107, 0.67);
+  --positive: #3DD68C;
+  --warning: #FFB86B;
+  --warning-borda: rgba(255, 184, 107, 0.45);
+  --r-sm: 10px;
+  --r-md: 12px;
+  --read-max: 720px;
+  color-scheme: dark;
+}
+
+/* Mesmos tons do tema claro do app: fundo frio em vez de branco puro, tinta
+ * em ardósia, e os sinais escurecidos — ciano claro não sobrevive a fundo
+ * claro. As opacidades sobem porque tinta preta rende menos que branca. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #F6F8FB;
+    --fg: #14202B;
+    --fg-muted: rgba(20, 32, 43, 0.78);
+    --fg-subtle: rgba(20, 32, 43, 0.66);
+    --hairline: rgba(15, 23, 32, 0.10);
+    --controle-borda: rgba(15, 23, 32, 0.46);
+    --accent: #0C6E77;
+    --accent-borda: rgba(12, 110, 119, 0.74);
+    --negative: #C0392F;
+    --negative-borda: rgba(192, 57, 47, 0.75);
+    --positive: #0E7C5A;
+    --warning: #9A6410;
+    --warning-borda: rgba(154, 100, 16, 0.75);
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  padding: 40px 20px 72px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+main { max-width: var(--read-max); margin: 0 auto; }
+
+.marca {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--accent); font-size: 13px; letter-spacing: 0.02em;
+  margin-bottom: 28px;
+}
+.marca svg { width: 20px; height: 20px; }
+
+h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+h2 { font-size: 17px; font-weight: 600; margin: 36px 0 10px; }
+h3 { font-size: 14px; font-weight: 600; margin: 22px 0 6px; }
+p, li { color: var(--fg-muted); margin: 0 0 12px; }
+li { margin-bottom: 6px; }
+ul { padding-left: 20px; margin: 0 0 14px; }
+strong { color: var(--fg); font-weight: 600; }
+a { color: var(--accent); text-underline-offset: 3px; }
+
+.data { font-size: 12px; color: var(--fg-subtle); margin-bottom: 4px; }
+.nota { font-size: 13px; color: var(--fg-subtle); }
+
+hr { border: none; border-top: 1px solid var(--hairline); margin: 32px 0; }
+
+/* Aviso: contorno, nunca preenchimento — a regra 1 do app vale aqui. */
+.aviso {
+  display: flex; gap: 12px; align-items: flex-start;
+  border: 1px solid var(--warning-borda); border-radius: var(--r-md);
+  padding: 14px 16px; margin: 0 0 24px;
+  color: var(--warning); font-size: 14px;
+}
+.aviso svg { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; }
+.aviso p { color: inherit; margin: 0; }
+
+.campo { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.rotulo {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--fg-subtle);
+}
+input {
+  height: 48px; padding: 0 12px; font: inherit; font-size: 16px;
+  color: var(--fg); background: none;
+  border: 1px solid var(--controle-borda); border-radius: var(--r-sm);
+}
+input:focus { outline: none; border-color: var(--accent); }
+input:disabled { color: var(--fg-subtle); border-color: var(--hairline); }
+
+button {
+  min-height: 48px; padding: 0 20px; font: inherit; font-size: 14px;
+  border-radius: 999px; cursor: pointer; background: none;
+  border: 1px solid var(--controle-borda); color: var(--fg);
+}
+button:hover:not(:disabled) { border-color: var(--accent-borda); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.perigo { color: var(--negative); border-color: var(--negative-borda); }
+
+.erro { font-size: 13px; color: var(--negative); min-height: 19px; }
+.feito { font-size: 14px; color: var(--positive); }
+
+.rodape {
+  margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--hairline);
+  font-size: 13px; color: var(--fg-subtle);
+}
+.rodape a { margin-right: 16px; }

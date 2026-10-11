@@ -2201,6 +2201,25 @@ blur. O que a separa do conteúdo é uma hairline.
 
 ## 11. Formulários e camadas
 
+### Páginas públicas: fora do app, com a cara do app
+
+Privacidade e exclusão de conta abrem **sem login**, são linkadas na Play
+Console e precisam existir para quem já desinstalou — então não podem morar
+dentro do `index.html`, que é o app. São arquivos próprios, com um
+`pagina.css` que repete o mínimo dos mesmos tokens: a pessoa veio do app e
+precisa reconhecer onde está.
+
+**Sem seletor de tema**: elas seguem `prefers-color-scheme`. Um botão de tema
+guardaria preferência num lugar que se visita uma vez.
+
+**A página de exclusão apaga de verdade**, não abre um chamado. Quem
+desinstalou o app não tem como usar o caminho de dentro, e mandar essa pessoa
+esperar uma resposta por e-mail seria transformar um direito num pedido. Ela
+entra com e-mail e senha — a mesma prova que o app pede —, e por baixo passa
+pelo mesmo login, com o mesmo bloqueio de cinco tentativas. E-mail que não
+existe e senha errada recebem a **mesma** resposta: a página não conta quem
+tem conta.
+
 ### Excluir a conta é excluir, e a tela diz o tamanho disso
 
 Não existe "desativar". A conta sai do servidor e os dados vão junto — a Play

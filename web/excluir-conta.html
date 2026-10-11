@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Excluir minha conta · Gestor Financeiro</title>
+<meta name="description" content="Apague sua conta do Gestor Financeiro e tudo que está nela, mesmo sem ter o app instalado.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="icons/icone-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="pagina.css">
+<!-- Mesmo endereço de API que o app usa. Em localhost o arquivo é ignorado e
+     vale http://localhost:3000, como no index.html. -->
+<script src="config.js"></script>
+</head>
+<body>
+<main>
+  <div class="marca">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 3 21 12l-9 9-9-9 9-9Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+    Gestor Financeiro
+  </div>
+
+  <h1>Excluir minha conta</h1>
+  <p>
+    Esta página existe para quem não tem mais o app instalado. Se você ainda tem,
+    o caminho mais curto é <strong>Perfil → Excluir minha conta</strong>, lá dentro.
+  </p>
+
+  <div class="aviso">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5M12 16.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.4h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+    <p>Isto não tem volta. Não é desativar nem pausar: a conta e tudo que está nela
+      são apagados do servidor.</p>
+  </div>
+
+  <h2>O que é apagado</h2>
+  <ul>
+    <li>Seu cadastro: nome, e-mail e a senha (que já é guardada só como hash).</li>
+    <li>Contas bancárias, cartões, faturas e pagamentos de fatura.</li>
+    <li>Lançamentos, transferências, objetivos de poupança e planejamentos.</li>
+    <li>As categorias que você criou e as sessões abertas em qualquer aparelho.</li>
+  </ul>
+  <p class="nota">
+    Nada fica em modo inativo, e não há como recuperar depois — nem por nós. Se quiser
+    guardar uma cópia de alguma coisa, faça isso antes de confirmar.
+  </p>
+
+  <hr>
+
+  <h2>Confirme que a conta é sua</h2>
+  <p>Use o mesmo e-mail e senha com que você entra no app.</p>
+
+  <form id="form">
+    <div class="campo">
+      <label class="rotulo" for="email">E-mail</label>
+      <input id="email" type="email" autocomplete="username" required>
+    </div>
+    <div class="campo">
+      <label class="rotulo" for="senha">Senha</label>
+      <input id="senha" type="password" autocomplete="current-password" required>
+    </div>
+    <div class="erro" id="erro"></div>
+    <button type="submit" class="perigo" id="enviar">Excluir minha conta para sempre</button>
+  </form>
+
+  <div id="pronto" hidden>
+    <h2>Conta excluída</h2>
+    <p class="feito">Seus dados foram apagados do servidor.</p>
+    <p>
+      Se o app ainda estiver instalado em algum aparelho, ele vai pedir login na
+      próxima vez que você abrir — e esse e-mail não entra mais. Você pode criar uma
+      conta nova com ele quando quiser.
+    </p>
+  </div>
+
+  <div class="rodape">
+    <a href="/">Voltar ao app</a>
+    <a href="privacidade.html">Política de privacidade</a>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  // Mesma regra do app: em localhost a API é local, fora dela vem do config.js.
+  var LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  var API = LOCAL ? "http://localhost:3000" : (window.GF_API_URL || null);
+
+  var form = document.getElementById("form");
+  var erro = document.getElementById("erro");
+  var botao = document.getElementById("enviar");
+
+  if (!API) {
+    erro.textContent = "Esta página precisa do servidor do app, e ele não está configurado aqui.";
+    botao.disabled = true;
+    return;
+  }
+
+  async function api(caminho, corpo, metodo, token) {
+    var cab = { "Content-Type": "application/json" };
+    if (token) cab.Authorization = "Bearer " + token;
+    var r = await fetch(API + caminho, {
+      method: metodo || "POST", headers: cab, credentials: "include",
+      body: corpo ? JSON.stringify(corpo) : undefined
+    });
+    var json = null;
+    try { json = r.status === 204 ? null : await r.json(); } catch (e) {}
+    return { ok: r.ok, status: r.status, json: json };
+  }
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var email = document.getElementById("email").value.trim();
+    var senha = document.getElementById("senha").value;
+    if (!email || !senha) { erro.textContent = "Preencha o e-mail e a senha."; return; }
+
+    erro.textContent = "";
+    botao.disabled = true;
+    botao.setAttribute("aria-busy", "true");
+    try {
+      // Entrar primeiro: é o que prova que a conta é de quem está pedindo. A
+      // mesma proteção do app vale aqui — cinco erros de senha bloqueiam por
+      // um tempo, então esta página não vira porta para adivinhação.
+      var entrada = await api("/auth/login", { email: email, password: senha });
+      if (!entrada.ok) {
+        erro.textContent = entrada.status === 401
+          ? "E-mail ou senha inválidos."
+          : ((entrada.json && entrada.json.message) || "Não foi possível entrar agora.");
+        return;
+      }
+      var apagou = await api("/auth/me", { password: senha }, "DELETE", entrada.json.accessToken);
+      if (!apagou.ok) {
+        erro.textContent = (apagou.json && apagou.json.message) || "Não foi possível excluir agora. Tente de novo.";
+        return;
+      }
+      form.hidden = true;
+      document.getElementById("pronto").hidden = false;
+      document.getElementById("pronto").scrollIntoView({ block: "start" });
+    } catch (err) {
+      erro.textContent = "Sem conexão com o servidor. Tente de novo em instantes.";
+    } finally {
+      botao.disabled = false;
+      botao.removeAttribute("aria-busy");
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -2931,6 +2931,7 @@
       <button type="button" class="opt" data-perfil="zerar">Começar do zero<span class="opt-meta">Apaga contas, cartões e lançamentos e refaz os primeiros passos.</span></button>
       <button type="button" class="opt" data-perfil="suporte">Suporte<span class="opt-meta">Relatar um problema.</span></button>
       <button type="button" class="opt" data-perfil="ideias">Ideias e sugestões<span class="opt-meta">Contar o que faria o app melhor.</span></button>
+      <button type="button" class="opt" data-perfil="privacidade">Política de privacidade<span class="opt-meta">O que o app guarda, com quem compartilha e por quanto tempo.</span></button>
       <button type="button" class="opt" data-perfil="sair">Sair da conta<span class="opt-meta">Encerrar a sessão neste dispositivo.</span></button>
       <button type="button" class="opt danger" data-perfil="excluir">Excluir minha conta<span class="opt-meta">Apaga a conta e tudo que está nela, para sempre.</span></button>
     </div>
@@ -10135,6 +10136,10 @@
     if (acao === "zerar") comecarDoZero();
     if (acao === "sair") sairDaConta();
     if (acao === "excluir") abrirExcluirConta();
+    // Em aba separada, de propósito: a política vive fora do app (é página
+    // pública, linkada também na loja), e navegar para ela dentro da janela
+    // do app instalado tiraria a pessoa de onde ela estava.
+    if (acao === "privacidade") window.open("privacidade.html", "_blank", "noopener");
     if (acao === "suporte") abrirMensagem("suporte");
     if (acao === "ideias") abrirMensagem("ideias");
   });
