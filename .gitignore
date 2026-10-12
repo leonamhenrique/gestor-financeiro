@@ -19,3 +19,12 @@ files.zip
 
 # Estado de sessao do Claude Code, nao e do projeto.
 .claude/scheduled_tasks.lock
+
+# Projeto TWA (Bubblewrap). A pasta inteira fica fora do Git por um motivo:
+# o `bubblewrap init` gera android.keystore, a CHAVE QUE ASSINA O APP, e este
+# repositorio e publico. Versionar o projeto Android nao traz nada — ele e
+# gerado a partir do manifesto — e um `git add -A` distraido publicaria a
+# chave. As duas regras de keystore valem em qualquer pasta, por garantia.
+twa/
+*.keystore
+*.jks

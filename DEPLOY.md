@@ -391,3 +391,70 @@ Fica registrado porque o caminho não é óbvio: o representante da D&B no Brasi
 é a CIAL, cuja via gratuita anuncia **30 dias úteis** e cuja via expressa é
 vendida como plano anual. O Google diz, na própria ajuda, que o número é
 gratuito e adverte sobre terceiros que cobram caro por ele.
+
+---
+
+## O app Android (TWA)
+
+O app na Play é um **TWA**: um invólucro que abre `saldonline.com.br` em tela
+cheia. Não há código Android escrito à mão — o projeto é **gerado** pelo
+[Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap) a partir do
+`manifest.webmanifest` do site.
+
+**A pasta `twa/` não está no Git**, e isso é deliberado: o `bubblewrap init`
+gera `android.keystore`, a chave que assina o app, e este repositório é
+público. Como consequência, **o que está escrito aqui é a única memória de como
+refazer o projeto**.
+
+### Recriar do zero
+
+```
+npx @bubblewrap/cli init --manifest=https://saldonline.com.br/manifest.webmanifest
+```
+
+No Windows, o PowerShell recusa o `npx.ps1` por política de execução. Chame o
+`.cmd`, que não passa por ela:
+
+```
+& "C:\Program Files\nodejs\npx.cmd" --yes "@bubblewrap/cli" init --manifest=https://saldonline.com.br/manifest.webmanifest
+```
+
+O Bubblewrap baixa o JDK 17 e as *command line tools* do Android sozinho, para
+`~/.bubblewrap`. Android Studio não é necessário.
+
+### As respostas que importam
+
+| Campo | Valor | Por quê |
+| --- | --- | --- |
+| Application ID | `br.com.saldonline.app` | **Tem de ser idêntico ao do `assetlinks.json`.** Divergindo, o app abre com a barra do Chrome à vista, sem mensagem de erro |
+| Play Billing | não | A assinatura está fora de alcance (ver `ASSINATURA_VISIVEL`) |
+| Notificações | não | O service worker não tem uma linha de push; ligar isso declara `POST_NOTIFICATIONS` e pede ao usuário uma permissão que o app nunca usa |
+| Geolocalização | não | O app não usa |
+
+O Bubblewrap sugere `br.com.saldonline.twa` por conta própria. **Não aceite**:
+esse nome descreve a técnica de empacotamento, é permanente, e continuaria
+dizendo "twa" se um dia o app virar nativo.
+
+Depois do `init`, o `twa-manifest.json` é a fonte de verdade: editar lá e rodar
+`npx @bubblewrap/cli update` regenera o projeto. Note que o `update` **sobe a
+versão a cada execução** — confira `versionCode` e `versionName` antes de
+empacotar.
+
+### Gerar o pacote
+
+```
+npx @bubblewrap/cli build
+```
+
+Produz `app-release-bundle.aab` (o que sobe para a Play) e um APK assinado. Pede
+a senha do keystore.
+
+### A impressão SHA-256, que fecha o circuito
+
+A chave que o Bubblewrap gerou é a **chave de envio** (*upload key*). Com o Play
+App Signing, o Google reassina o app com uma chave própria — e é a impressão
+**dela** que vai no `assetlinks.json`, copiada do Console em *Test and release →
+Setup → App integrity*.
+
+Usar a impressão do keystore local é o erro clássico: a Play aceita o envio, o
+app instala, e abre com a barra do Chrome visível. Nada avisa o motivo.
