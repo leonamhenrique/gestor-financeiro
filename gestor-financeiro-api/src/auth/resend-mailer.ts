@@ -7,7 +7,7 @@
 //
 // Duas variáveis obrigatórias, conferidas na subida e não no primeiro envio:
 //   RESEND_API_KEY  a chave da conta (começa com "re_")
-//   MAIL_FROM       o remetente, ex.: 'Gestor Financeiro <nao-responda@seu.com>'
+//   MAIL_FROM       o remetente, ex.: 'saldonline <nao-responda@seu.com>'
 //
 // Falhar aqui derruba a API no deploy, que é o momento certo de descobrir o
 // problema — melhor que descobrir quando alguém esquece a senha.
@@ -31,7 +31,7 @@ export class ResendMailer implements Mailer {
     }
     if (!this.remetente) {
       throw new Error(
-        'MAIL_PROVIDER=RESEND exige MAIL_FROM, o remetente — ex.: "Gestor Financeiro <nao-responda@seudominio.com>". ' +
+        'MAIL_PROVIDER=RESEND exige MAIL_FROM, o remetente — ex.: "saldonline <nao-responda@seudominio.com>". ' +
           'O domínio precisa estar verificado no Resend.',
       );
     }
@@ -44,7 +44,7 @@ export class ResendMailer implements Mailer {
       body: JSON.stringify({
         from: this.remetente,
         to: [destino.email],
-        subject: 'Criar uma senha nova — Gestor Financeiro',
+        subject: 'Criar uma senha nova — saldonline',
         text: texto(destino.nome, link),
         html: html(destino.nome, link),
       }),
@@ -64,7 +64,7 @@ function texto(nome: string, link: string): string {
   return [
     `Olá, ${nome}.`,
     '',
-    'Alguém pediu uma senha nova para a sua conta no Gestor Financeiro.',
+    'Alguém pediu uma senha nova para a sua conta no saldonline.',
     'Para criar a senha, abra este endereço:',
     '',
     link,
@@ -81,7 +81,7 @@ function html(nome: string, link: string): string {
   const seguro = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
   return `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.6;color:#14202B">
   <p>Olá, ${seguro(nome)}.</p>
-  <p>Alguém pediu uma senha nova para a sua conta no <strong>Gestor Financeiro</strong>.</p>
+  <p>Alguém pediu uma senha nova para a sua conta no <strong>saldonline</strong>.</p>
   <p><a href="${seguro(link)}" style="display:inline-block;padding:12px 20px;border-radius:10px;background:#0C6E77;color:#F3FBFC;text-decoration:none">Criar uma senha nova</a></p>
   <p style="color:#4A5B6B;font-size:13px">Ou copie este endereço: <br>${seguro(link)}</p>
   <p style="color:#4A5B6B;font-size:13px">O link vale por ${REDEFINICAO_MINUTOS} minutos e só pode ser usado uma vez.</p>

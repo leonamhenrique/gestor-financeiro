@@ -1,6 +1,6 @@
 {
-  "name": "Gestor Financeiro",
-  "short_name": "Gestor",
+  "name": "saldonline",
+  "short_name": "saldonline",
   "description": "Contas, cartões, faturas e lançamentos do mês, num app só.",
   "start_url": "/",
   "scope": "/",

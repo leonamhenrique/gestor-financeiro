@@ -1,4 +1,4 @@
-# Padrão visual — App Gestor Financeiro
+# Padrão visual — App saldonline
 ### Direção "Densa / data-first" · dark mode minimalista futurista
 
 Este arquivo é o padrão único de todas as telas do app. Cole-o no projeto como
@@ -8,7 +8,7 @@ Este arquivo é o padrão único de todas as telas do app. Cole-o no projeto com
 
 ## Prompt para gerar uma tela nova
 
-> Crie a tela **[NOME DA TELA]** do app gestor financeiro para
+> Crie a tela **[NOME DA TELA]** do app saldonline para
 > **[mobile | desktop | ambos]**, seguindo exatamente o padrão visual descrito
 > em `DESIGN.md`.
 >
@@ -500,7 +500,7 @@ usuário ver o que foi entendido.**
 
 **Tela de entrada** (login / criar conta) — é a única tela sem navegação: sem
 barra inferior, sem trilho, sem botão flutuante. Coluna única de até 400px,
-centralizada na altura: marca em `--accent` (ícone + "Gestor Financeiro"),
+centralizada na altura: marca em `--accent` (ícone + "saldonline"),
 título de 24px/500, uma linha de contexto em `--fg-muted`, e os pills
 `Entrar` / `Criar conta` trocando o formulário no lugar — nada de duas telas.
 Campos pela anatomia da seção 11; "Criar conta" acrescenta nome e repetir a

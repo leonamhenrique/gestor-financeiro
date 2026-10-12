@@ -1,4 +1,4 @@
-# Subir o Gestor Financeiro para a nuvem
+# Subir o saldonline para a nuvem
 
 Duas partes, dois lugares:
 
@@ -187,7 +187,7 @@ os dados de verdade: leia o SQL gerado antes do push.
    | --- | --- |
    | `MAIL_PROVIDER` | `RESEND` |
    | `RESEND_API_KEY` | a chave (começa com `re_`) |
-   | `MAIL_FROM` | `Gestor Financeiro <nao-responda@seudominio.com>` |
+   | `MAIL_FROM` | `saldonline <nao-responda@seudominio.com>` |
 
 5. Confira que `APP_URL` é a URL do app: o link do e-mail é montado a partir
    dela.

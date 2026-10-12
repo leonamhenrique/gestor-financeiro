@@ -15,7 +15,7 @@
 // resposta de API em cache mostraria saldo velho como se fosse o de agora.
 // ============================================================
 
-var CACHE = "gestor-v1";
+var CACHE = "saldonline-v1";
 var CASCA = ["/", "/index.html", "/config.js", "/manifest.webmanifest",
   "/icons/icone-192.png", "/icons/icone-512.png", "/icons/icone-maskable-512.png"];
 
