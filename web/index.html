@@ -1751,6 +1751,11 @@
   <h1 class="entrada-titulo" id="ent-titulo">Entrar na sua conta</h1>
   <div class="entrada-ctx" id="ent-ctx">Use o e-mail e a senha que você cadastrou.</div>
 
+  <div class="banner" id="entrada-espera" hidden>
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/></svg>
+    <span>Acordando o servidor. A primeira conexão depois de um tempo parado pode levar até um minuto.</span>
+  </div>
+
   <div class="pills" id="ent-modo" role="group" aria-label="Entrar ou criar conta">
     <button type="button" class="pill on" data-modo="entrar" aria-pressed="true">Entrar</button>
     <button type="button" class="pill" data-modo="criar" aria-pressed="false">Criar conta</button>
@@ -1866,6 +1871,11 @@
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4.5M12 17h.01M10.3 3.9 2.7 17.5c-.6 1 .1 2.3 1.3 2.3h16c1.2 0 1.9-1.3 1.3-2.3L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>
       <span>Assinatura com pagamento pendente. Criar conta, lançamento, cartão ou categoria fica bloqueado até a quitação — o que já existe continua editável.</span>
       <button type="button" class="ghost" id="banner-regularizar">Regularizar</button>
+    </div>
+
+    <div class="banner" id="banner-espera" hidden>
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/></svg>
+      <span>Acordando o servidor. A primeira conexão depois de um tempo parado pode levar até um minuto.</span>
     </div>
 
     <!-- ================= RESUMO ================= -->
@@ -4841,7 +4851,58 @@
 
   /** Chamada à API com a sessão do navegador. Numa rota que não é de sessão,
    * um 401 dispara uma renovação silenciosa e uma segunda tentativa. */
+  /* ================= espera longa =================
+   * O servidor dorme quando ninguém usa (plano gratuito) e a primeira chamada
+   * depois disso leva perto de um minuto. Sem aviso, a pessoa vê um botão
+   * desabilitado e mais nada: "travou" e "carregando" ficam idênticos, e quem
+   * abre o app pela primeira vez conclui o pior.
+   *
+   * Não há timeout aqui, de propósito. Abortar aos 10 segundos transformaria
+   * uma espera lenta numa FALHA CERTA, porque o pedido ia completar aos 50.
+   * O que muda não é o prazo — é o que a tela conta enquanto ele corre.
+   *
+   * O contador existe porque várias chamadas correm juntas no carregamento:
+   * o aviso só sai quando a última termina, senão ele pisca no meio. */
+  var LIMIAR_ESPERA = 4000;
+  var pedidosNoAr = 0;
+  var relogioDaEspera = null;
+
+  function avisarEspera(ligar) {
+    ["entrada-espera", "banner-espera"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.hidden = !ligar;
+    });
+  }
+
+  function pedidoComecou() {
+    pedidosNoAr++;
+    if (pedidosNoAr === 1 && !relogioDaEspera) {
+      relogioDaEspera = setTimeout(function () {
+        relogioDaEspera = null;
+        if (pedidosNoAr > 0) avisarEspera(true);
+      }, LIMIAR_ESPERA);
+    }
+  }
+
+  function pedidoTerminou() {
+    pedidosNoAr = Math.max(0, pedidosNoAr - 1);
+    if (pedidosNoAr > 0) return;
+    if (relogioDaEspera) { clearTimeout(relogioDaEspera); relogioDaEspera = null; }
+    avisarEspera(false);
+  }
+
+  /** O "finally" não é zelo: sem ele, uma chamada que estoura (rede caída)
+   * deixaria o contador preso e o aviso na tela para sempre. */
   async function chamarApi(caminho, corpo, metodo) {
+    pedidoComecou();
+    try {
+      return await chamarApiBruto(caminho, corpo, metodo);
+    } finally {
+      pedidoTerminou();
+    }
+  }
+
+  async function chamarApiBruto(caminho, corpo, metodo) {
     function tentar() {
       var cab = { "Content-Type": "application/json", "X-Client": "web" };
       if (tokenAcesso) cab.Authorization = "Bearer " + tokenAcesso;
