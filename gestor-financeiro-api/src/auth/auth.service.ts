@@ -338,7 +338,7 @@ export class AuthService {
       // 5. Categoria filha aponta para a mãe (Restrict): as folhas primeiro.
       await tx.category.deleteMany({ where: { userId, parentId: { not: null } } });
       // 6. O resto desce pela cascata: contas, cartões, faturas, objetivos,
-      //    planejamentos, séries, assinatura, tokens e os logs do WhatsApp.
+      //    planejamentos, séries, assinatura e tokens.
       await tx.user.delete({ where: { id: userId } });
     });
 

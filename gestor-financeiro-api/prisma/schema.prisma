@@ -37,7 +37,6 @@ enum TransactionType {
 
 enum TransactionSource {
   APP
-  WHATSAPP
 }
 
 enum AccountType {
@@ -53,13 +52,6 @@ enum InvoiceStatus {
   PAID
   OVERDUE
   CARRIED // paga em parte e vencida: o restante foi para a fatura seguinte
-}
-
-enum WhatsappMessageStatus {
-  PROCESSED
-  FAILED
-  PENDING_CONFIRMATION
-  IGNORED
 }
 
 // Espelha os estados que qualquer gateway de assinatura expõe. PAST_DUE é o
@@ -101,7 +93,6 @@ model User {
   name           String
   email          String   @unique
   passwordHash   String   @map("password_hash")
-  whatsappNumber String?  @unique @map("whatsapp_number") // formato E.164, ex: +5531999999999
   // Bloqueio temporário contra adivinhação de senha. Fica no banco, e não em
   // memória, para valer igual com mais de uma instância da API rodando.
   failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
@@ -118,7 +109,6 @@ model User {
   budgets             Budget[]
   budgetItems         BudgetItem[]
   creditCards         CreditCard[]
-  whatsappMessages    WhatsappMessageLog[]
   subscription        Subscription?
   paymentMethods      PaymentMethod[]
   refreshTokens       RefreshToken[]
@@ -386,7 +376,6 @@ model Transaction {
   creditCard  CreditCard?         @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
   category    Category            @relation(fields: [categoryId], references: [id])
   series      TransactionSeries?  @relation(fields: [seriesId], references: [id], onDelete: SetNull)
-  whatsappLog WhatsappMessageLog?
 
   // Uma transação deve pertencer a UMA conta OU a UM cartão, nunca nenhum ou os dois.
   // Essa regra é validada na camada de aplicação (Prisma não suporta CHECK constraints
@@ -675,24 +664,4 @@ model InvoicePayment {
   @@index([invoiceId])
   @@index([bankAccountId])
   @@map("invoice_payments")
-}
-
-// ------------------------------------------------------------
-// LOG DE MENSAGENS DO WHATSAPP
-// ------------------------------------------------------------
-
-model WhatsappMessageLog {
-  id                   String                @id @default(uuid())
-  userId               String                @map("user_id")
-  rawMessage           String                @map("raw_message") @db.Text
-  parsedTransactionId  String?               @unique @map("parsed_transaction_id")
-  status               WhatsappMessageStatus @default(PENDING_CONFIRMATION)
-  errorReason          String?               @map("error_reason") // preenchido quando status = FAILED
-  createdAt            DateTime              @default(now()) @map("created_at")
-
-  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parsedTransaction  Transaction? @relation(fields: [parsedTransactionId], references: [id], onDelete: SetNull)
-
-  @@index([userId])
-  @@map("whatsapp_message_logs")
 }
