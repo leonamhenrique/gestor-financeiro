@@ -2931,11 +2931,13 @@
   <div class="layer-body">
     <div class="opt-list">
       <button type="button" class="opt" data-perfil="meu">Meu perfil<span class="opt-meta">Nome e e-mail da conta.</span></button>
-      <button type="button" class="opt" data-perfil="assinatura">
+      <!-- Assinatura e Planos saem de cena enquanto o paywall não cobra de
+           verdade. Ver ASSINATURA_VISIVEL, no script, para o porquê. -->
+      <button type="button" class="opt" data-perfil="assinatura" hidden>
         <span class="opt-linha">Minha assinatura<span class="tag" id="pf-status"></span></span>
         <span class="opt-meta" id="pf-plano"></span>
       </button>
-      <button type="button" class="opt" data-perfil="planos">Planos<span class="opt-meta">Comparar e trocar de plano.</span></button>
+      <button type="button" class="opt" data-perfil="planos" hidden>Planos<span class="opt-meta">Comparar e trocar de plano.</span></button>
       <button type="button" class="opt" data-perfil="instalar" hidden>Instalar no aparelho<span class="opt-meta" id="pf-instalar-meta">Abre em janela própria, com ícone na tela inicial.</span></button>
       <button type="button" class="opt" data-perfil="config">Configurações<span class="opt-meta" id="pf-config-meta">Em que data os relatórios contam o cartão.</span></button>
       <button type="button" class="opt" data-perfil="zerar">Começar do zero<span class="opt-meta">Apaga contas, cartões e lançamentos e refaz os primeiros passos.</span></button>
@@ -3185,11 +3187,31 @@
     return PLANOS.filter(function (p) { return p.id === state.assinatura.planoId; })[0] || PLANOS[1];
   }
 
+  /* ================= assinatura: fora de alcance por ora =================
+   * O paywall existe no código e NÃO cobra nada: o provedor da API é falso e
+   * o app não chama /billing/. Enquanto for assim, Assinatura e Planos ficam
+   * escondidos.
+   *
+   * O motivo não é estética. A política de pagamentos do Google Play exige
+   * que bem digital vendido dentro do app passe pelo Play Billing, e uma tela
+   * que aceita cartão e escolhe um plano de R$ 29,90 se lê como cobrança por
+   * fora — tenha ela cobrado ou não. Soma-se o risco de alguém digitar o
+   * número real do cartão num formulário que não faz nada.
+   *
+   * Para religar: trocar para true, DEPOIS de o Play Billing existir. */
+  var ASSINATURA_VISIVEL = false;
+
   /** Assinatura pendente bloqueia PARCIALMENTE: nada de criar registro novo
    * até quitar, mas o que já existe continua editável, pagável e visível —
    * senão o bloqueio esconderia justamente o dado que o usuário precisa para
-   * decidir se paga. */
-  function assinaturaBloqueada() { return state.assinatura.status === "PENDENTE"; }
+   * decidir se paga.
+   *
+   * Com a assinatura fora de alcance, nada pode estar bloqueado: senão o app
+   * recusaria uma ação apontando para uma tela que o usuário não consegue
+   * abrir. */
+  function assinaturaBloqueada() {
+    return ASSINATURA_VISIVEL && state.assinatura.status === "PENDENTE";
+  }
   function bloqueado() {
     if (!assinaturaBloqueada()) return false;
     abrirAssinatura();
@@ -10045,6 +10067,10 @@
 
   function abrirPerfilMenu() {
     var p = state.perfil, bloq = assinaturaBloqueada();
+    ["assinatura", "planos"].forEach(function (acao) {
+      var b = document.querySelector('[data-perfil="' + acao + '"]');
+      if (b) b.hidden = !ASSINATURA_VISIVEL;
+    });
     document.getElementById("pf-nome-head").textContent = p.nome;
     document.getElementById("pf-email-head").textContent = p.email;
     var pill = document.getElementById("pf-status");
@@ -10079,6 +10105,7 @@
   });
 
   function abrirAssinatura() {
+    if (!ASSINATURA_VISIVEL) return;
     var a = state.assinatura, bloq = assinaturaBloqueada(), plano = planoAtual();
     document.getElementById("as-plano").textContent = plano.nome;
     document.getElementById("as-preco").textContent = plano.preco > 0
@@ -10148,6 +10175,7 @@
   });
 
   function abrirPlanos() {
+    if (!ASSINATURA_VISIVEL) return;
     document.getElementById("planos-lista").innerHTML = PLANOS.map(function (p) {
       var atual = p.id === state.assinatura.planoId;
       return '<button type="button" class="opt" data-plano="' + p.id + '"' + (atual ? " disabled" : "") + '>' +

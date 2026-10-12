@@ -197,14 +197,22 @@ intenção de que seja demonstração não aparece em lugar nenhum da tela.
 formulário que não faz nada. Mesmo descartando número e CVV, nome, bandeira,
 final e validade ficam gravados em `localStorage`, em texto, no aparelho.
 
-**Antes de enviar o app para a Play, o fluxo precisa de uma destas saídas:**
+### Resolvido: as telas saíram de cena
 
-1. **Esconder** as entradas de Assinatura e Planos enquanto o paywall estiver
-   dormente. É a menor mudança e a mais honesta: o que não funciona não aparece.
-2. **Deixar visível, sem cobrar**: planos em modo informativo, sem formulário de
-   cartão e sem escolher plano pago.
-3. **Implementar o Play Billing** e ligar de verdade — o caminho completo, e o
-   único que permite cobrar dentro do app.
+Assinatura e Planos ficam escondidos enquanto o paywall não cobrar de verdade.
+A chave é `ASSINATURA_VISIVEL`, no `index.html`, e a proteção é dupla: as
+entradas do menu saem, e `abrirAssinatura` e `abrirPlanos` recusam abrir mesmo
+se o pedido vier por outro caminho.
 
-Isto é decisão de produto, não de código. Mas publicar com o fluxo como está é
-pedir reprovação na revisão.
+Junto veio um invariante: com a assinatura fora de alcance,
+`assinaturaBloqueada()` devolve `false` sempre. Sem isso, uma conta marcada
+como pendente ficaria impedida de criar registros e seria mandada para uma tela
+que não abre — recusa sem explicação, que é pior que a cobrança.
+
+Para religar, depois de o Play Billing existir: trocar a constante para `true`.
+O teste "com a assinatura fora de alcance, pendente NAO bloqueia" volta a
+esperar `true` nesse dia.
+
+As outras saídas consideradas eram deixar os planos em modo informativo, sem
+formulário de cartão, ou implementar o Play Billing de uma vez. A primeira foi
+escolhida por ser a menor e a mais honesta: o que não funciona não aparece.
