@@ -186,17 +186,25 @@ deploy inteiro, não só o e-mail.
 
    | Tipo | Nome | Valor |
    | --- | --- | --- |
-   | `MX` | `send` | `feedback-smtp.<região>.amazonses.com`, prioridade 10 |
-   | `TXT` | `send` | `v=spf1 include:amazonses.com ~all` |
-   | `TXT` | `resend._domainkey` | a chave DKIM, longa, copiada do painel |
+   | `TXT` | `resend._domainkey` | a chave DKIM, longa, começando com `p=` |
+   | `CNAME` | `send` | `send.forge.rmta.net` |
+   | `CNAME` | `rsend` | `rsend-sae1.forge.rmta.net` (o sufixo é a região) |
 
-   Os três entram na Cloudflare com **proxy desligado** (nuvem cinza).
+   Os dois CNAMEs entram com **proxy desligado** (nuvem cinza): proxiados, a
+   Cloudflare responderia com os IPs dela e a cadeia de envio quebraria. O TXT
+   não tem essa opção — só A, AAAA e CNAME têm.
 
-   Repare onde eles ficam: o MX e o SPF do Resend vão no subdomínio `send`,
-   não na raiz. O MX da raiz (Hostinger, que recebe) e o SPF da raiz não são
-   tocados — os dois serviços não se encostam, e a prioridade 10 em `send`
-   não conflita com a da raiz porque o nome é outro. Só o DKIM fica na raiz,
-   em nome próprio.
+   **Confira os valores no painel, não aqui.** O Resend já mudou esse conjunto
+   uma vez: a documentação dele ainda descreve um `MX` e um `TXT` de SPF em
+   `send`, e o produto hoje usa os dois CNAMEs acima. A tabela serve para você
+   saber ONDE cada coisa vai; o QUE colar sai da tela.
+
+   Repare onde eles ficam: tudo do Resend mora em nome próprio — `send`,
+   `rsend` e `resend._domainkey`. O MX da raiz (Hostinger, que recebe) e o SPF
+   da raiz não são tocados. Quem recebe e quem envia são serviços diferentes,
+   em nomes diferentes, e não se encostam.
+
+   Deixe **Enable Receiving** desligado: quem recebe é a Hostinger.
 
    Sem domínio verificado, o Resend entrega **apenas para o e-mail dono da
    conta** — dá para testar, não para usar de verdade.
