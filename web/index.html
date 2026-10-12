@@ -377,6 +377,41 @@
   }
   .pill:disabled { opacity: 0.65; cursor: default; }
 
+  /* ---------- fatura condensada ----------
+   * Ao rolar a lista de lançamentos, a fatura cheia sai de vista e leva junto
+   * o mês, os totais e as duas ações — justamente o que se precisa para
+   * decidir pagar enquanto se olha o que foi gasto. Esta barra traz isso de
+   * volta, grudada no topo.
+   *
+   * Não é card: o fundo é o da página, como a `.list-head` já faz, e o que a
+   * separa do conteúdo é uma hairline. Sem sombra (regra 3).
+   *
+   * Ela nasce esmaecida e desce ao aparecer. O movimento é curto de propósito:
+   * é um elemento que surge durante a rolagem, e animação longa aqui competiria
+   * com o gesto em vez de acompanhá-lo. */
+  .fatura-fixa {
+    position: sticky; top: 0; z-index: 4;
+    display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
+    padding: 9px 0; background: var(--bg);
+    border-bottom: 1px solid var(--hairline-strong);
+    font-size: 12px; color: var(--fg-subtle);
+    opacity: 0; transform: translateY(-6px); pointer-events: none;
+    transition: opacity 180ms ease-out, transform 180ms ease-out;
+  }
+  .fatura-fixa.on { opacity: 1; transform: none; pointer-events: auto; }
+  @media (prefers-reduced-motion: reduce) { .fatura-fixa { transition: none; } }
+  .fatura-fixa-mes { font-size: 13px; color: var(--fg); white-space: nowrap; }
+  .fatura-fixa-nums { display: flex; gap: 12px; flex-wrap: wrap; }
+  .fatura-fixa-nums span { white-space: nowrap; }
+  .fatura-fixa-nums b { font-weight: 500; color: var(--fg); margin-left: 5px; }
+  .fatura-fixa-acoes { display: flex; gap: 8px; margin-left: auto; }
+  /* Slim no mouse, 44px no dedo: a regra do alvo de toque vale por ponteiro,
+   * e encolher o botão para todo mundo quebraria ela no celular. */
+  .fatura-fixa .ghost { height: 34px; padding: 0 11px; font-size: 12px; }
+  @media (pointer: coarse) {
+    .fatura-fixa .ghost { height: 44px; padding: 0 14px; }
+  }
+
   .month-nav { display: flex; align-items: center; gap: 10px; }
   .month-label { font-size: 12px; color: var(--fg-muted); min-width: 118px; }
   .icon-btn {
@@ -2218,6 +2253,23 @@
              lista de cartões é um índice compacto e vai para o trilho, onde
              acompanha a rolagem. -->
         <div class="col-main">
+          <!-- Repete o essencial da fatura durante a rolagem. É marcada como
+               invisível ao leitor de tela, e os botões saem da ordem de
+               tabulação: tudo aqui já existe acima, e repetir faria o leitor
+               anunciar a mesma fatura duas vezes. Quem usa teclado alcança os
+               controles originais, que continuam no DOM. -->
+          <div class="fatura-fixa" id="k-fixa" aria-hidden="true">
+            <span class="fatura-fixa-mes num" id="k-fixa-mes"></span>
+            <span class="fatura-fixa-nums">
+              <span>confirmado<b class="num" id="k-fixa-confirmado"></b></span>
+              <span>pago<b class="num" id="k-fixa-pago"></b></span>
+              <span>em aberto<b class="num" id="k-fixa-aberto"></b></span>
+            </span>
+            <span class="fatura-fixa-acoes">
+              <button class="ghost" type="button" id="k-fixa-pagar" tabindex="-1">Pagar fatura</button>
+              <button class="ghost" type="button" id="k-fixa-add" tabindex="-1">Adicionar lançamento</button>
+            </span>
+          </div>
           <div class="blk" style="--i:1">
             <div class="lbl-row">
               <div class="lbl" id="k-det-nome">Fatura</div>
@@ -2238,7 +2290,7 @@
               <div class="seg-cell"><div class="lbl">Vence</div><div class="seg-val num" id="k-det-vence"></div></div>
             </div>
             <div class="field-help" id="k-det-transporte" hidden></div>
-            <div class="pills">
+            <div class="pills" id="k-acoes">
               <button class="ghost" type="button" id="k-pagar">Pagar fatura</button>
               <button class="ghost" type="button" id="k-add-lancamento">Adicionar lançamento</button>
             </div>
@@ -6821,6 +6873,10 @@
     document.getElementById("k-det-confirmado").textContent = money(f.confirmado);
     document.getElementById("k-det-pago").textContent = money(pago);
     document.getElementById("k-det-aberto").textContent = money(f.emAberto || 0);
+    document.getElementById("k-fixa-mes").textContent = rotuloMes(faturaMes);
+    document.getElementById("k-fixa-confirmado").textContent = money(f.confirmado);
+    document.getElementById("k-fixa-pago").textContent = money(pago);
+    document.getElementById("k-fixa-aberto").textContent = money(f.emAberto || 0);
     document.getElementById("k-det-fecha").textContent = "dia " + card.fechamento;
     document.getElementById("k-det-vence").textContent = "dia " + card.vencimento;
     // Com pagamento parcial o botão continua vivo: a mesma fatura aceita
@@ -6828,6 +6884,7 @@
     var botaoPagar = document.getElementById("k-pagar");
     var podePagar = (f.emAberto || 0) > 0;
     botaoPagar.disabled = !podePagar;
+    document.getElementById("k-fixa-pagar").disabled = !podePagar;
     botaoPagar.textContent = pago > 0 && f.emAberto > 0 ? "Pagar o restante" : "Pagar fatura";
     // O destaque segue a ação que DÁ para fazer. Com a fatura quitada (ou com o
     // resto já transportado), pagar não é mais uma opção e quem fica em pé é
@@ -8338,6 +8395,32 @@
     document.getElementById("pg-erro").textContent = "";
     abrir("dlg-pagar");
   }
+  /* A barra condensada não tem comportamento próprio: os botões dela
+   * encaminham para os originais. Uma ação, um manipulador — duplicar a lógica
+   * seria duplicar também os erros futuros. */
+  document.getElementById("k-fixa-pagar").addEventListener("click", function () {
+    document.getElementById("k-pagar").click();
+  });
+  document.getElementById("k-fixa-add").addEventListener("click", function () {
+    document.getElementById("k-add-lancamento").click();
+  });
+
+  /* Mostra a barra só quando as ações originais já subiram para FORA da tela.
+   * Testar apenas "não está visível" não bastaria: isso também é verdade antes
+   * de rolar, quando elas ainda estão abaixo — e a barra apareceria por cima da
+   * fatura cheia, repetindo o que já está à vista. Daí o teste do topo. */
+  if (typeof IntersectionObserver === "function") {
+    var barraFatura = document.getElementById("k-fixa");
+    var acoesFatura = document.getElementById("k-acoes");
+    if (barraFatura && acoesFatura) {
+      new IntersectionObserver(function (entradas) {
+        entradas.forEach(function (e) {
+          barraFatura.classList.toggle("on", !e.isIntersecting && e.boundingClientRect.top < 0);
+        });
+      }, { threshold: 0 }).observe(acoesFatura);
+    }
+  }
+
   document.getElementById("k-pagar").addEventListener("click", function () {
     abrirPagarFatura(cartaoSel, monthKey(faturaMes));
   });
