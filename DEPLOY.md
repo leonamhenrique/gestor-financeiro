@@ -287,10 +287,32 @@ continua só com a Hostinger.
 
 ### Depois da troca
 
-- No Pages, adicionar `saldonline.com.br` em *Custom domains*.
-- `CORS_ORIGINS` e `APP_URL`, no Render, passam a apontar para o domínio novo.
-- O `assetlinks.json` tem de responder **nos dois endereços** enquanto houver
-  versão do app apontando para cada um: ele é verificado por domínio.
+No Pages, `saldonline.com.br` e `www.saldonline.com.br` entram em *Custom
+domains*. Com a zona na mesma conta, a Cloudflare cria os registros sozinha e
+o certificado cobre os dois nomes.
+
+No Render, em *Environment* (são `sync: false`, moram no painel):
+
+| Key | Value |
+| --- | --- |
+| `CORS_ORIGINS` | `https://saldonline.com.br,https://www.saldonline.com.br,https://gestor-financeiro.pages.dev` |
+| `APP_URL` | `https://saldonline.com.br` |
+
+O `pages.dev` continua na lista de propósito: enquanto houver versão do app ou
+atalho apontando para lá, tirá-lo quebraria o login dessas pessoas sem aviso —
+o navegador recusa a chamada antes de ela sair. `APP_URL` é só um, porque é o
+endereço escrito no link de redefinição de senha, e esse tem de ser canônico.
+
+O `assetlinks.json` precisa responder **em todos os domínios que o app abre**,
+porque o Android o verifica por domínio.
+
+### O que ainda é cross-site
+
+`COOKIE_SAMESITE=none` continua necessário: o app está em
+`saldonline.com.br` e a API em `onrender.com`, que para o navegador são sites
+diferentes. Dar à API um `api.saldonline.com.br` (domínio próprio no Render,
+agora fácil porque o DNS está na Cloudflare) permitiria voltar para `strict`,
+que é a postura mais segura contra CSRF.
 
 ---
 
