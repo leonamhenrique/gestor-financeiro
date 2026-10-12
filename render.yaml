@@ -15,6 +15,17 @@ services:
     name: gestor-financeiro-api
     runtime: node
     region: oregon
+    # PENDENTE: trocar para `starter` depois de confirmar a cobranca no painel
+    # do Render. A instancia free hiberna apos 15 min (ate 50s de espera no
+    # primeiro acesso) e tem 0,1 CPU; a starter (0.5c-512mb, US$ 7/mes) tem 0,5
+    # CPU, a MESMA RAM de 512 MB que ja basta hoje, e nao hiberna.
+    #
+    # Trocar so no painel nao resolve: este servico e blueprint managed, e
+    # enquanto esta linha disser "free" uma sincronizacao futura devolve a
+    # instancia para gratuita — e a hibernacao volta sem ninguem entender por que.
+    #
+    # O plano do WORKSPACE (US$ 25/mes) nao tem relacao: ele define recursos da
+    # plataforma, nao o tipo de instancia dos servicos.
     plan: free
     rootDir: gestor-financeiro-api
     # `--include=dev` não é enfeite: o Render roda com NODE_ENV=production, e
