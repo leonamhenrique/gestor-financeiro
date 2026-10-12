@@ -272,3 +272,51 @@ dois TXT de SPF separados invalidam os dois.
 - `CORS_ORIGINS` e `APP_URL`, no Render, passam a apontar para o domínio novo.
 - O `assetlinks.json` tem de responder **nos dois endereços** enquanto houver
   versão do app apontando para cada um: ele é verificado por domínio.
+
+---
+
+## A conta de organização no Play Console
+
+A exigência de **12 testadores por 14 dias** vale só para contas **pessoais**
+criadas depois de 13/11/2023. Conta de organização fica fora do escopo da
+regra — e conta de organização não existe sem um número D-U-N-S.
+
+### A identidade da empresa
+
+Estes quatro campos precisam ser **idênticos** no D-U-N-S, no perfil de
+pagamentos do Google e em qualquer formulário que compare os dois:
+
+| | |
+| --- | --- |
+| Razão social | `OFIX SERVICOS ADMINISTRATIVOS LTDA` |
+| CNPJ | `62.836.488/0001-49` |
+| D-U-N-S | `574382940` |
+| Endereço | Praça Silviano Brandão, 66, Loja 02 — Centro, Contagem/MG, 32017-680 |
+| Site | `https://saldonline.com.br` |
+| Contato público | `contato@saldonline.com.br` |
+
+O endereço é o da Receita. Não é o que aparece como contato administrativo no
+painel do domínio — aquele é pessoal, e usar o errado aqui aciona o prazo de
+28 dias que o Google dá para corrigir divergência, sob risco de remover a
+conta e os apps.
+
+### O que não se desfaz
+
+**O perfil de pagamentos do Google não permite trocar país, tipo de conta nem
+o D-U-N-S depois de criado.** Para mudar qualquer um dos três é preciso montar
+um perfil novo, reenviar documentos e revincular. Conferir os campos acima
+antes de confirmar o cadastro custa um minuto; errar custa o processo inteiro.
+
+O mesmo vale para o `package_name` do app (`br.com.saldonline.app`): é
+permanente desde o primeiro envio.
+
+### Onde o D-U-N-S saiu
+
+Pela ferramenta da Apple — [developer.apple.com/enroll/duns-lookup](https://developer.apple.com/enroll/duns-lookup/) —,
+gratuita e imediata, porque a empresa já constava na base da D&B. O D-U-N-S
+identifica a empresa, não a loja: o mesmo número serve para Apple e Google.
+
+Fica registrado porque o caminho não é óbvio: o representante da D&B no Brasil
+é a CIAL, cuja via gratuita anuncia **30 dias úteis** e cuja via expressa é
+vendida como plano anual. O Google diz, na própria ajuda, que o número é
+gratuito e adverte sobre terceiros que cobram caro por ele.
