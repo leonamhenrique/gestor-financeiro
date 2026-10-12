@@ -343,11 +343,24 @@ pagamentos do Google e em qualquer formulário que compare os dois:
 | Endereço | Praça Silviano Brandão, 66, Loja 02 — Centro, Contagem/MG, 32017-680 |
 | Site | `https://saldonline.com.br` |
 | Contato público | `contato@saldonline.com.br` |
+| Contato com o Google | `admin@saldonline.com.br` (alias da caixa acima) |
+| Conta no Play Console | **Saldonline**, organização, ID `8016104932395775122` |
 
 O endereço é o da Receita. Não é o que aparece como contato administrativo no
 painel do domínio — aquele é pessoal, e usar o errado aqui aciona o prazo de
 28 dias que o Google dá para corrigir divergência, sob risco de remover a
 conta e os apps.
+
+**Por que dois endereços em @saldonline.com.br.** O Play Console exige que o
+contato da organização seja **diferente** do endereço da Conta do Google que
+administra a conta, e que **pertença ao domínio do site** da organização. Com
+`contato@` sendo a Conta do Google, nem ele nem um endereço pessoal servem —
+daí o alias `admin@`, que é outro endereço, do mesmo domínio, entregando na
+mesma caixa. Alias e não caixa nova: o plano tem uma só, e o que o Google
+precisa é que o endereço exista e seja lido.
+
+É por esse endereço que chega aviso de violação de política e de suspensão.
+Se ele parar de receber, o problema aparece com o app já fora do ar.
 
 ### O que não se desfaz
 
