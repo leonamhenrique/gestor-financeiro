@@ -57,7 +57,7 @@ services:
       # antes de a chave existir no painel derruba o deploy inteiro, não só o
       # e-mail. Primeiro preencha RESEND_API_KEY no Render; depois troque aqui.
       - key: MAIL_PROVIDER
-        value: NONE
+        value: RESEND
       # Preencher no painel do Render (Environment). NUNCA no repositório:
       # ele é público. A chave começa com "re_".
       - key: RESEND_API_KEY
