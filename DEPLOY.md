@@ -201,3 +201,27 @@ vê a mesma mensagem de sempre e o motivo fica no *Logs* do Render: dizer "esse
 e-mail não existe" entregaria quais e-mails têm conta.
 - **Domínio próprio**: dá para apontar um depois, nos dois painéis, sem mudar
   nada do código além das variáveis `CORS_ORIGINS` e `APP_URL`.
+
+---
+
+## O app na Play Store (`assetlinks.json`)
+
+Na Play o app é um **TWA**: um invólucro Android que abre o site em tela cheia,
+sem barra de endereço. Quem autoriza esse "sem barra de endereço" é o próprio
+site, pelo arquivo `web/.well-known/assetlinks.json`.
+
+Duas coisas o identificam, e as duas são rígidas:
+
+- **`package_name`** — `br.com.saldonline.app`. **É permanente.** Depois do
+  primeiro envio não se renomeia: um pacote errado só se conserta publicando
+  outro app, do zero, sem usuários e sem avaliações.
+- **`sha256_cert_fingerprints`** — a impressão da chave que assina o app. No
+  Console ela fica em **Test and release > Setup > App integrity**, e é a
+  impressão da **chave de assinatura do app** (*app signing key*), **não** a da
+  chave de envio (*upload key*). Trocar as duas é o erro clássico: a Play
+  aceita o envio, o app instala, e abre com a barra do Chrome à vista.
+
+O Android busca o arquivo em `https://<domínio que o app abre>/.well-known/assetlinks.json`
+— o domínio da `start_url`, não o nome do pacote. Ao migrar de
+`gestor-financeiro.pages.dev` para `saldonline.com.br`, o arquivo tem de estar
+**nos dois** enquanto houver versão apontando para cada um.
