@@ -283,10 +283,19 @@ troca valer:
 | `CNAME` | `hostingermail-b._domainkey` | `hostingermail-b.dkim.mail.hostinger.com` | assinatura |
 | `CNAME` | `hostingermail-c._domainkey` | `hostingermail-c.dkim.mail.hostinger.com` | assinatura |
 | `TXT` | `_dmarc` | `v=DMARC1; p=none` | política de DMARC |
+| `TXT` | `@` | `google-site-verification=…` | verificação do site no Play |
+| `TXT` | `resend._domainkey` | a chave DKIM do Resend | assinatura do envio |
+| `CNAME` | `send` / `rsend` | `*.forge.rmta.net` | envio pelo Resend |
 
 Os registros de e-mail são **proxy desligado** (nuvem cinza) na Cloudflare: MX e
-TXT não passam por proxy, e marcar o CNAME de DKIM como proxied quebra a
-assinatura.
+TXT não têm essa opção, e marcar um CNAME de DKIM ou de envio como proxied
+quebra a cadeia — a Cloudflare passaria a responder com os IPs dela.
+
+**Nenhum destes pode ser apagado numa limpeza futura.** Em especial o
+`google-site-verification`: sem ele o site deixa de estar verificado no Search
+Console, e a conta de organização no Play perde a verificação junto. Ele não
+parece ter dono, porque não serve a nada visível — e é exatamente por isso que
+seria o primeiro a ser removido por quem não souber.
 
 O SPF é **um registro TXT só por nome**: dois TXT de SPF no mesmo nome
 invalidam os dois. Isso vale para a raiz, e é por isso que o Resend não entra
