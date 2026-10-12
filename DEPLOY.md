@@ -175,25 +175,43 @@ os dados de verdade: leia o SQL gerado antes do push.
 
 ## Ligar o "esqueci minha senha" (Resend)
 
-1. Crie a conta em <https://resend.com>.
-2. **Domínio**: em *Domains*, adicione o seu e crie no seu provedor de DNS os
-   registros que ele mostrar (SPF e DKIM). Sem domínio verificado, o Resend
-   entrega **apenas para o e-mail dono da conta** — dá para testar, não para
-   usar de verdade.
-3. Em *API Keys*, crie uma chave com permissão de envio e copie.
-4. No Render, em *Environment*, três variáveis:
+A ordem abaixo não é sugestão. O `ResendMailer` confere `RESEND_API_KEY` e
+`MAIL_FROM` **no construtor**, que roda quando a API sobe: trocar
+`MAIL_PROVIDER` para `RESEND` antes de a chave existir no painel derruba o
+deploy inteiro, não só o e-mail.
 
-   | Key | Value |
-   | --- | --- |
-   | `MAIL_PROVIDER` | `RESEND` |
-   | `RESEND_API_KEY` | a chave (começa com `re_`) |
-   | `MAIL_FROM` | `saldonline <nao-responda@saldonline.com.br>` |
+1. Crie a conta em <https://resend.com>, com `contato@saldonline.com.br`.
+2. **Domínio**: em *Domains*, adicione `saldonline.com.br`. O Resend mostra
+   três registros, e os valores reais saem do painel dele:
 
+   | Tipo | Nome | Valor |
+   | --- | --- | --- |
+   | `MX` | `send` | `feedback-smtp.<região>.amazonses.com`, prioridade 10 |
+   | `TXT` | `send` | `v=spf1 include:amazonses.com ~all` |
+   | `TXT` | `resend._domainkey` | a chave DKIM, longa, copiada do painel |
+
+   Os três entram na Cloudflare com **proxy desligado** (nuvem cinza).
+
+   Repare onde eles ficam: o MX e o SPF do Resend vão no subdomínio `send`,
+   não na raiz. O MX da raiz (Hostinger, que recebe) e o SPF da raiz não são
+   tocados — os dois serviços não se encostam, e a prioridade 10 em `send`
+   não conflita com a da raiz porque o nome é outro. Só o DKIM fica na raiz,
+   em nome próprio.
+
+   Sem domínio verificado, o Resend entrega **apenas para o e-mail dono da
+   conta** — dá para testar, não para usar de verdade.
+3. Em *API Keys*, crie uma chave com permissão de envio.
+4. No Render, em *Environment*, cole a chave em `RESEND_API_KEY`. **Ela nunca
+   entra no repositório**, que é público. `MAIL_FROM` já está versionado no
+   `render.yaml`, porque não é segredo.
 5. Confira que `APP_URL` é a URL do app: o link do e-mail é montado a partir
    dela.
-6. **Save, rebuild, and deploy**. A API confere as duas primeiras na subida —
-   faltando alguma, o deploy falha na hora, em vez de falhar no dia em que
-   alguém esquecer a senha.
+6. **Só agora** troque `MAIL_PROVIDER` para `RESEND` no `render.yaml` e dê
+   push. A API confere as duas variáveis na subida — faltando alguma, o deploy
+   falha na hora, em vez de falhar no dia em que alguém esquecer a senha.
+7. Teste com uma conta de verdade: peça "esqueci minha senha" e veja o e-mail
+   chegar. O endereço `nao-responda@` não precisa de caixa postal — o Resend
+   só envia.
 
 O link vale 30 minutos, serve uma vez só e, ao ser usado, derruba as sessões
 abertas. Se o envio falhar (domínio não verificado, chave errada), quem pediu
@@ -262,9 +280,10 @@ Os registros de e-mail são **proxy desligado** (nuvem cinza) na Cloudflare: MX 
 TXT não passam por proxy, e marcar o CNAME de DKIM como proxied quebra a
 assinatura.
 
-O SPF é **um registro TXT só**. Quando o Resend entrar, o `include` dele vai
-no MESMO registro (`v=spf1 include:_spf.mail.hostinger.com include:… ~all`) —
-dois TXT de SPF separados invalidam os dois.
+O SPF é **um registro TXT só por nome**: dois TXT de SPF no mesmo nome
+invalidam os dois. Isso vale para a raiz, e é por isso que o Resend não entra
+aqui — ele usa um subdomínio próprio (`send.`), com SPF separado. A raiz
+continua só com a Hostinger.
 
 ### Depois da troca
 

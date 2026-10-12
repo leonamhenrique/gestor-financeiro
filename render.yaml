@@ -49,8 +49,22 @@ services:
       # src/auth/session-cookie.ts. Com domínio próprio nos dois, volte a strict.
       - key: COOKIE_SAMESITE
         value: none
-      # Sem serviço de e-mail ainda: a API sobe normalmente e só a
-      # recuperação de senha fica desligada, avisando quem tentar. Quando
-      # escolhermos um provedor (Resend, SES), troque aqui.
+      # Serviço de e-mail. Em NONE a API sobe normalmente e só a recuperação
+      # de senha fica desligada, avisando quem tentar.
+      #
+      # ORDEM IMPORTA ao ligar o Resend: o ResendMailer confere as duas
+      # variáveis abaixo NO CONSTRUTOR, que roda na subida. Trocar para RESEND
+      # antes de a chave existir no painel derruba o deploy inteiro, não só o
+      # e-mail. Primeiro preencha RESEND_API_KEY no Render; depois troque aqui.
       - key: MAIL_PROVIDER
         value: NONE
+      # Preencher no painel do Render (Environment). NUNCA no repositório:
+      # ele é público. A chave começa com "re_".
+      - key: RESEND_API_KEY
+        sync: false
+      # Este não é segredo e fica versionado. O domínio precisa estar
+      # verificado no Resend, e o endereço não precisa de caixa postal: o
+      # Resend só envia, e quem responder cai em contato@saldonline.com.br
+      # se houver Reply-To — por ora, ninguém responde a um "não responda".
+      - key: MAIL_FROM
+        value: "saldonline <nao-responda@saldonline.com.br>"
