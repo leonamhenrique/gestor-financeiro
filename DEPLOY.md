@@ -187,7 +187,7 @@ os dados de verdade: leia o SQL gerado antes do push.
    | --- | --- |
    | `MAIL_PROVIDER` | `RESEND` |
    | `RESEND_API_KEY` | a chave (começa com `re_`) |
-   | `MAIL_FROM` | `saldonline <nao-responda@seudominio.com>` |
+   | `MAIL_FROM` | `saldonline <nao-responda@saldonline.com.br>` |
 
 5. Confira que `APP_URL` é a URL do app: o link do e-mail é montado a partir
    dela.
@@ -225,3 +225,50 @@ O Android busca o arquivo em `https://<domínio que o app abre>/.well-known/asse
 — o domínio da `start_url`, não o nome do pacote. Ao migrar de
 `gestor-financeiro.pages.dev` para `saldonline.com.br`, o arquivo tem de estar
 **nos dois** enquanto houver versão apontando para cada um.
+
+---
+
+## O domínio `saldonline.com.br`
+
+Registrado pela Hostinger, mas o registro de um `.com.br` mora sempre no
+registro.br — a Hostinger é revendedora. **O titular é o CNPJ da empresa**, e
+isso importa além da formalidade: a conta de organização no Play Console
+declara o site da organização, e um WHOIS em nome de pessoa física ao lado de
+uma conta em nome da empresa é divergência onde não precisava haver.
+
+### Ao mover os nameservers para a Cloudflare
+
+O apex (`saldonline.com.br`, sem `www`) **só funciona no Cloudflare Pages se o
+DNS estiver na Cloudflare**: CNAME não existe na raiz de uma zona, e quem
+resolve isso é o achatamento que a Cloudflare faz na zona dela. Subdomínio
+aceitaria um CNAME em qualquer provedor; a raiz, não.
+
+Trocar o nameserver **apaga a zona da Hostinger**, e com ela o e-mail — sem
+erro, sem aviso: quem escrever para `contato@saldonline.com.br` passa a receber
+devolução. Estes são os registros que precisam existir na Cloudflare ANTES da
+troca valer:
+
+| Tipo | Nome | Valor | Para quê |
+| --- | --- | --- | --- |
+| `MX` | `@` | `mx1.hostinger.com` (prio 5) | receber e-mail |
+| `MX` | `@` | `mx2.hostinger.com` (prio 10) | receber e-mail |
+| `TXT` | `@` | `v=spf1 include:_spf.mail.hostinger.com ~all` | quem pode enviar |
+| `CNAME` | `hostingermail-a._domainkey` | `hostingermail-a.dkim.mail.hostinger.com` | assinatura |
+| `CNAME` | `hostingermail-b._domainkey` | `hostingermail-b.dkim.mail.hostinger.com` | assinatura |
+| `CNAME` | `hostingermail-c._domainkey` | `hostingermail-c.dkim.mail.hostinger.com` | assinatura |
+| `TXT` | `_dmarc` | `v=DMARC1; p=none` | política de DMARC |
+
+Os registros de e-mail são **proxy desligado** (nuvem cinza) na Cloudflare: MX e
+TXT não passam por proxy, e marcar o CNAME de DKIM como proxied quebra a
+assinatura.
+
+O SPF é **um registro TXT só**. Quando o Resend entrar, o `include` dele vai
+no MESMO registro (`v=spf1 include:_spf.mail.hostinger.com include:… ~all`) —
+dois TXT de SPF separados invalidam os dois.
+
+### Depois da troca
+
+- No Pages, adicionar `saldonline.com.br` em *Custom domains*.
+- `CORS_ORIGINS` e `APP_URL`, no Render, passam a apontar para o domínio novo.
+- O `assetlinks.json` tem de responder **nos dois endereços** enquanto houver
+  versão do app apontando para cada um: ele é verificado por domínio.
