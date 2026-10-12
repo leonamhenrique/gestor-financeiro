@@ -401,10 +401,13 @@ cheia. Não há código Android escrito à mão — o projeto é **gerado** pelo
 [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap) a partir do
 `manifest.webmanifest` do site.
 
-**A pasta `twa/` não está no Git**, e isso é deliberado: o `bubblewrap init`
-gera `android.keystore`, a chave que assina o app, e este repositório é
-público. Como consequência, **o que está escrito aqui é a única memória de como
-refazer o projeto**.
+**O projeto mora FORA do repositório**, em `C:Usershenrisaldonline-twa`, e
+isso é deliberado: o `bubblewrap init` gera `android.keystore`, a chave que
+assina o app, e este repositório é público. O `.gitignore` ainda bloqueia
+`twa/` e qualquer `*.keystore` como segunda barreira.
+
+Como consequência, **o que está escrito aqui é a única memória de como refazer
+o projeto**.
 
 ### Recriar do zero
 
@@ -442,19 +445,72 @@ empacotar.
 
 ### Gerar o pacote
 
+Em tese é `npx @bubblewrap/cli build`. **Nesta máquina não funciona**, e os três
+motivos valem registro porque nenhum deles diz o que é de verdade:
+
+**1. `gradlew.bat não é reconhecido como um comando interno ou externo`**
+
+A variável de ambiente `NoDefaultCurrentDirectoryInExePath=1` está definida
+aqui. Ela proíbe o `cmd` de procurar executáveis no diretório atual — uma
+proteção do Windows contra sequestro de comando. O Bubblewrap chama
+`gradlew.bat` pelo nome puro, contando com esse comportamento. O arquivo está
+lá; o `cmd` se recusa a olhar. **Não é o espaço no caminho**, que foi a
+primeira suspeita e estava errada.
+
+**2. `Could not reserve enough space for 1572864KB object heap`**
+
+O Bubblewrap instala um **JDK de 32 bits** mesmo com Node x64. Numa JVM de 32
+bits não cabe o heap de 1,5 GB que o `gradle.properties` pede. A máquina tem
+8 GB — o limite é de arquitetura, não de memória. Corrigido para `-Xmx1024m`,
+que sobra para um TWA.
+
+**3. `minSdkVersion 21 cannot be smaller than version 24`**
+
+O projeto nasce com `minSdkVersion 21`, e a `androidbrowserhelper`, que é o
+motor do TWA, exige 24. Inconsistência do próprio gerador. Subir para 24
+(Android 7.0) é a saída correta; o `tools:overrideLibrary` que o Gradle sugere
+força a barra e, nas palavras dele, "pode levar a falhas em tempo de execução".
+
+### O caminho que funciona
+
+Compilar pelo Gradle, com caminho absoluto:
+
 ```
-npx @bubblewrap/cli build
+set JAVA_HOME=C:Usershenri.bubblewrapjdkjdk-17.0.11+9
+set ANDROID_HOME=C:Usershenri.bubblewrapandroid_sdk
+C:Usershenrisaldonline-twagradlew.bat bundleRelease assembleRelease
 ```
 
-Produz `app-release-bundle.aab` (o que sobe para a Play) e um APK assinado. Pede
-a senha do keystore.
+O Gradle precisa de um `local.properties` com `sdk.dir=C:/Users/henri/.bubblewrap/android_sdk`
+(barra normal, não invertida: no formato `.properties` a barra invertida é
+escape). O Bubblewrap criaria esse arquivo sozinho; como ele não chega a rodar,
+é preciso criá-lo à mão.
+
+O Gradle gera **sem assinatura** — o projeto não tem `signingConfigs`, quem
+assinaria seria o Bubblewrap. Então a assinatura vai em passo separado:
+
+```
+jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore android.keystore -signedjar app-release-bundle.aab appuildoutputsundleeleaseapp-release.aab android
+zipalign -f -p 4 appuildoutputsapkeleaseapp-release-unsigned.apk app-release-aligned.apk
+apksigner sign --ks android.keystore --ks-key-alias android --out app-release-signed.apk app-release-aligned.apk
+```
+
+O `.aab` é o que sobe para a Play. O `.apk` serve para instalar no aparelho e
+conferir antes.
 
 ### A impressão SHA-256, que fecha o circuito
 
-A chave que o Bubblewrap gerou é a **chave de envio** (*upload key*). Com o Play
-App Signing, o Google reassina o app com uma chave própria — e é a impressão
-**dela** que vai no `assetlinks.json`, copiada do Console em *Test and release →
-Setup → App integrity*.
+O `assetlinks.json` **aceita várias impressões**, e hoje ele tem uma: a da
+**chave de envio** local, extraída do pacote assinado com
+`keytool -printcert -jarfile`. É ela que permite instalar o APK no aparelho e
+ver o app abrir em tela cheia antes de qualquer envio à Play.
 
-Usar a impressão do keystore local é o erro clássico: a Play aceita o envio, o
-app instala, e abre com a barra do Chrome visível. Nada avisa o motivo.
+Falta a segunda. Com o Play App Signing, o Google **reassina** o app com uma
+chave própria, e a impressão **dela** precisa ser acrescentada à lista depois do
+primeiro envio, copiada do Console em *Test and release → Setup → App
+integrity*.
+
+Usar só a do keystore local depois de publicar é o erro clássico: a Play aceita
+o envio, o app instala, e abre com a barra do Chrome visível. Nada avisa o
+motivo. As duas convivem — a local serve para os seus testes, a do Google para
+o app publicado.
