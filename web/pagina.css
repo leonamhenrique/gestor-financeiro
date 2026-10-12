@@ -68,12 +68,12 @@ body {
 
 main { max-width: var(--read-max); margin: 0 auto; }
 
+/* Mesmo logotipo do app: texto em currentColor, anel em --accent. */
 .marca {
-  display: flex; align-items: center; gap: 8px;
-  color: var(--accent); font-size: 13px; letter-spacing: 0.02em;
+  display: flex; align-items: center;
   margin-bottom: 28px;
 }
-.marca svg { width: 20px; height: 20px; }
+.marca svg { width: auto; height: 22px; color: var(--fg); }
 
 h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
 h2 { font-size: 17px; font-weight: 600; margin: 36px 0 10px; }
