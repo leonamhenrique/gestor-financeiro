@@ -386,6 +386,12 @@
    * Não é card: o fundo é o da página, como a `.list-head` já faz, e o que a
    * separa do conteúdo é uma hairline. Sem sombra (regra 3).
    *
+   * Mostra só o que FALTA PAGAR. Cabem três totais no desktop, mas no celular
+   * eles sozinhos ocupam 318 dos 356px disponíveis e empurram tudo para uma
+   * terceira linha — medido. E numa barra condensada o número sobre o qual se
+   * decide é o que falta: confirmado e pago são contexto, e contexto é o que
+   * se vai buscar no painel cheio, a uma rolagem de distância.
+   *
    * Ela nasce esmaecida e desce ao aparecer. O movimento é curto de propósito:
    * é um elemento que surge durante a rolagem, e animação longa aqui competiria
    * com o gesto em vez de acompanhá-lo. */
@@ -2273,8 +2279,6 @@
               <button class="icon-btn" type="button" id="k-fixa-prox" tabindex="-1"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </span>
             <span class="fatura-fixa-nums">
-              <span>confirmado<b class="num" id="k-fixa-confirmado"></b></span>
-              <span>pago<b class="num" id="k-fixa-pago"></b></span>
               <span>em aberto<b class="num" id="k-fixa-aberto"></b></span>
             </span>
             <span class="fatura-fixa-acoes">
@@ -6886,8 +6890,6 @@
     document.getElementById("k-det-pago").textContent = money(pago);
     document.getElementById("k-det-aberto").textContent = money(f.emAberto || 0);
     document.getElementById("k-fixa-mes").textContent = rotuloMes(faturaMes);
-    document.getElementById("k-fixa-confirmado").textContent = money(f.confirmado);
-    document.getElementById("k-fixa-pago").textContent = money(pago);
     document.getElementById("k-fixa-aberto").textContent = money(f.emAberto || 0);
     document.getElementById("k-det-fecha").textContent = "dia " + card.fechamento;
     document.getElementById("k-det-vence").textContent = "dia " + card.vencimento;
