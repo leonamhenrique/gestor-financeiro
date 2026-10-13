@@ -681,6 +681,24 @@
   .cat-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; }
   .cat-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .cat-meta { font-size: 11px; color: var(--fg-subtle); }
+  /* A barra vira botão e abre o mapa daquela categoria. Precisa desfazer o que
+   * o navegador impõe a um button — fonte, borda, alinhamento — e ocupar a
+   * linha inteira, senão a barra encolheria para o tamanho do texto.
+   * O alvo de toque já passa de 44px: são duas linhas mais a barra. */
+  button.cat {
+    width: 100%; text-align: left; padding: 0;
+    background: none; border: none; font: inherit; color: inherit; cursor: pointer;
+  }
+  button.cat .cat-head { transition: color 180ms ease-out; }
+  button.cat:hover .cat-head { color: var(--accent); }
+  button.cat:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
+  /* No toque a linha cresce ate os 44px da regra 4. Nao da para resolver com
+   * uma banda invisivel como no .pill: as linhas distam 12px uma da outra, e
+   * uma banda de 44 invadiria a vizinha — abrir a categoria errada e pior que
+   * alvo curto, e o app ja aprendeu isso nas acoes do extrato. */
+  @media (pointer: coarse) {
+    button.cat { min-height: 44px; justify-content: center; }
+  }
   .bar { height: var(--bar-h); border-radius: var(--r-pill); background: var(--track); overflow: hidden; }
   .bar > i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--fg); transition: width 200ms ease-out; }
   .bar > i.accent { background: var(--accent); }
@@ -3135,6 +3153,17 @@
   </form>
 </dialog>
 
+<!-- O mapa de uma categoria só. Abre ao tocar numa barra de "Maiores
+     despesas" ou "Maiores receitas": o ranking diz QUANTO, e isto diz QUANDO. -->
+<dialog id="dlg-calor-cat">
+  <div class="layer-head">
+    <h3 id="cc-titulo">Categoria</h3>
+    <div class="ctx" id="cc-ctx"></div>
+    <button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+  </div>
+  <div class="layer-body"><div class="calor" id="cc-mapa"></div></div>
+</dialog>
+
 <dialog id="dlg-planos">
   <div class="layer-head"><h3>Planos</h3><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
   <div class="layer-body"><div class="opt-list" id="planos-lista"></div></div>
@@ -4008,12 +4037,15 @@
     var maior = itens[0].valor;
     return itens.map(function (d, i) {
       var pct = maior > 0 ? (d.valor / maior) * 100 : 0;
-      return '<div class="cat">' +
+      var miolo =
         '<div class="cat-line"><span class="cat-head"><span class="dot" style="background:' + d.cor + '"></span>' + esc(d.nome) + '</span>' +
         '<span class="num">' + money(d.valor) + '</span></div>' +
         '<div class="bar"><i style="width:' + pct.toFixed(1) + '%;opacity:' + (OPACIDADES[i] || 0.32) + '"></i></div>' +
-        (comMeta ? '<div class="cat-meta">' + d.n + (d.n === 1 ? " lançamento" : " lançamentos") + '</div>' : '') +
-        '</div>';
+        (comMeta ? '<div class="cat-meta">' + d.n + (d.n === 1 ? " lançamento" : " lançamentos") + '</div>' : '');
+      // Sem id não há o que abrir: a linha continua sendo só leitura.
+      if (!d.id) return '<div class="cat">' + miolo + '</div>';
+      return '<button type="button" class="cat cat-abre" data-cat="' + esc(d.id) + '">' +
+        miolo + '<span class="sr-only">Ver em quais dias</span></button>';
     }).join("");
   }
   /** `modo` decide o que o clique faz: "selecionar" troca a fatura exibida ao
@@ -6327,7 +6359,7 @@
       if (t.tipo !== tipo || !t.categoriaId) return;
       var c = byId(state.categories, t.categoriaId);
       if (!c) return;
-      if (!acc[c.id]) acc[c.id] = { nome: c.nome, cor: c.cor, valor: 0, n: 0 };
+      if (!acc[c.id]) acc[c.id] = { id: c.id, nome: c.nome, cor: c.cor, valor: 0, n: 0 };
       acc[c.id].valor += t.valor; acc[c.id].n++;
     });
     return Object.keys(acc).map(function (k) { return acc[k]; }).sort(function (a, b) { return b.valor - a.valor; });
@@ -6348,12 +6380,16 @@
     if (tipo === "AMBOS") return gasto || t.tipo === "INCOME";
     return gasto;
   }
-  function totaisPorDia(vm, tipo) {
+  /** `categoriaId` recorta o mapa a uma categoria só. O resto do cálculo é o
+   * mesmo — mesma data de relatório, mesma exclusão de pagamento de fatura —
+   * porque um mapa que contasse diferente do outro não serviria para comparar. */
+  function totaisPorDia(vm, tipo, categoriaId) {
     var total = new Date(vm.y, vm.m + 1, 0).getDate();
     var dias = [];
     for (var i = 1; i <= total; i++) dias.push({ dia: i, total: 0, previsto: 0, n: 0, receita: 0, despesa: 0 });
     movimentoDoMes(vm).forEach(function (t) {
       if (!entraNoCalor(t, tipo)) return;
+      if (categoriaId && t.categoriaId !== categoriaId) return;
       var d = dias[Number(dataDeRelatorio(t).slice(8, 10)) - 1];
       // `total` continua sendo "o número deste mapa": no modo Ambos ele é o
       // movimento do dia (entradas + saídas), e é o que guarda os `total > 0`
@@ -7090,6 +7126,60 @@
   }
 
   /* ================= camadas: helpers ================= */
+  /** O mapa de uma categoria só, no mês que o Resumo está mostrando.
+   *
+   * Reusa `totaisPorDia` e `nivelCalor`: as cores e os degraus querem dizer
+   * aqui o mesmo que lá. O que muda é a escala — o degrau 5 é o maior dia
+   * DESTA categoria, não do mês inteiro. Fosse a escala do mês, uma categoria
+   * pequena apareceria toda apagada e o mapa não diria nada sobre ela. */
+  function abrirCalorDaCategoria(catId, tipo) {
+    var cat = byId(state.categories, catId);
+    if (!cat) return;
+    var dias = totaisPorDia(resumoMes, tipo, catId);
+    var maximo = dias.reduce(function (m, d) { return Math.max(m, d.total); }, 0);
+    var soma = dias.reduce(function (s, d) { return s + d.total; }, 0);
+    var hoje = resumoMes.y === HOJE.getFullYear() && resumoMes.m === HOJE.getMonth() ? HOJE.getDate() : 0;
+    var vazios = (new Date(resumoMes.y, resumoMes.m, 1).getDay() + 6) % 7;
+
+    var celulas = "";
+    for (var v = 0; v < vazios; v++) celulas += '<div class="calor-dia vazio" aria-hidden="true"></div>';
+    dias.forEach(function (d) {
+      var nivel = nivelCalor(d.total, maximo);
+      celulas += '<div class="calor-dia' + (nivel ? " n" + nivel : "") + (d.dia === hoje ? " hoje" : "") + '">' +
+        '<span class="calor-n" aria-hidden="true">' + d.dia + '</span>' +
+        (d.total > 0
+          ? '<span class="calor-v" aria-hidden="true">' + valorCurto(d.total) + '</span>' +
+            '<span class="sr-only">dia ' + d.dia + ": " + brl(d.total) + '</span>'
+          : '') +
+        '</div>';
+    });
+
+    var maior = dias.reduce(function (m, d) { return d.total > m.total ? d : m; }, dias[0]);
+    var host = document.getElementById("cc-mapa");
+    host.classList.toggle("calor--receita", tipo === "INCOME");
+    host.innerHTML =
+      '<div class="calor-semana" aria-hidden="true"><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span><span>D</span></div>' +
+      '<div class="calor-grade">' + celulas + '</div>' +
+      '<div class="calor-rodape">' +
+        '<span>' + (maximo > 0
+          ? (tipo === "INCOME" ? "Maior receita" : "Maior gasto") + ": dia " + maior.dia + " · " + brl(maior.total)
+          : "Nada nesta categoria no mês.") + '</span>' +
+        (maximo > 0 ? escalaCalorHTML("", maximo) : "") +
+      '</div>';
+
+    document.getElementById("cc-titulo").textContent = cat.nome;
+    document.getElementById("cc-ctx").textContent = rotuloMes(resumoMes) + " · " + brl(soma);
+    abrir("dlg-calor-cat");
+  }
+
+  ["r-cats", "r-receitas"].forEach(function (id) {
+    document.getElementById(id).addEventListener("click", function (e) {
+      var alvo = e.target.closest(".cat-abre");
+      if (!alvo) return;
+      abrirCalorDaCategoria(alvo.getAttribute("data-cat"), id === "r-receitas" ? "INCOME" : "EXPENSE");
+    });
+  });
+
   function abrir(id) {
     var d = document.getElementById(id);
     d.showModal();
