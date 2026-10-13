@@ -400,7 +400,15 @@
   }
   .fatura-fixa.on { opacity: 1; transform: none; pointer-events: auto; }
   @media (prefers-reduced-motion: reduce) { .fatura-fixa { transition: none; } }
+  .fatura-fixa-mesnav { display: flex; align-items: center; gap: 6px; }
   .fatura-fixa-mes { font-size: 13px; color: var(--fg); white-space: nowrap; }
+  /* A banda de toque dos 44px vem de um ::after, como o resto do app faz com
+   * estes ícones: ela cresce o alvo sem crescer a barra, que precisa ser baixa.
+   * Crescer o botão em si empurraria a altura para fora do "slim" pedido. */
+  .fatura-fixa .icon-btn { position: relative; }
+  @media (pointer: coarse) {
+    .fatura-fixa .icon-btn::after { content: ""; position: absolute; inset: -7px; }
+  }
   .fatura-fixa-nums { display: flex; gap: 12px; flex-wrap: wrap; }
   .fatura-fixa-nums span { white-space: nowrap; }
   .fatura-fixa-nums b { font-weight: 500; color: var(--fg); margin-left: 5px; }
@@ -2259,7 +2267,11 @@
                anunciar a mesma fatura duas vezes. Quem usa teclado alcança os
                controles originais, que continuam no DOM. -->
           <div class="fatura-fixa" id="k-fixa" aria-hidden="true">
-            <span class="fatura-fixa-mes num" id="k-fixa-mes"></span>
+            <span class="fatura-fixa-mesnav">
+              <button class="icon-btn" type="button" id="k-fixa-ant" tabindex="-1"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <span class="fatura-fixa-mes num" id="k-fixa-mes"></span>
+              <button class="icon-btn" type="button" id="k-fixa-prox" tabindex="-1"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </span>
             <span class="fatura-fixa-nums">
               <span>confirmado<b class="num" id="k-fixa-confirmado"></b></span>
               <span>pago<b class="num" id="k-fixa-pago"></b></span>
@@ -8398,6 +8410,12 @@
   /* A barra condensada não tem comportamento próprio: os botões dela
    * encaminham para os originais. Uma ação, um manipulador — duplicar a lógica
    * seria duplicar também os erros futuros. */
+  document.getElementById("k-fixa-ant").addEventListener("click", function () {
+    document.getElementById("k-mes-ant").click();
+  });
+  document.getElementById("k-fixa-prox").addEventListener("click", function () {
+    document.getElementById("k-mes-prox").click();
+  });
   document.getElementById("k-fixa-pagar").addEventListener("click", function () {
     document.getElementById("k-pagar").click();
   });
