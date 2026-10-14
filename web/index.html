@@ -859,6 +859,13 @@
   .fx-tabela td.fx-neg { color: var(--negative); }
   .fx-tabela td.fx-sobe { color: var(--warning); }   /* gasto que subiu: atenção, não erro */
   .fx-tabela td.fx-cai { color: var(--accent); }
+  /* A primeira coluna é rótulo, não número: ela não compete por espaço com os
+   * dois valores, que precisam da largura inteira para não quebrar. */
+  .fx-tabela--saldo { margin-top: 8px; }
+  .fx-tabela--saldo td:first-child, .fx-tabela--saldo th:first-child { color: var(--fg-subtle); }
+  /* O saldo final é a resposta da tabela: ele pesa mais que as parcelas que o
+   * formam. Peso, não cor — a cor aqui já quer dizer sinal do valor. */
+  .fx-tabela--saldo tfoot td { color: var(--fg); font-weight: 500; }
 
   /* Barra de participação da categoria: horizontal, dentro da própria
    * linha da tabela — nada de rosca, que obriga a comparar ângulos. */
@@ -2288,19 +2295,49 @@
               <div class="seg-cell seg-cell--despesa"><div class="lbl">Despesas</div><div class="seg-val num" id="l-saidas"></div></div>
               <!-- O resultado não tem cor fixa: ela vem do sinal do mês,
                    aplicada no render. -->
+              <!-- Os dois saldos que ficavam aqui embaixo saíram: eles são
+                   exatamente a linha "Saldo final" da tabela abaixo, e o mesmo
+                   número duas vezes na mesma tela faz duvidar dos dois. -->
               <div class="seg-cell" id="l-cel-resultado">
                 <div class="lbl">Resultado</div>
                 <div class="seg-val num" id="l-resultado"></div>
-                <div class="seg-subs">
-                  <div class="seg-sub" title="Saldo acumulado no fim do mês, contando só lançamentos confirmados">
-                    <span>Atual</span><span class="num" id="l-acumulado"></span>
-                  </div>
-                  <div class="seg-sub" title="O mesmo saldo somando os lançamentos previstos e as faturas ainda em aberto">
-                    <span>Previsto</span><span class="num" id="l-previsto"></span>
-                  </div>
-                </div>
               </div>
             </div>
+          </div>
+          <!-- De onde o mês partiu e onde ele chega. A conta é de cima para
+               baixo e fecha sempre — ver `renderExtrato`. -->
+          <div class="blk" style="--i:2">
+            <div class="lbl">Saldo</div>
+            <table class="fx-tabela fx-tabela--saldo">
+              <caption class="sr-only">Saldo anterior, movimento do mês e saldo final, nas colunas realizado e previsto.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Mês</th>
+                  <th scope="col" class="num" title="Só o que já foi confirmado">Realizado</th>
+                  <th scope="col" class="num" title="Somando os lançamentos previstos e as faturas em aberto">Previsto</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td id="l-sa-rotulo-ant">Saldo anterior</td>
+                  <td class="num" id="l-sa-ant-real"></td>
+                  <td class="num" id="l-sa-ant-prev"></td>
+                </tr>
+                <tr>
+                  <td>Entrou e saiu</td>
+                  <td class="num" id="l-sa-mov-real"></td>
+                  <td class="num" id="l-sa-mov-prev"></td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Saldo final</td>
+                  <td class="num" id="l-sa-fim-real"></td>
+                  <td class="num" id="l-sa-fim-prev"></td>
+                </tr>
+              </tfoot>
+            </table>
+            <div class="seg-meta" id="l-sa-nota" hidden></div>
           </div>
           </div>
         </aside>
@@ -3377,6 +3414,12 @@
     return SEMANA[d.getDay()] + ", " + d.getDate() + " de " + MESES[d.getMonth()].toLowerCase();
   }
   function rotuloMes(vm) { return MESES[vm.m] + " " + vm.y; }
+  /** "Ago/26". É o mesmo formato das colunas do gráfico de meses — e agora os
+   * dois saem daqui, para não poderem divergir. Existe porque o nome por
+   * extenso não cabe onde o espaço é curto: num celular de 375px, "Saldo
+   * anterior (Fevereiro 2026)" quebrava em duas linhas e levava a linha
+   * inteira da tabela junto. */
+  function rotuloMesCurto(vm) { return MESES[vm.m].slice(0, 3) + "/" + String(vm.y).slice(2); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
   /** Avança N meses mantendo o dia; se o mês de destino não tem esse dia
@@ -4308,6 +4351,18 @@
       aPrevisto += (t.tipo === "INCOME" ? t.valor : -t.valor);
     });
     return { atual: atual, previsto: atual + aPrevisto - faturasEmAbertoAte(vm) };
+  }
+
+  /** O saldo com que o mês começa — que é, por definição, o saldo com que o
+   * mês anterior terminou. Não existe cálculo separado para "anterior": é a
+   * MESMA `saldosDoMes`, um mês atrás. Fosse outra conta, os dois números
+   * poderiam divergir na virada do mês e ninguém entenderia por quê.
+   *
+   * Vale igual em janeiro: `adicionarMeses` volta para dezembro do ano
+   * passado sozinho. */
+  function saldoAnterior(vm) {
+    var d = adicionarMeses(new Date(vm.y, vm.m, 1), -1);
+    return saldosDoMes({ y: d.getFullYear(), m: d.getMonth() });
   }
 
   /** Uma linha por fatura por mês. Quitada, ela É o pagamento — muda de
@@ -6340,7 +6395,7 @@
     return '<button type="button" class="mes-col' + (ligado ? " on" : "") + '"' +
       ' data-mes="' + monthKey(vm) + '" aria-pressed="' + (ligado ? "true" : "false") + '"' +
       ' title="' + esc(titulo) + '" aria-label="' + esc(titulo) + '">' +
-      '<span class="mes-nome">' + MESES[vm.m].slice(0, 3) + "/" + String(vm.y).slice(2) + '</span>' +
+      '<span class="mes-nome">' + rotuloMesCurto(vm) + '</span>' +
       '<span class="mes-res num ' + classe + '">' + texto + '</span>' +
       '<span class="mes-par num">' +
         '<span class="' + (r.entradas ? "mes-in" : "vazio") + '">' + (r.entradas ? valorCurto(r.entradas) : "—") + '</span>' +
@@ -6844,9 +6899,50 @@
     var celResultado = document.getElementById("l-cel-resultado");
     celResultado.classList.toggle("seg-cell--receita", resultado > 0);
     celResultado.classList.toggle("seg-cell--despesa", resultado < 0);
+    /* A tabela do saldo: onde o mês começou, o que entrou e saiu, onde chegou.
+     *
+     * "Entrou e saiu" é calculado como a DIFERENÇA entre os dois saldos, e não
+     * somando lançamentos de novo. Isso não é atalho: é o que garante que a
+     * coluna feche na conta, sempre, sem depender de duas regras de soma
+     * continuarem iguais no futuro.
+     *
+     * E ele não é o mesmo número do "Resultado" acima — nem deveria ser. O
+     * Resultado soma as LINHAS que o extrato mostra: a fatura inteira no
+     * vencimento e os lançamentos previstos. O saldo conta o DINHEIRO que
+     * mudou de mãos: o pagamento da fatura que de fato saiu, e nada do que
+     * ainda não aconteceu. Medido num mês do seed: o saldo andou 1.805,40
+     * enquanto o Resultado deu 525,20. Os dois estão certos, e dizem coisas
+     * diferentes — por isso a nota embaixo, quando eles divergem. */
     var saldos = saldosDoMes(extratoMes);
-    document.getElementById("l-acumulado").textContent = brl(saldos.atual);
-    document.getElementById("l-previsto").textContent = brl(saldos.previsto);
+    var antes = saldoAnterior(extratoMes);
+    var movReal = saldos.atual - antes.atual;
+    var movPrev = saldos.previsto - antes.previsto;
+
+    var mesAnterior = adicionarMeses(new Date(extratoMes.y, extratoMes.m, 1), -1);
+    document.getElementById("l-sa-rotulo-ant").textContent =
+      "Saldo anterior (" + rotuloMesCurto({ y: mesAnterior.getFullYear(), m: mesAnterior.getMonth() }) + ")";
+    document.getElementById("l-sa-ant-real").textContent = brl(antes.atual);
+    document.getElementById("l-sa-ant-prev").textContent = brl(antes.previsto);
+    document.getElementById("l-sa-fim-real").textContent = brl(saldos.atual);
+    document.getElementById("l-sa-fim-prev").textContent = brl(saldos.previsto);
+
+    [["l-sa-mov-real", movReal], ["l-sa-mov-prev", movPrev]].forEach(function (par) {
+      var cel = document.getElementById(par[0]);
+      // Zero não é ganho nem perda: fica na tinta neutra, sem sinal inventado.
+      cel.textContent = par[1] === 0 ? brl(0) : sinal(par[1]);
+      cel.classList.toggle("fx-pos", par[1] > 0);
+      cel.classList.toggle("fx-neg", par[1] < 0);
+    });
+
+    // A nota só aparece quando há o que explicar. Texto fixo numa tela que
+    // quase sempre não precisa dele vira ruído que ninguém lê mais.
+    var notaSaldo = document.getElementById("l-sa-nota");
+    var divergem = Math.abs(movReal - resultado) >= 0.005;
+    notaSaldo.hidden = !divergem;
+    if (divergem) {
+      notaSaldo.textContent = "O resultado acima soma as linhas do extrato — a fatura inteira no "
+        + "vencimento e os previstos. Aqui está só o dinheiro que entrou e saiu das contas.";
+    }
 
     var linhas = [];
     tot.avulsos.forEach(function (t) {
