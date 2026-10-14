@@ -1513,7 +1513,12 @@
   .content > .banner { margin-bottom: 24px; }
 
   /* Acesso ao perfil no mobile: no desktop quem faz esse papel é o pé da navegação. */
-  .topo-mobile { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
+  /* Vão de 10 e não de 8: no celular o `.icon-btn` ganha um halo de toque de
+   * 44px que passa 4px de cada borda. Com 8, os halos de dois ícones vizinhos
+   * se sobrepunham em 2px — e alvo sobreposto é pior que alvo curto, porque o
+   * toque no vão acerta o botão errado. Com 10 eles encostam sem invadir.
+   * Antes havia um ícone só aqui; o de instalar criou o primeiro par. */
+  .topo-mobile { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
   .tema-icone { display: grid; place-items: center; }
   .tema-icone svg { width: 18px; height: 18px; }
   #tema-mobile .tema-icone svg { width: 15px; height: 15px; }
@@ -1909,6 +1914,15 @@
     </button>
 
     <div class="nav-bottom">
+      <!-- Instalar fica ao lado do tema porque é da mesma família: não muda
+           dado nenhum, muda o jeito de usar o app. Nasce escondido e só
+           aparece quando dá mesmo para instalar — botão que não faz nada é
+           pior que botão nenhum. Sem `data-ordem-id`: o usuário reordena as
+           telas, e isto não é uma tela. -->
+      <button type="button" class="nav-item" id="instalar-nav" title="Instalar o app no aparelho" hidden>
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5v10M8 9.5l4 4 4-4M4.5 19.5h15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Instalar app</span>
+      </button>
       <button type="button" class="nav-item" id="tema-nav" title="Alternar tema">
         <span class="tema-icone"></span>
         <span class="tema-label"></span>
@@ -1922,6 +1936,10 @@
 
   <main class="content">
     <div class="topo-mobile">
+      <!-- O mesmo convite do trilho. Os dois nunca aparecem juntos: a barra
+           lateral e este topo se revezam no mesmo ponto de quebra, 768px. É
+           aqui que o Android e o iPhone veem o botão. -->
+      <button type="button" class="icon-btn" id="instalar-mobile" title="Instalar o app" aria-label="Instalar o app" hidden><svg viewBox="0 0 24 24" fill="none"><path d="M12 3.5v10M8 9.5l4 4 4-4M4.5 19.5h15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button type="button" class="icon-btn" id="tema-mobile" title="Alternar tema" aria-label="Alternar tema"><span class="tema-icone"></span></button>
       <button type="button" class="perfil-trigger" id="abrir-perfil">
         <span class="avatar-mini num" id="perfil-iniciais">L</span>
@@ -10868,8 +10886,15 @@
    * não abre sozinha. */
   var convite = null;
 
-  function ehIPhoneOuIPad(ua) {
-    return /iphone|ipad|ipod/.test(String(ua || "").toLowerCase());
+  function ehIPhoneOuIPad(ua, toques) {
+    var s = String(ua || "").toLowerCase();
+    if (/iphone|ipad|ipod/.test(s)) return true;
+    /* O iPad de hoje se apresenta como Macintosh — é a "navegação para
+     * computador", ligada de fábrica. Sem esta segunda chance o teste falharia
+     * justo no aparelho onde ele mais importa: o iPad entra na faixa do trilho
+     * (>= 768px) e, sendo Safari, nunca recebe o convite do navegador. O que
+     * separa um do outro é o toque: Mac não tem, iPad relata 5 pontos. */
+    return /macintosh/.test(s) && Number(toques) > 1;
   }
   function jaInstalado() {
     return matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -10878,7 +10903,7 @@
    * iPhone, onde esse aviso nunca vem e o caminho é o passo a passo do Safari. */
   function daParaInstalar() {
     if (jaInstalado()) return false;
-    return !!convite || ehIPhoneOuIPad(navigator.userAgent);
+    return !!convite || ehIPhoneOuIPad(navigator.userAgent, navigator.maxTouchPoints);
   }
 
   /** O convite vive em dois lugares, porque são dois momentos: no menu do
@@ -10894,13 +10919,20 @@
         ? "Abre em janela própria, com ícone na tela inicial."
         : "Pelo Safari: Compartilhar e depois Adicionar à Tela de Início.";
     }
+    ["instalar-nav", "instalar-mobile"].forEach(function (id) {
+      var b = document.getElementById(id);
+      if (b) b.hidden = !podeInstalar;
+    });
     var naEntrada = document.getElementById("ent-instalar");
     // Na redefinição de senha ele sai de cena: ali a pessoa veio de um link do
     // e-mail resolver uma coisa só, e qualquer outra oferta atrapalha.
     if (naEntrada) naEntrada.hidden = !podeInstalar || modoEntrada === "redefinir";
   }
 
-  document.getElementById("ent-instalar").addEventListener("click", instalarApp);
+  ["ent-instalar", "instalar-nav", "instalar-mobile"].forEach(function (id) {
+    var b = document.getElementById(id);
+    if (b) b.addEventListener("click", instalarApp);
+  });
 
   window.addEventListener("beforeinstallprompt", function (e) {
     e.preventDefault();   // sem isto o Chrome mostra a barra dele, do jeito dele
@@ -10911,10 +10943,15 @@
     convite = null;
     atualizarConvitesDeInstalacao();
   });
+  /* No Android e no Windows quem acende os botões é o `beforeinstallprompt`.
+   * No iPhone e no iPad esse evento NUNCA chega — lá o caminho é o passo a
+   * passo do Safari, e sem esta primeira avaliação os botões ficariam
+   * escondidos para sempre justamente em quem mais precisa deles. */
+  atualizarConvitesDeInstalacao();
 
   async function instalarApp() {
     if (!convite) {
-      avisar("Instalar no aparelho", ehIPhoneOuIPad(navigator.userAgent)
+      avisar("Instalar no aparelho", ehIPhoneOuIPad(navigator.userAgent, navigator.maxTouchPoints)
         ? "No iPhone, toque no botão Compartilhar (o quadrado com a seta para cima), role a lista e escolha \"Adicionar à Tela de Início\". O app passa a abrir em janela própria."
         : "Se o seu navegador permite instalar, a opção aparece no menu dele — no Chrome, em \"Transmitir, salvar e compartilhar\", ou pelo ícone de instalar na barra de endereços.");
       return;
