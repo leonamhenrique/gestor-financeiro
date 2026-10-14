@@ -428,8 +428,19 @@
    * Ela nasce esmaecida e desce ao aparecer. O movimento é curto de propósito:
    * é um elemento que surge durante a rolagem, e animação longa aqui competiria
    * com o gesto em vez de acompanhá-lo. */
+  /* A âncora é quem gruda no topo, e ela tem altura ZERO.
+   *
+   * Antes a própria barra era `sticky` e ficava no fluxo o tempo todo, acesa
+   * ou apagada — era assim que eu evitava o salto de 107px no conteúdo quando
+   * ela aparecia. O preço era um vão permanente do mesmo tamanho, logo acima
+   * da fatura: invisível para mim, porque eu só conferi a barra ACESA; óbvio
+   * no celular, onde ela quebra em várias linhas.
+   *
+   * Com a âncora de altura zero não há nem vão nem salto: a barra é uma
+   * camada por cima do conteúdo, e o conteúdo nunca sabe que ela existe. */
+  .fatura-fixa-ancora { position: sticky; top: 0; z-index: 4; height: 0; }
   .fatura-fixa {
-    position: sticky; top: 0; z-index: 4;
+    position: absolute; top: 0; left: 0; right: 0;
     display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
     padding: 9px 0; background: var(--bg);
     border-bottom: 1px solid var(--hairline-strong);
@@ -437,6 +448,8 @@
     opacity: 0; transform: translateY(-6px); pointer-events: none;
     transition: opacity 180ms ease-out, transform 180ms ease-out;
   }
+  /* `pointer-events` importa mais agora: apagada, ela cobre o começo da
+   * fatura, e sem isto comeria o toque de quem mira ali. */
   .fatura-fixa.on { opacity: 1; transform: none; pointer-events: auto; }
   @media (prefers-reduced-motion: reduce) { .fatura-fixa { transition: none; } }
   .fatura-fixa-mesnav { display: flex; align-items: center; gap: 6px; }
@@ -2442,6 +2455,7 @@
                tabulação: tudo aqui já existe acima, e repetir faria o leitor
                anunciar a mesma fatura duas vezes. Quem usa teclado alcança os
                controles originais, que continuam no DOM. -->
+          <div class="fatura-fixa-ancora">
           <div class="fatura-fixa" id="k-fixa" aria-hidden="true">
             <span class="fatura-fixa-mesnav">
               <button class="icon-btn" type="button" id="k-fixa-ant" tabindex="-1"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -2455,6 +2469,7 @@
               <button class="ghost" type="button" id="k-fixa-pagar" tabindex="-1">Pagar fatura</button>
               <button class="ghost" type="button" id="k-fixa-add" tabindex="-1">Adicionar lançamento</button>
             </span>
+          </div>
           </div>
           <div class="blk" style="--i:1">
             <div class="lbl-row">
