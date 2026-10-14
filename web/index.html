@@ -1038,13 +1038,9 @@
    * passar — deslizar para cima em cima da barra continua rolando a página.
    * O trilho lateral reordena na vertical, e bloqueia o contrário. */
   .nav-item[data-ordem-id] { touch-action: pan-x; }
-  /* Sempre, e não só quando a barra cabe na tela: agora quem rola a barra na
-   * horizontal é o app (ver `deslizarBarra`), não o navegador. Era a única
-   * forma de os dois gestos conviverem — deslizar para o lado e segurar para
-   * reordenar disputam o mesmo movimento, e o navegador, ficando com ele,
-   * cancelava o arraste. Pedindo `pan-y` nós recebemos o horizontal inteiro e
-   * decidimos: parado por 400ms vira arraste, andou antes vira rolagem. */
-  .tab[data-ordem-id] { touch-action: pan-y; }
+  /* A barra de baixo não declara `touch-action`: o padrão deixa o NAVEGADOR
+   * rolar, que é o único jeito de ter inércia e borracha de verdade no iPhone.
+   * Ela não reordena por segurar — ver a nota em `ativarOrdenacao`. */
   .ordenando, .ordenando * { cursor: grabbing !important; user-select: none; }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
@@ -10981,128 +10977,6 @@
     barra.classList.toggle("inteira", barra.scrollWidth <= barra.clientWidth + 1);
   }
 
-  /**
-   * Deslizar a barra de baixo com o dedo — feito aqui, e não pelo navegador.
-   *
-   * O motivo é o arraste: deslizar para o lado e segurar para reordenar são o
-   * MESMO movimento, e `touch-action` só sabe dar o gesto inteiro para um dos
-   * dois. Pedindo `pan-y` nas abas, o horizontal chega para o app, e aí a
-   * regra fica clara: andou antes dos 400ms, é rolagem; ficou parado até lá,
-   * é arraste (quem levanta o item é `ativarOrdenacao`, e aqui a gente sai de
-   * cena olhando a classe `ordenando`).
-   *
-   * Sem inércia, de propósito: a barra tem o tamanho de duas telas, não de
-   * vinte, e um lançamento com atrito falso seria mais código para imitar
-   * pior o que o navegador faria de graça — que é justamente o que não dá
-   * para ter aqui.
-   */
-  function deslizarBarra(id) {
-    var barra = document.getElementById(id);
-    if (!barra) return;
-    var TOLERANCIA = 8;
-    var toque = null, rolando = false, engolir = false;
-    // Velocidade do dedo (px por ms) e o quadro agendado do empurrão.
-    var vel = 0, ultimo = null, fluindo = 0;
-
-    function pararFluxo() {
-      if (fluindo) { cancelAnimationFrame(fluindo); fluindo = 0; }
-      vel = 0;
-    }
-    function naPonta() {
-      return barra.scrollLeft <= 0 || barra.scrollLeft >= barra.scrollWidth - barra.clientWidth - 0.5;
-    }
-    /** O empurrão depois que o dedo sai.
-     *
-     * Sem isto a barra parava no instante em que o dedo levantava: andava só
-     * o que o dedo andou, e com nove abas era preciso deslizar várias vezes
-     * para atravessar. No iPhone a diferença é gritante — lá TUDO que rola
-     * tem inércia, e uma barra sem ela não parece lenta, parece quebrada.
-     * Como `touch-action: pan-y` tira a rolagem nativa daqui (para o segurar
-     * de 400ms poder virar arraste), a inércia que o navegador daria de graça
-     * precisa ser escrita.
-     *
-     * O decaimento é por TEMPO e não por quadro: o iPhone 13 desenha a 120Hz,
-     * e um fator por quadro frearia na metade do tempo que a 60Hz de outro
-     * aparelho. Mesma física nos dois. */
-    function empurrar() {
-      var anterior = performance.now();
-      fluindo = requestAnimationFrame(function passo(agora) {
-        // Aba que volta do segundo plano devolve um salto enorme de tempo;
-        // sem o teto, a barra daria um pulo até a ponta.
-        var dt = Math.min(agora - anterior, 32);
-        anterior = agora;
-        vel *= Math.pow(0.995, dt);
-        barra.scrollLeft -= vel * dt;
-        if (Math.abs(vel) < 0.02 || naPonta()) { fluindo = 0; return; }
-        fluindo = requestAnimationFrame(passo);
-      });
-    }
-
-    barra.addEventListener("pointerdown", function (e) {
-      if (e.button !== 0) return;
-      /* A marca de engolir vale só para o clique DESTE gesto, e por isso cada
-       * gesto novo a redefine.
-       *
-       * Sem isso ela ficava armada para sempre no celular: depois de uma
-       * rolagem o navegador NÃO sintetiza clique nenhum (o `preventDefault` e
-       * a captura do ponteiro cancelam), então o `engolir = true` do
-       * `soltar` nunca era consumido — e o toque SEGUINTE, limpo, numa aba
-       * era comido no lugar. Deslizar a barra e depois tocar numa aba não
-       * fazia nada na primeira vez. Medido aqui antes e depois.
-       *
-       * O caso em que ela nasce verdadeira: dedo na barra durante o empurrão
-       * freia, como no iOS, e esse toque não troca de tela — senão parar a
-       * rolagem navegaria junto. */
-      engolir = !!fluindo;
-      pararFluxo();
-      ultimo = null;
-      toque = { x: e.clientX, y: e.clientY, scroll: barra.scrollLeft, id: e.pointerId };
-      rolando = false;
-    });
-
-    barra.addEventListener("pointermove", function (e) {
-      if (!toque || document.body.classList.contains("ordenando")) return;
-      var dx = e.clientX - toque.x;
-      if (!rolando) {
-        // Vertical ganha: deslizar para cima em cima da barra rola a página,
-        // e `pan-y` deixa o navegador cuidar disso.
-        if (Math.abs(e.clientY - toque.y) > TOLERANCIA) { toque = null; return; }
-        if (Math.abs(dx) <= TOLERANCIA) return;
-        rolando = true;
-        try { barra.setPointerCapture(toque.id); } catch (err) {}
-      }
-      if (e.cancelable) e.preventDefault();
-      barra.scrollLeft = toque.scroll - dx;
-
-      /* A velocidade é medida entre os dois últimos eventos e suavizada: um
-       * quadro solitário com o dedo quase parado, bem na hora de soltar,
-       * zeraria o empurrão de um gesto que foi rápido. */
-      var agora = performance.now();
-      if (ultimo && agora > ultimo.t) {
-        vel = vel * 0.7 + ((e.clientX - ultimo.x) / (agora - ultimo.t)) * 0.3;
-      }
-      ultimo = { x: e.clientX, t: agora };
-    });
-
-    function soltar() {
-      if (rolando) engolir = true;   // quem rolou não quis trocar de tela
-      // Abaixo deste piso o dedo estava parando, não lançando: continuar
-      // seria a barra andar sozinha depois de o usuário ter mirado.
-      if (rolando && Math.abs(vel) > 0.05 && !naPonta()) empurrar();
-      else pararFluxo();
-      toque = null; rolando = false; ultimo = null;
-    }
-    barra.addEventListener("pointerup", soltar);
-    barra.addEventListener("pointercancel", soltar);
-    // Na captura, antes de a aba ouvir — o mesmo caminho que o arraste usa.
-    barra.addEventListener("click", function (e) {
-      if (!engolir) return;
-      engolir = false;
-      e.preventDefault();
-      e.stopPropagation();
-    }, true);
-  }
-  deslizarBarra("tabbar");
   marcarBarraInteira();
   mostrarAbaAtiva();
   // A largura muda ao girar o aparelho, e com ela o que cabe na barra.
@@ -11142,7 +11016,20 @@
    * Configurações, que também é o caminho do teclado. */
   var SEGURAR_PARA_MOVER = 400;
   ativarOrdenacao("nav-principal", moverItemDoMenu, { de: ".nav-item[data-ordem-id]", segurar: SEGURAR_PARA_MOVER });
-  ativarOrdenacao("tabbar", moverItemDoMenu, { de: ".tab[data-ordem-id]", segurar: SEGURAR_PARA_MOVER, eixo: "x" });
+  /* A barra de baixo NÃO reordena por segurar o dedo. Ela reordenava, e isso
+   * custava a rolagem: `touch-action` só sabe dar o gesto inteiro para um dos
+   * dois lados, então para o segurar funcionar o app precisava ficar com o
+   * horizontal e rolar a barra em JavaScript. Rolagem escrita à mão roda na
+   * thread principal e nunca alcança a do compositor — no iPhone, onde tudo
+   * que rola tem inércia e borracha nas pontas, a diferença é sentida como
+   * travamento. Testado no aparelho: melhorou com inércia postiça, e ainda
+   * assim ficou ruim.
+   *
+   * Nada se perdeu: reordenar o menu tem tela própria, com alça de arraste e
+   * acesso pelo teclado, em Ajustes → "Ordem do menu" — que já é o caminho
+   * que a ajuda de lá ensina, e vale para o menu lateral e para esta barra ao
+   * mesmo tempo. Aqui a barra volta a ser só navegação, e quem rola é o
+   * navegador. */
   document.getElementById("cfg-menu-padrao").addEventListener("click", function () {
     definirOrdemDoMenu(MENU_PADRAO, true);
     pintarOrdemDoMenu();
