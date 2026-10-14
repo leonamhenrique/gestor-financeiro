@@ -1526,8 +1526,18 @@
     display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px 0 4px;
     background: none; border: none; color: var(--fg-muted);
     font-family: inherit; font-size: 13px; cursor: pointer;
+    /* Sem isto o gatilho se recusa a ficar menor que o próprio texto — e o
+     * nome comprido, em vez de ser cortado, empurra os ícones de instalar e
+     * de tema para FORA da tela pela esquerda. Medido com um nome de 60
+     * letras sem espaço: o ícone ia parar em -336px. O corte do nome só
+     * funciona se o pai aceitar encolher primeiro. */
+    min-width: 0;
   }
-  .perfil-trigger svg { width: 14px; height: 14px; }
+  .perfil-trigger svg { width: 14px; height: 14px; flex-shrink: 0; }
+  /* Mesma rede do trilho. Sem o `nowrap` um nome comprido quebra em duas
+   * linhas e estoura a barra de 44px — foi o que a medição mostrou antes de
+   * passar a usar só o primeiro nome. */
+  #perfil-nome-topo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .avatar-mini {
     width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--hairline-strong);
     display: grid; place-items: center; font-size: 11px; color: var(--fg-muted); flex-shrink: 0;
@@ -1653,7 +1663,16 @@
       display: grid; place-items: center; font-size: 11px; color: var(--fg-muted); flex-shrink: 0;
       margin-left: -5px;
     }
-    .nav-foot-name { font-size: 13px; color: var(--fg-muted); }
+    /* O primeiro nome quase sempre cabe nos ~106px que sobram com o trilho
+     * aberto. "Quase": o campo aceita 60 caracteres, e uma palavra só e
+     * comprida continuaria sendo cortada no meio da letra pelo overflow do
+     * trilho. Com isto ela termina em reticências, que ao menos dizem que há
+     * mais. O `min-width: 0` é o que permite encolher dentro do flex — sem
+     * ele o item se recusa a ficar menor que o próprio texto. */
+    .nav-foot-name {
+      font-size: 13px; color: var(--fg-muted);
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
 
     .content { padding: 32px var(--pad-x) 88px; }
     .view { max-width: var(--content-max); }
@@ -10268,13 +10287,23 @@
 
   /* ================= perfil e assinatura ================= */
   function iniciais(nome) { return (nome || "?").trim().slice(0, 1).toUpperCase(); }
+  /** Só o primeiro nome, para os dois rótulos estreitos: o pé do trilho e o
+   * topo do celular. Medido com "LEONAM HENRIQUE DE OLIVEIRA SANTOS FILHO":
+   * no trilho o nome era cortado no meio da palavra, e no celular quebrava em
+   * DUAS linhas dentro de uma barra de 44px, empurrando os ícones contra a
+   * borda. O nome inteiro não identifica melhor que o primeiro — quem está
+   * logado é uma pessoa só — e continua inteiro no menu do perfil, que é onde
+   * ele serve para conferir. */
+  function primeiroNome(nome) {
+    return String(nome || "").trim().split(/\s+/)[0] || "";
+  }
 
   function renderPerfil() {
     var p = state.perfil;
     document.getElementById("perfil-iniciais").textContent = iniciais(p.nome);
-    document.getElementById("perfil-nome-topo").textContent = p.nome;
+    document.getElementById("perfil-nome-topo").textContent = primeiroNome(p.nome);
     document.getElementById("perfil-iniciais-nav").textContent = iniciais(p.nome);
-    document.getElementById("perfil-nome-nav").textContent = p.nome;
+    document.getElementById("perfil-nome-nav").textContent = primeiroNome(p.nome);
     document.getElementById("banner-bloqueio").hidden = !assinaturaBloqueada();
   }
 
