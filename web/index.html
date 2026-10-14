@@ -11001,9 +11001,61 @@
     if (!barra) return;
     var TOLERANCIA = 8;
     var toque = null, rolando = false, engolir = false;
+    // Velocidade do dedo (px por ms) e o quadro agendado do empurrão.
+    var vel = 0, ultimo = null, fluindo = 0;
+
+    function pararFluxo() {
+      if (fluindo) { cancelAnimationFrame(fluindo); fluindo = 0; }
+      vel = 0;
+    }
+    function naPonta() {
+      return barra.scrollLeft <= 0 || barra.scrollLeft >= barra.scrollWidth - barra.clientWidth - 0.5;
+    }
+    /** O empurrão depois que o dedo sai.
+     *
+     * Sem isto a barra parava no instante em que o dedo levantava: andava só
+     * o que o dedo andou, e com nove abas era preciso deslizar várias vezes
+     * para atravessar. No iPhone a diferença é gritante — lá TUDO que rola
+     * tem inércia, e uma barra sem ela não parece lenta, parece quebrada.
+     * Como `touch-action: pan-y` tira a rolagem nativa daqui (para o segurar
+     * de 400ms poder virar arraste), a inércia que o navegador daria de graça
+     * precisa ser escrita.
+     *
+     * O decaimento é por TEMPO e não por quadro: o iPhone 13 desenha a 120Hz,
+     * e um fator por quadro frearia na metade do tempo que a 60Hz de outro
+     * aparelho. Mesma física nos dois. */
+    function empurrar() {
+      var anterior = performance.now();
+      fluindo = requestAnimationFrame(function passo(agora) {
+        // Aba que volta do segundo plano devolve um salto enorme de tempo;
+        // sem o teto, a barra daria um pulo até a ponta.
+        var dt = Math.min(agora - anterior, 32);
+        anterior = agora;
+        vel *= Math.pow(0.995, dt);
+        barra.scrollLeft -= vel * dt;
+        if (Math.abs(vel) < 0.02 || naPonta()) { fluindo = 0; return; }
+        fluindo = requestAnimationFrame(passo);
+      });
+    }
 
     barra.addEventListener("pointerdown", function (e) {
       if (e.button !== 0) return;
+      /* A marca de engolir vale só para o clique DESTE gesto, e por isso cada
+       * gesto novo a redefine.
+       *
+       * Sem isso ela ficava armada para sempre no celular: depois de uma
+       * rolagem o navegador NÃO sintetiza clique nenhum (o `preventDefault` e
+       * a captura do ponteiro cancelam), então o `engolir = true` do
+       * `soltar` nunca era consumido — e o toque SEGUINTE, limpo, numa aba
+       * era comido no lugar. Deslizar a barra e depois tocar numa aba não
+       * fazia nada na primeira vez. Medido aqui antes e depois.
+       *
+       * O caso em que ela nasce verdadeira: dedo na barra durante o empurrão
+       * freia, como no iOS, e esse toque não troca de tela — senão parar a
+       * rolagem navegaria junto. */
+      engolir = !!fluindo;
+      pararFluxo();
+      ultimo = null;
       toque = { x: e.clientX, y: e.clientY, scroll: barra.scrollLeft, id: e.pointerId };
       rolando = false;
     });
@@ -11021,11 +11073,24 @@
       }
       if (e.cancelable) e.preventDefault();
       barra.scrollLeft = toque.scroll - dx;
+
+      /* A velocidade é medida entre os dois últimos eventos e suavizada: um
+       * quadro solitário com o dedo quase parado, bem na hora de soltar,
+       * zeraria o empurrão de um gesto que foi rápido. */
+      var agora = performance.now();
+      if (ultimo && agora > ultimo.t) {
+        vel = vel * 0.7 + ((e.clientX - ultimo.x) / (agora - ultimo.t)) * 0.3;
+      }
+      ultimo = { x: e.clientX, t: agora };
     });
 
     function soltar() {
       if (rolando) engolir = true;   // quem rolou não quis trocar de tela
-      toque = null; rolando = false;
+      // Abaixo deste piso o dedo estava parando, não lançando: continuar
+      // seria a barra andar sozinha depois de o usuário ter mirado.
+      if (rolando && Math.abs(vel) > 0.05 && !naPonta()) empurrar();
+      else pararFluxo();
+      toque = null; rolando = false; ultimo = null;
     }
     barra.addEventListener("pointerup", soltar);
     barra.addEventListener("pointercancel", soltar);
