@@ -329,6 +329,14 @@
   .row-val.caro { color: var(--seg-despesa-tinta); }
 
   /* ---------- importar extrato ---------- */
+  .imp-lote {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 0; border-top: 1px solid var(--hairline);
+  }
+  .imp-lote:first-child { border-top: none; }
+  .imp-lote-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
+  .imp-lote-txt b { font-weight: 500; color: var(--fg); }
+  .imp-lote-meta { font-size: 11px; color: var(--fg-subtle); }
   /* A caixa é o alvo de soltar e também o de clicar. Borda tracejada porque é
    * o desenho que a web inteira usa para "solte aqui" — inventar outro só
    * faria a pessoa ter que descobrir. */
@@ -2564,6 +2572,14 @@
         </div>
       </div>
 
+      <!-- O desfazer vive aqui, e não num aviso que some: o erro de uma
+           importação costuma aparecer minutos depois, ao olhar a fatura. -->
+      <div class="blk" id="imp-recentes" style="--i:2" hidden>
+        <div class="lbl">Importações recentes</div>
+        <div id="imp-recentes-lista"></div>
+        <div class="field-help">Desfazer remove os lançamentos daquela importação. As categorias que ela criou ficam.</div>
+      </div>
+
       <div class="blk" id="imp-passo-2" style="--i:1" hidden>
         <div class="imp-resumo" id="imp-resumo"></div>
       <div class="field-help" id="imp-aviso-pagamento" hidden></div>
@@ -3870,10 +3886,21 @@
   /* ================= regras: saldo e transações ================= */
   /** Lançamento de cartão não mexe em saldo: a fatura é sempre recalculada
    * das transações. Só conta bancária recebe efeito. */
+  /** Toda escrita em saldo passa por aqui.
+   *
+   * Dinheiro em ponto flutuante acumula resto. Medido: importar 74 lançamentos
+   * numa conta e desfazer a importação devolvia 229,9999999999982 em vez de
+   * 230 — some na exibição, que arredonda, mas fica GUARDADO, e o resto cresce
+   * a cada ciclo de confirmar, desconfirmar, excluir ou desfazer.
+   *
+   * Centavo é a menor unidade que existe aqui, então é nela que o saldo
+   * descansa. */
+  function emCentavos(n) { return Math.round(n * 100) / 100; }
+
   function aplicarEfeito(t, sinal) {
     if (!t.contaId) return;
     var conta = byId(state.accounts, t.contaId);
-    if (conta) conta.saldo += (sinal || 1) * (t.tipo === "INCOME" ? t.valor : -t.valor);
+    if (conta) conta.saldo = emCentavos(conta.saldo + (sinal || 1) * (t.tipo === "INCOME" ? t.valor : -t.valor));
   }
   function confirmarLancamento(id) {
     var t = byId(state.transactions, id);
@@ -5621,8 +5648,8 @@
     if (!tr.confirmada) return;
     var de = byId(state.accounts, tr.deId);
     var para = byId(state.accounts, tr.paraId);
-    if (de) de.saldo -= (sinal || 1) * tr.valor;
-    if (para) para.saldo += (sinal || 1) * tr.valor;
+    if (de) de.saldo = emCentavos(de.saldo - (sinal || 1) * tr.valor);
+    if (para) para.saldo = emCentavos(para.saldo + (sinal || 1) * tr.valor);
   }
 
   /* ---------- objetivo de poupança ----------
@@ -7897,6 +7924,7 @@
     document.getElementById("imp-passo-2").hidden = true;
     document.getElementById("imp-lista").innerHTML = "";
     document.getElementById("imp-ctx").textContent = "Arquivo OFX do banco ou do cartão";
+    pintarImportacoesRecentes();
   }
 
   /* Arrastar e soltar. O `preventDefault` nos dois eventos é obrigatório: sem
@@ -7989,6 +8017,87 @@
   ligarSeletorDeMes("imp-fatura-label",
     function () { return imp ? imp.fatura : { y: HOJE.getFullYear(), m: HOJE.getMonth() }; },
     function (vm) { if (imp) { imp.fatura = { y: vm.y, m: vm.m }; pintarMes("imp-fatura-label", imp.fatura); } });
+
+  /** Os lotes já importados, montados a partir dos lançamentos que os
+   * carregam. Sem registro paralelo: o que foi apagado à mão simplesmente
+   * deixa de contar, e a lista nunca promete desfazer o que não existe. */
+  function importacoesRecentes() {
+    var por = {};
+    state.transactions.forEach(function (t) {
+      if (!t.importacaoId) return;
+      var g = por[t.importacaoId];
+      if (!g) g = por[t.importacaoId] = { id: t.importacaoId, em: t.importadoEm || "", n: 0, valor: 0,
+        cartaoId: t.cartaoId, contaId: t.contaId, fatura: t.faturaMesOverride };
+      g.n++;
+      g.valor += (t.tipo === "EXPENSE" ? t.valor : -t.valor);
+      if (t.importadoEm && (!g.em || t.importadoEm < g.em)) g.em = t.importadoEm;
+    });
+    return Object.keys(por).map(function (k) { return por[k]; })
+      .sort(function (a, b) { return String(b.em).localeCompare(String(a.em)); })
+      .slice(0, 8);
+  }
+
+  function pintarImportacoesRecentes() {
+    var bloco = document.getElementById("imp-recentes");
+    var lista = importacoesRecentes();
+    bloco.hidden = !lista.length;
+    if (!lista.length) return;
+    document.getElementById("imp-recentes-lista").innerHTML = lista.map(function (g) {
+      var onde = g.cartaoId ? (byId(state.cards, g.cartaoId) || {}).nome
+                            : (byId(state.accounts, g.contaId) || {}).nome;
+      var quando = g.em ? fmtDataBR(g.em.slice(0, 10)) : "";
+      return '<div class="imp-lote">' +
+        '<span class="imp-lote-txt">' +
+          "<b>" + g.n + (g.n === 1 ? " lançamento" : " lançamentos") + "</b>" +
+          '<span class="imp-lote-meta">' + esc(onde || "destino removido") +
+            (g.fatura ? " · fatura " + esc(rotuloMes(parseMonthKey(g.fatura))) : "") +
+            (quando ? " · importado em " + quando : "") +
+            " · " + money(Math.abs(g.valor)) +
+          "</span>" +
+        "</span>" +
+        '<button type="button" class="ghost danger imp-desfazer" data-lote="' + esc(g.id) + '">Desfazer</button>' +
+        "</div>";
+    }).join("");
+  }
+
+  document.getElementById("imp-recentes-lista").addEventListener("click", function (e) {
+    var b = e.target.closest(".imp-desfazer");
+    if (!b) return;
+    desfazerImportacao(b.getAttribute("data-lote"));
+  });
+
+  /** Desfazer uma importação inteira.
+   *
+   * Passa por `removerTransacao`, e não por um filtro direto, porque é ela
+   * que devolve o saldo da conta quando o lançamento estava confirmado — num
+   * extrato de CONTA isso é a diferença entre desfazer e corromper o saldo.
+   *
+   * Parcela cuja fatura já foi paga NÃO sai: o valor pago ficaria sem lastro
+   * no mês. É a mesma regra da exclusão em massa, e aqui ela é dita em voz
+   * alta em vez de remover em silêncio. */
+  function desfazerImportacao(id) {
+    var alvo = state.transactions.filter(function (t) { return t.importacaoId === id; });
+    if (!alvo.length) { pintarImportacoesRecentes(); return; }
+    var presos = alvo.filter(parcelaBloqueadaPorFaturaPaga);
+    var podem = alvo.filter(function (t) { return !parcelaBloqueadaPorFaturaPaga(t); });
+    pedirConfirmacao({
+      titulo: "Desfazer esta importação?",
+      ctx: podem.length + (podem.length === 1 ? " lançamento sai" : " lançamentos saem") +
+        (presos.length ? ", " + presos.length + " ficam" : ""),
+      detalhe: (presos.length
+        ? "Os que ficam estão em fatura já paga: tirá-los deixaria o pagamento sem lastro. "
+        : "") + "Categorias criadas pela importação não são apagadas.",
+      acao: "Desfazer",
+      destrutivo: true
+    }, function () {
+      podem.forEach(removerTransacao);
+      persist(); renderAll();
+      pintarImportacoesRecentes();
+      avisar("Importação desfeita",
+        podem.length + (podem.length === 1 ? " lançamento removido" : " lançamentos removidos") +
+        (presos.length ? ". " + presos.length + " ficaram por estarem em fatura já paga." : "."));
+    });
+  }
 
   /** As chaves do que o app já tem. Montadas uma vez por importação: comparar
    * 74 linhas contra milhares de lançamentos, uma a uma, seria varrer a lista
@@ -8146,6 +8255,13 @@
     if (!marcadas.length) return;
     var criadas = {};
     var chaveFatura = imp.ehCartao ? monthKey(imp.fatura) : null;
+    /* O carimbo do lote é o que torna a importação desfazível. Fica em cada
+     * lançamento, e não numa lista à parte, porque lista à parte envelhece:
+     * bastaria alguém apagar um lançamento à mão para ela passar a prometer
+     * um desfazer que já não bate. Assim a verdade está sempre nos próprios
+     * dados — o lote É o conjunto dos lançamentos que o carregam. */
+    var loteId = uid("imp");
+    var agora = new Date().toISOString();
 
     marcadas.forEach(function (l) {
       var categoriaId = l.categoriaId;
@@ -8167,7 +8283,8 @@
         confirmada: true,
         // O extrato é de UMA fatura: o override é o que impede cada compra de
         // cair na fatura da própria data, que é a regra normal do cartão.
-        faturaMesOverride: chaveFatura
+        faturaMesOverride: chaveFatura,
+        importacaoId: loteId, importadoEm: agora
       };
       state.transactions.push(nova);
       if (nova.confirmada) aplicarEfeito(nova, 1);
@@ -8181,7 +8298,8 @@
     var quantas = Object.keys(criadas).length;
     avisar("Extrato importado",
       marcadas.length + (marcadas.length === 1 ? " lançamento importado" : " lançamentos importados") +
-      (quantas ? ", e " + quantas + (quantas === 1 ? " categoria criada" : " categorias criadas") : "") + ".");
+      (quantas ? ", e " + quantas + (quantas === 1 ? " categoria criada" : " categorias criadas") : "") + ". " +
+      "Se algo saiu errado, dá para desfazer esta importação inteira na tela Importar.");
     imp = null;
   });
 
@@ -10745,7 +10863,7 @@
   function aplicarEfeitoDoMovimento(mov, sinal) {
     var conta = byId(state.accounts, mov.contaId);
     if (!conta) return;
-    conta.saldo += (sinal || 1) * (mov.tipo === "DEPOSIT" ? -mov.valor : mov.valor);
+    conta.saldo = emCentavos(conta.saldo + (sinal || 1) * (mov.tipo === "DEPOSIT" ? -mov.valor : mov.valor));
   }
 
   /* ---------- concluir, reabrir, excluir ---------- */
