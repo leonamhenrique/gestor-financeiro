@@ -8272,7 +8272,7 @@
         imp.series.map(function (s) {
           return s.lojista + " " + s.faltam[0] + "/" + s.total +
             (s.faltam.length > 1 ? " a " + s.faltam[s.faltam.length - 1] + "/" + s.total : "");
-        }).join(" · ") + " — nas faturas seguintes, como previstas.";
+        }).join(" · ") + " — nas faturas seguintes, já confirmadas: a compra já aconteceu.";
     }
 
     var aviso = document.getElementById("imp-aviso-pagamento");
@@ -8372,8 +8372,11 @@
     /* A continuidade das parcelas.
      *
      * Cada uma vai para a fatura seguinte à anterior, contando da maior
-     * parcela que veio no arquivo. Nascem NÃO confirmadas: ainda não
-     * aconteceram, e o app já mostra o que é previsto como previsto.
+     * parcela que veio no arquivo. Nascem CONFIRMADAS, pela mesma razão que o
+     * parcelamento manual do app já usa: a compra aconteceu uma vez, e as
+     * parcelas são ela repartida. A dívida já existe; deixá-las previstas
+     * seria pedir para confirmar, mês a mês, algo que não depende de mais
+     * nenhuma decisão. Ver `parceladoNoCartao` no salvar do lançamento.
      *
      * Levam o mesmo carimbo do lote, então desfazer a importação leva embora
      * a projeção junto — senão sobrariam parcelas de uma compra que já não
@@ -8393,7 +8396,7 @@
             categoriaId: (origem && origem.categoriaId) || null,
             desc: s.lojista + " - Parcela " + n + "/" + s.total,
             data: isoDate(fut), contaId: null, cartaoId: imp.destinoId,
-            confirmada: false,
+            confirmada: true,
             faturaMesOverride: monthKey({ y: mesFatura.getFullYear(), m: mesFatura.getMonth() }),
             importacaoId: loteId, importadoEm: agora
           };
