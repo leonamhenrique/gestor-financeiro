@@ -6720,8 +6720,15 @@
       p.classList.toggle("on", aceso);
       p.setAttribute("aria-pressed", aceso ? "true" : "false");
     });
-    document.getElementById("rl-hoje").hidden =
-      relatorioMes.y === HOJE.getFullYear() && relatorioMes.m === HOJE.getMonth();
+    /* "Mês atual" fica SEMPRE à vista, inclusive quando já se está nele.
+     *
+     * Ele sumia no mês corrente — parecia economia de tela e era o contrário:
+     * ao sumir, encolhia a linha e as duas setas escorregavam para a direita.
+     * Quem navega mês a mês mira a seta pelo lugar, e o alvo mudava de posição
+     * justamente ao passar pelo mês de hoje. Botão parado que às vezes não faz
+     * nada incomoda menos que alvo que anda.
+     *
+     * É também o que o Planejamento já fazia: lá o botão nunca escondeu. */
   }
 
   /* ---------- mapas de calor: gastos e receitas por dia ---------- */
