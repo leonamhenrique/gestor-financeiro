@@ -473,7 +473,41 @@
   }
 
   .month-nav { display: flex; align-items: center; gap: 10px; }
-  .month-label { font-size: 12px; color: var(--fg-muted); min-width: 118px; }
+  /* O rótulo deixou de ser texto: são dois botões, o mês e o ano, que abrem a
+   * grade de escolha. Continua com a largura mínima de antes para as setas
+   * não dançarem quando o nome do mês muda de tamanho. */
+  .month-label {
+    font-size: 12px; color: var(--fg-muted); min-width: 118px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .mes-abre {
+    background: none; border: none; font: inherit; color: inherit; cursor: pointer;
+    padding: 4px 7px; border-radius: var(--r-sm); white-space: nowrap;
+    transition: color 180ms ease-out, background-color 180ms ease-out;
+  }
+  .mes-abre:hover { color: var(--accent); }
+  .mes-abre:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* No dedo o alvo tem que chegar aos 44px nas duas direções. "2026" mede
+   * ~28px de texto, então quem garante a largura é o `min-width`. */
+  @media (pointer: coarse) {
+    .mes-abre { min-height: 44px; min-width: 44px; }
+  }
+
+  /* A grade de escolha: 3 colunas cabem em 320px sem apertar o nome do mês,
+   * e as mesmas 3 servem para os 12 anos — uma grade só, dois conteúdos. */
+  .grade-mes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .grade-mes button {
+    height: 44px; padding: 0 6px; font-family: inherit; font-size: 13px;
+    background: none; border: 1px solid var(--controle-borda); border-radius: var(--r-sm);
+    color: var(--fg-muted); cursor: pointer; overflow: hidden; text-overflow: ellipsis;
+    transition: color 180ms ease-out, border-color 180ms ease-out, background-color 180ms ease-out;
+  }
+  .grade-mes button:hover { color: var(--fg); border-color: var(--accent-borda); }
+  /* O escolhido e o de hoje dizem coisas diferentes: um é onde você está, o
+   * outro é onde o calendário está. Por isso cor de fundo para um e só uma
+   * marca para o outro — duas bordas iguais não se distinguiriam. */
+  .grade-mes button.on { background: var(--accent-fraco); border-color: var(--accent-borda); color: var(--accent); }
+  .grade-mes button.hoje { border-color: var(--fg-subtle); color: var(--fg); }
   .icon-btn {
     width: 32px; height: 32px; display: grid; place-items: center; flex-shrink: 0;
     background: none; border: 1px solid var(--controle-borda); border-radius: var(--r-pill);
@@ -2079,7 +2113,7 @@
           <div class="blk" style="--i:3">
             <div class="month-nav">
               <button class="icon-btn" type="button" id="r-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-              <span class="month-label num" id="r-mes-label"></span>
+              <span class="month-label num" id="r-mes-label"><button type="button" class="mes-abre" data-parte="mes"></button><button type="button" class="mes-abre" data-parte="ano"></button></span>
               <button class="icon-btn" type="button" id="r-mes-prox" aria-label="Próximo mês"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
             <div class="seg">
@@ -2276,7 +2310,7 @@
       <div class="blk v-cta" style="--i:0">
         <div class="month-nav">
           <button class="icon-btn" type="button" id="p-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-          <span class="month-label num" id="p-mes-label"></span>
+          <span class="month-label num" id="p-mes-label"><button type="button" class="mes-abre" data-parte="mes"></button><button type="button" class="mes-abre" data-parte="ano"></button></span>
           <button class="icon-btn" type="button" id="p-mes-prox" aria-label="Próximo mês"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
       </div>
@@ -2333,7 +2367,7 @@
             <div class="lbl">Mês</div>
             <div class="month-nav">
               <button class="icon-btn" type="button" id="l-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-              <span class="month-label num" id="l-mes-label"></span>
+              <span class="month-label num" id="l-mes-label"><button type="button" class="mes-abre" data-parte="mes"></button><button type="button" class="mes-abre" data-parte="ano"></button></span>
               <button class="icon-btn" type="button" id="l-mes-prox" aria-label="Próximo mês"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
             <div class="lbl">Filtro</div>
@@ -2404,7 +2438,7 @@
       <div class="blk v-cta" style="--i:0">
         <div class="month-nav">
           <button class="icon-btn" type="button" id="rl-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-          <span class="month-label num" id="rl-mes-label"></span>
+          <span class="month-label num" id="rl-mes-label"><button type="button" class="mes-abre" data-parte="mes"></button><button type="button" class="mes-abre" data-parte="ano"></button></span>
           <button class="icon-btn" type="button" id="rl-mes-prox" aria-label="Próximo mês"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="pill" type="button" id="rl-hoje">Mês atual</button>
         </div>
@@ -2478,7 +2512,7 @@
             </div>
             <div class="month-nav">
               <button class="icon-btn" type="button" id="k-mes-ant" aria-label="Fatura anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-              <span class="month-label num" id="k-mes-label"></span>
+              <span class="month-label num" id="k-mes-label"><button type="button" class="mes-abre" data-parte="mes"></button><button type="button" class="mes-abre" data-parte="ano"></button></span>
               <button class="icon-btn" type="button" id="k-mes-prox" aria-label="Próxima fatura"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
             <div class="seg seg--3">
@@ -2645,7 +2679,7 @@
       <div class="blk v-cta" style="--i:0">
         <div class="month-nav">
           <button class="icon-btn" type="button" id="pl-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-          <span class="month-label num" id="pl-mes-label"></span>
+          <span class="month-label num" id="pl-mes-label"><button type="button" class="mes-abre" data-parte="mes"></button><button type="button" class="mes-abre" data-parte="ano"></button></span>
           <button class="icon-btn" type="button" id="pl-mes-prox" aria-label="Próximo mês"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button class="pill" type="button" id="pl-hoje">Mês atual</button>
         </div>
@@ -3326,6 +3360,24 @@
 
 <!-- O mapa de uma categoria só. Abre ao tocar numa barra de "Maiores
      despesas" ou "Maiores receitas": o ranking diz QUANTO, e isto diz QUANDO. -->
+<!-- Escolher o mês sem precisar bater seta por seta. Um diálogo só serve as
+     seis telas que navegam por mês: elas diferem no estado, não no gesto. -->
+<dialog id="dlg-mes">
+  <div class="layer-head">
+    <h3 id="sm-titulo">Escolher o mês</h3>
+    <div class="ctx" id="sm-ctx"></div>
+    <button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+  </div>
+  <div class="layer-body">
+    <div class="month-nav" id="sm-nav">
+      <button class="icon-btn" type="button" id="sm-ant" aria-label="Anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <span class="month-label num"><button type="button" class="mes-abre" id="sm-foco"></button></span>
+      <button class="icon-btn" type="button" id="sm-prox" aria-label="Próximo"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div class="grade-mes" id="sm-grade"></div>
+  </div>
+</dialog>
+
 <dialog id="dlg-calor-cat">
   <div class="layer-head">
     <h3 id="cc-titulo">Categoria</h3>
@@ -3511,6 +3563,18 @@
     return SEMANA[d.getDay()] + ", " + d.getDate() + " de " + MESES[d.getMonth()].toLowerCase();
   }
   function rotuloMes(vm) { return MESES[vm.m] + " " + vm.y; }
+  /** Os 12 anos de uma página da grade.
+   *
+   * Começa 5 anos antes do ano em foco: num app de dinheiro se revisita o
+   * passado recente, e sobram 6 à frente, que é o alcance de um parcelamento
+   * longo. As setas da grade andam de 12 em 12, então qualquer ano é
+   * alcançável — e o ano em foco cai sempre na mesma posição ao abrir, que é
+   * o que deixa a grade previsível. */
+  function faixaDeAnos(ano) {
+    var fora = [];
+    for (var i = 0; i < 12; i++) fora.push(ano - 5 + i);
+    return fora;
+  }
   /** "Ago/26". É o mesmo formato das colunas do gráfico de meses — e agora os
    * dois saem daqui, para não poderem divergir. Existe porque o nome por
    * extenso não cabe onde o espaço é curto: num celular de 375px, "Saldo
@@ -6158,7 +6222,7 @@
    * tela e achar outro mês seria perder o lugar. */
   function renderTelaPendencias() {
     var p = pendenciasDoMesUmaVez(resumoMes);
-    document.getElementById("p-mes-label").textContent = rotuloMes(resumoMes);
+    pintarMes("p-mes-label", resumoMes);
     document.getElementById("p-sub").textContent = p.total
       ? contagem(p.total, "lançamento") + " sem confirmação até " + rotuloMes(resumoMes).toLowerCase() + "."
       : "Nada em aberto até " + rotuloMes(resumoMes).toLowerCase() + ".";
@@ -6642,7 +6706,7 @@
     var total = totalDoGrupo(itens);
 
     document.getElementById("rl-sub").textContent = receita ? "De onde vem o dinheiro" : "Para onde vai o dinheiro";
-    document.getElementById("rl-mes-label").textContent = rotuloMes(relatorioMes);
+    pintarMes("rl-mes-label", relatorioMes);
     document.getElementById("rl-total-lbl").textContent = receita ? "Total de receitas" : "Total de despesas";
     document.getElementById("rl-total").innerHTML = heroNum(total);
     document.getElementById("rl-barra").innerHTML = barraParticipacaoHTML(itens);
@@ -6984,7 +7048,7 @@
       '" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
       '<span class="num">' + Math.abs(variacao).toFixed(1).replace(".", ",") + '%</span>';
 
-    document.getElementById("r-mes-label").textContent = rotuloMes(resumoMes);
+    pintarMes("r-mes-label", resumoMes);
     // Mesma definição do extrato: caixa, não competência de compra. Compra no
     // cartão entra pela fatura, nunca somada duas vezes.
     var tot = totaisDoMes(resumoMes);
@@ -7084,7 +7148,7 @@
     nota.hidden = relatorioPor !== "compra";
     nota.textContent = "Esta tela mostra a fatura no vencimento, sempre. " +
       "Seus relatórios estão contando pela data da compra, então os totais do Resumo podem diferir dos daqui.";
-    document.getElementById("l-mes-label").textContent = rotuloMes(extratoMes);
+    pintarMes("l-mes-label", extratoMes);
     var mk = monthKey(extratoMes);
 
     // Compras de cartão entram consolidadas: uma linha por fatura, não uma
@@ -7257,7 +7321,7 @@
 
     document.getElementById("k-det-nome").textContent = card.nome;
     document.getElementById("k-det-status").innerHTML = '<span class="tag ' + STATUS_CLASSE[status] + '">' + STATUS_LABEL[status] + '</span>';
-    document.getElementById("k-mes-label").textContent = rotuloMes(faturaMes);
+    pintarMes("k-mes-label", faturaMes);
     document.getElementById("k-det-confirmado").textContent = money(f.confirmado);
     document.getElementById("k-det-pago").textContent = money(pago);
     document.getElementById("k-det-aberto").textContent = money(f.emAberto || 0);
@@ -7546,6 +7610,112 @@
       abrirCalorDaCategoria(alvo.getAttribute("data-cat"), id === "r-receitas" ? "INCOME" : "EXPENSE");
     });
   });
+
+  /* ================= escolher o mês pela grade =================
+   * Seis telas navegam por mês com as mesmas setas. Bater seta por seta para
+   * chegar a março do ano passado é onze toques; aqui são dois.
+   *
+   * Uma peça só para as seis: o que muda entre elas é ONDE o mês mora e o que
+   * redesenhar depois, e isso entra como duas funções. */
+  function pintarMes(id, vm) {
+    var el = document.getElementById(id);
+    el.querySelector('[data-parte="mes"]').textContent = MESES[vm.m];
+    el.querySelector('[data-parte="ano"]').textContent = vm.y;
+  }
+
+  // Quem está com a grade aberta agora.
+  var seletorAtivo = null;
+  var seletorModo = "mes";     // "mes" | "ano"
+  var seletorAno = 0;          // ano em foco na grade de meses
+  var seletorBloco = 0;        // primeiro ano da página de 12
+
+  function pintarGrade() {
+    var grade = document.getElementById("sm-grade");
+    var foco = document.getElementById("sm-foco");
+    var atual = seletorAtivo ? seletorAtivo.ler() : { y: HOJE.getFullYear(), m: HOJE.getMonth() };
+    var html = "";
+
+    if (seletorModo === "mes") {
+      document.getElementById("sm-titulo").textContent = "Escolher o mês";
+      // O ano no meio é botão: é por ele que se chega à grade de anos, que é
+      // o caminho que o usuário pediu.
+      foco.textContent = seletorAno;
+      foco.setAttribute("aria-label", "Ano " + seletorAno + ": escolher outro ano");
+      MESES.forEach(function (nome, i) {
+        var escolhido = atual.y === seletorAno && atual.m === i;
+        var ehHoje = HOJE.getFullYear() === seletorAno && HOJE.getMonth() === i;
+        html += '<button type="button" data-mes="' + i + '"' +
+          ' class="' + (escolhido ? "on" : "") + (ehHoje ? " hoje" : "") + '"' +
+          (escolhido ? ' aria-current="true"' : "") + '>' + esc(nome.slice(0, 3)) + "</button>";
+      });
+    } else {
+      document.getElementById("sm-titulo").textContent = "Escolher o ano";
+      foco.textContent = seletorBloco + " – " + (seletorBloco + 11);
+      foco.setAttribute("aria-label", "Voltar para os meses");
+      faixaDeAnos(seletorBloco + 5).forEach(function (ano) {
+        var escolhido = atual.y === ano;
+        html += '<button type="button" data-ano="' + ano + '"' +
+          ' class="' + (escolhido ? "on" : "") + (HOJE.getFullYear() === ano ? " hoje" : "") + '"' +
+          (escolhido ? ' aria-current="true"' : "") + '>' + ano + "</button>";
+      });
+    }
+    grade.innerHTML = html;
+    document.getElementById("sm-ctx").textContent = rotuloMes(atual) + " selecionado";
+  }
+
+  function abrirSeletor(ligacao, modo) {
+    seletorAtivo = ligacao;
+    var atual = ligacao.ler();
+    seletorAno = atual.y;
+    seletorBloco = atual.y - 5;
+    seletorModo = modo;
+    pintarGrade();
+    abrir("dlg-mes");
+  }
+
+  document.getElementById("sm-ant").addEventListener("click", function () {
+    if (seletorModo === "mes") seletorAno--; else seletorBloco -= 12;
+    pintarGrade();
+  });
+  document.getElementById("sm-prox").addEventListener("click", function () {
+    if (seletorModo === "mes") seletorAno++; else seletorBloco += 12;
+    pintarGrade();
+  });
+  // O botão do meio troca de modo nos dois sentidos: do mês para o ano e de
+  // volta, sem precisar fechar e reabrir.
+  document.getElementById("sm-foco").addEventListener("click", function () {
+    if (seletorModo === "mes") { seletorBloco = seletorAno - 5; seletorModo = "ano"; }
+    else seletorModo = "mes";
+    pintarGrade();
+  });
+
+  document.getElementById("sm-grade").addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (!b || !seletorAtivo) return;
+    if (b.hasAttribute("data-ano")) {
+      // Escolher o ano não filtra nada ainda: leva para os meses DELE, que é
+      // onde a escolha se completa.
+      seletorAno = Number(b.getAttribute("data-ano"));
+      seletorModo = "mes";
+      pintarGrade();
+      return;
+    }
+    var m = Number(b.getAttribute("data-mes"));
+    seletorAtivo.definir({ y: seletorAno, m: m });
+    fechar("dlg-mes");
+  });
+
+  /** Liga um rótulo de mês à grade. `ler` diz onde a tela está; `definir`
+   * leva a tela para o mês escolhido e redesenha. */
+  function ligarSeletorDeMes(id, ler, definir) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("click", function (e) {
+      var b = e.target.closest(".mes-abre");
+      if (!b) return;
+      abrirSeletor({ ler: ler, definir: definir }, b.getAttribute("data-parte") === "ano" ? "ano" : "mes");
+    });
+  }
 
   function abrir(id) {
     var d = document.getElementById(id);
@@ -9323,7 +9493,7 @@
   function renderPlanejamento() {
     var mk = monthKey(planMes);
     var pl = planejamentoDoMes(mk);
-    document.getElementById("pl-mes-label").textContent = rotuloMes(planMes);
+    pintarMes("pl-mes-label", planMes);
     document.getElementById("pl-vazio").hidden = !!pl;
     document.getElementById("pl-corpo").hidden = !pl;
     document.getElementById("pl-sub").textContent = pl
@@ -10576,6 +10746,15 @@
   document.getElementById("p-voltar").addEventListener("click", function () { irPara("resumo"); });
   document.getElementById("r-pend-a-vencer").addEventListener("click", function () { irPara("pendencias"); });
   document.getElementById("r-pend-vencidas").addEventListener("click", function () { irPara("pendencias"); });
+  /* As seis telas. O Resumo e Pendências dividem `resumoMes`, então os dois
+   * rótulos chamam o mesmo caminho — o que já valia para as setas deles. */
+  ligarSeletorDeMes("r-mes-label", function () { return resumoMes; }, function (vm) { mudarMesDoResumo(0, vm); });
+  ligarSeletorDeMes("p-mes-label", function () { return resumoMes; }, function (vm) { mudarMesDoResumo(0, vm); });
+  ligarSeletorDeMes("l-mes-label", function () { return extratoMes; }, function (vm) { extratoMes.y = vm.y; extratoMes.m = vm.m; renderExtrato(); });
+  ligarSeletorDeMes("k-mes-label", function () { return faturaMes; }, function (vm) { faturaMes.y = vm.y; faturaMes.m = vm.m; renderCartoes(); });
+  ligarSeletorDeMes("rl-mes-label", function () { return relatorioMes; }, function (vm) { relatorioMes = { y: vm.y, m: vm.m }; renderRelatorio(); });
+  ligarSeletorDeMes("pl-mes-label", function () { return planMes; }, function (vm) { planMes.y = vm.y; planMes.m = vm.m; renderPlanejamento(); });
+
   document.getElementById("l-mes-ant").addEventListener("click", function () { passoMes(extratoMes, -1); renderExtrato(); });
   document.getElementById("l-mes-prox").addEventListener("click", function () { passoMes(extratoMes, 1); renderExtrato(); });
   document.getElementById("k-mes-ant").addEventListener("click", function () { passoMes(faturaMes, -1); renderCartoes(); });
