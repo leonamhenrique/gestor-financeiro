@@ -329,6 +329,13 @@
   .row-val.caro { color: var(--seg-despesa-tinta); }
 
   /* ---------- importar extrato ---------- */
+  .imp-parcelas {
+    display: flex; align-items: flex-start; gap: 10px; margin-top: 12px;
+    padding: 12px 0; border-top: 1px solid var(--hairline); cursor: pointer;
+  }
+  .imp-parcelas > span { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+  .imp-parcelas b { font-weight: 500; color: var(--fg); }
+  .imp-parcelas-meta { font-size: 11px; color: var(--fg-subtle); }
   .imp-lote {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 12px 0; border-top: 1px solid var(--hairline);
@@ -2583,6 +2590,15 @@
       <div class="blk" id="imp-passo-2" style="--i:1" hidden>
         <div class="imp-resumo" id="imp-resumo"></div>
       <div class="field-help" id="imp-aviso-pagamento" hidden></div>
+      <!-- Só aparece quando há o que criar. Num extrato de parcelas já
+           antecipadas — o caso medido — não falta nenhuma, e a linha some. -->
+      <label class="imp-parcelas" id="imp-parcelas-campo" hidden>
+        <input type="checkbox" class="imp-marca" id="imp-parcelas" checked>
+        <span>
+          <b id="imp-parcelas-titulo"></b>
+          <span class="imp-parcelas-meta" id="imp-parcelas-meta"></span>
+        </span>
+      </label>
         <div class="acoes-linha" style="margin-top:12px">
           <button type="button" class="ghost" id="imp-todos">Marcar todos</button>
           <button type="button" class="ghost" id="imp-nenhum">Desmarcar todos</button>
@@ -6947,6 +6963,47 @@
     return "";
   }
 
+  var RE_PARCELA = /^(.*?)\s*-\s*Parcela\s+(\d+)\/(\d+)$/i;
+
+  /** As compras parceladas do extrato, e o que falta delas.
+   *
+   * O agrupamento é por SÉRIE — lojista mais valor da parcela —, nunca por
+   * linha. Medido no extrato real: ele traz as parcelas 6 a 12 de 12 da mesma
+   * compra, todas no mesmo dia, porque foram antecipadas (daí os "Desconto
+   * Antecipação" ao lado). Criar `N+1..M` a partir de CADA linha produziria
+   * 127 lançamentos, todos repetidos do que já está ali.
+   *
+   * Olhando a série, a conta é outra: conta-se da MAIOR parcela presente em
+   * diante. Com 12/12 já no arquivo, não falta nada — que é exatamente o que
+   * este extrato devolve. */
+  function seriesDeParcelas(lancamentos) {
+    var por = {};
+    (lancamentos || []).forEach(function (t) {
+      var m = String(t.desc || "").match(RE_PARCELA);
+      if (!m) return;
+      var n = Number(m[2]), total = Number(m[3]);
+      // "Parcela 0/5" e "Parcela 7/5" são lixo: não dá para contar a partir
+      // deles, e inventar um calendário em cima de dado quebrado é pior que
+      // não fazer nada.
+      if (!n || !total || n > total) return;
+      var chave = normalizarNome(m[1]) + "|" + Number(t.valor).toFixed(2) + "|" + t.tipo;
+      var s = por[chave];
+      if (!s) s = por[chave] = { lojista: m[1].trim(), valor: t.valor, tipo: t.tipo, total: total, maior: 0, data: t.data, desde: null };
+      if (n > s.maior) { s.maior = n; s.data = t.data; s.desde = t; }
+    });
+    return Object.keys(por).map(function (k) {
+      var s = por[k];
+      s.faltam = [];
+      for (var n = s.maior + 1; n <= s.total; n++) s.faltam.push(n);
+      return s;
+    }).filter(function (s) { return s.faltam.length > 0; });
+  }
+
+  /** Quantas parcelas a continuidade criaria. */
+  function quantasParcelasFaltam(series) {
+    return (series || []).reduce(function (s, x) { return s + x.faltam.length; }, 0);
+  }
+
   /** Pagamento da fatura não é compra: é a fatura saindo da conta, e o app já
    * tem caminho próprio para isso. Importado como lançamento, contaria o
    * mesmo dinheiro duas vezes. No arquivo medido é um crédito de R$ 2.765,01. */
@@ -8202,6 +8259,22 @@
       (repetidas ? "<span>já existem<b>" + repetidas + "</b></span>" : "") +
       (imp.ehCartao ? "<span>fatura<b>" + rotuloMes(imp.fatura) + "</b></span>" : "");
 
+    /* As séries saem das linhas MARCADAS: desmarcar a compra e ainda assim
+     * criar a continuidade dela seria inventar dívida que ninguém pediu. */
+    imp.series = seriesDeParcelas(marcadas.map(function (l) { return l.base; }));
+    var faltam = quantasParcelasFaltam(imp.series);
+    var campo = document.getElementById("imp-parcelas-campo");
+    campo.hidden = !faltam || !imp.ehCartao;
+    if (faltam && imp.ehCartao) {
+      document.getElementById("imp-parcelas-titulo").textContent =
+        "Criar " + faltam + (faltam === 1 ? " parcela que falta" : " parcelas que faltam");
+      document.getElementById("imp-parcelas-meta").textContent =
+        imp.series.map(function (s) {
+          return s.lojista + " " + s.faltam[0] + "/" + s.total +
+            (s.faltam.length > 1 ? " a " + s.faltam[s.faltam.length - 1] + "/" + s.total : "");
+        }).join(" · ") + " — nas faturas seguintes, como previstas.";
+    }
+
     var aviso = document.getElementById("imp-aviso-pagamento");
     aviso.hidden = !pago;
     if (pago) {
@@ -8213,6 +8286,10 @@
     document.getElementById("imp-confirmar").textContent =
       marcadas.length ? "Importar " + marcadas.length : "Importar";
   }
+
+  // Marcar ou desmarcar a caixa das parcelas não mexe nas séries; só o que
+  // está marcado na LISTA muda a conta.
+  document.getElementById("imp-parcelas").addEventListener("change", function () {});
 
   document.getElementById("imp-lista").addEventListener("change", function (e) {
     var linha = e.target.closest(".imp-linha");
@@ -8253,6 +8330,8 @@
   document.getElementById("imp-confirmar").addEventListener("click", function () {
     var marcadas = imp.linhas.filter(function (l) { return l.marcada; });
     if (!marcadas.length) return;
+    var caixaParcelas = document.getElementById("imp-parcelas");
+    var criarParcelas = !document.getElementById("imp-parcelas-campo").hidden && caixaParcelas.checked;
     var criadas = {};
     var chaveFatura = imp.ehCartao ? monthKey(imp.fatura) : null;
     /* O carimbo do lote é o que torna a importação desfazível. Fica em cada
@@ -8290,6 +8369,43 @@
       if (nova.confirmada) aplicarEfeito(nova, 1);
     });
 
+    /* A continuidade das parcelas.
+     *
+     * Cada uma vai para a fatura seguinte à anterior, contando da maior
+     * parcela que veio no arquivo. Nascem NÃO confirmadas: ainda não
+     * aconteceram, e o app já mostra o que é previsto como previsto.
+     *
+     * Levam o mesmo carimbo do lote, então desfazer a importação leva embora
+     * a projeção junto — senão sobrariam parcelas de uma compra que já não
+     * está lá. */
+    var projetadas = 0;
+    if (criarParcelas && imp.ehCartao) {
+      var jaTem = chavesExistentes();
+      (imp.series || []).forEach(function (s) {
+        var origem = marcadas.filter(function (l) {
+          return l.base.desc === s.desde.desc && l.base.valor === s.desde.valor;
+        })[0];
+        s.faltam.forEach(function (n, i) {
+          var fut = adicionarMeses(new Date(s.data + "T00:00:00"), i + 1);
+          var mesFatura = adicionarMeses(new Date(imp.fatura.y, imp.fatura.m, 1), i + 1);
+          var nova = {
+            id: uid("t"), tipo: s.tipo, valor: s.valor,
+            categoriaId: (origem && origem.categoriaId) || null,
+            desc: s.lojista + " - Parcela " + n + "/" + s.total,
+            data: isoDate(fut), contaId: null, cartaoId: imp.destinoId,
+            confirmada: false,
+            faturaMesOverride: monthKey({ y: mesFatura.getFullYear(), m: mesFatura.getMonth() }),
+            importacaoId: loteId, importadoEm: agora
+          };
+          // Se a parcela já existe no app, não se cria de novo — a mesma
+          // regra do resto da importação.
+          if (jaTem[chaveDeLancamento(nova)]) return;
+          state.transactions.push(nova);
+          projetadas++;
+        });
+      });
+    }
+
     persist(); renderAll();
     // Leva para a tela onde o resultado aparece: de nada adianta dizer
     // "importei 73" e deixar a pessoa na tela de importar, sem ver nada.
@@ -8298,6 +8414,7 @@
     var quantas = Object.keys(criadas).length;
     avisar("Extrato importado",
       marcadas.length + (marcadas.length === 1 ? " lançamento importado" : " lançamentos importados") +
+      (projetadas ? ", mais " + projetadas + (projetadas === 1 ? " parcela criada nas faturas seguintes" : " parcelas criadas nas faturas seguintes") : "") +
       (quantas ? ", e " + quantas + (quantas === 1 ? " categoria criada" : " categorias criadas") : "") + ". " +
       "Se algo saiu errado, dá para desfazer esta importação inteira na tela Importar.");
     imp = null;
