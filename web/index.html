@@ -6999,6 +6999,40 @@
     }).filter(function (s) { return s.faltam.length > 0; });
   }
 
+  /** A fatura já está encerrada para novos lançamentos?
+   *
+   * PAGA e TRANSPORTADA contam igual: nas duas o valor daquele mês já virou
+   * outra coisa — pagamento feito ou saldo levado para a fatura seguinte. Pôr
+   * um lançamento ali depois disso reescreve um mês que já fechou. É a mesma
+   * dupla que `parcelaBloqueadaPorFaturaPaga` usa para impedir a remoção, e é
+   * por isso que precisam combinar: criar onde não se pode remover deixaria o
+   * lançamento preso para sempre. */
+  function faturaEncerrada(cartaoId, vm) {
+    var card = byId(state.cards, cartaoId);
+    if (!card) return false;
+    var s = statusFatura(card, vm.y, vm.m);
+    return s === "PAID" || s === "CARRIED";
+  }
+
+  /** Onde cada parcela que falta vai cair, e se dá para criar lá.
+   *
+   * Medido: projetar uma parcela confirmada numa fatura PAGA fazia o
+   * confirmado passar o pago, e o app transportava a diferença — a fatura
+   * saía de "Paga" para "Transportada", o resto ia parar no mês seguinte, e
+   * o desfazer já não conseguia remover a parcela. Três estragos de um
+   * lançamento só. */
+  function destinosDasParcelas(series, cartaoId, faturaBase) {
+    var fora = [];
+    (series || []).forEach(function (s) {
+      s.faltam.forEach(function (n, i) {
+        var mes = adicionarMeses(new Date(faturaBase.y, faturaBase.m, 1), i + 1);
+        var vm = { y: mes.getFullYear(), m: mes.getMonth() };
+        fora.push({ serie: s, n: n, passo: i, vm: vm, encerrada: faturaEncerrada(cartaoId, vm) });
+      });
+    });
+    return fora;
+  }
+
   /** Quantas parcelas a continuidade criaria. */
   function quantasParcelasFaltam(series) {
     return (series || []).reduce(function (s, x) { return s + x.faltam.length; }, 0);
@@ -8262,17 +8296,33 @@
     /* As séries saem das linhas MARCADAS: desmarcar a compra e ainda assim
      * criar a continuidade dela seria inventar dívida que ninguém pediu. */
     imp.series = seriesDeParcelas(marcadas.map(function (l) { return l.base; }));
-    var faltam = quantasParcelasFaltam(imp.series);
+    imp.destinos = imp.ehCartao ? destinosDasParcelas(imp.series, imp.destinoId, imp.fatura) : [];
+    var cabem = imp.destinos.filter(function (d) { return !d.encerrada; });
+    var puladas = imp.destinos.filter(function (d) { return d.encerrada; });
     var campo = document.getElementById("imp-parcelas-campo");
-    campo.hidden = !faltam || !imp.ehCartao;
-    if (faltam && imp.ehCartao) {
-      document.getElementById("imp-parcelas-titulo").textContent =
-        "Criar " + faltam + (faltam === 1 ? " parcela que falta" : " parcelas que faltam");
+    // Some quando não há NADA a criar — nem o que cabe, nem o que foi pulado.
+    campo.hidden = !imp.destinos.length || !imp.ehCartao;
+    if (imp.destinos.length && imp.ehCartao) {
+      document.getElementById("imp-parcelas-titulo").textContent = cabem.length
+        ? "Criar " + cabem.length + (cabem.length === 1 ? " parcela que falta" : " parcelas que faltam")
+        : "Nenhuma parcela pode ser criada";
+      var meses = puladas.map(function (d) { return rotuloMes(d.vm); });
       document.getElementById("imp-parcelas-meta").textContent =
-        imp.series.map(function (s) {
-          return s.lojista + " " + s.faltam[0] + "/" + s.total +
-            (s.faltam.length > 1 ? " a " + s.faltam[s.faltam.length - 1] + "/" + s.total : "");
-        }).join(" · ") + " — nas faturas seguintes, já confirmadas: a compra já aconteceu.";
+        (cabem.length
+          ? imp.series.map(function (s) {
+              return s.lojista + " " + s.faltam[0] + "/" + s.total +
+                (s.faltam.length > 1 ? " a " + s.faltam[s.faltam.length - 1] + "/" + s.total : "");
+            }).join(" · ") + " — nas faturas seguintes, já confirmadas: a compra já aconteceu. "
+          : "") +
+        (puladas.length
+          ? puladas.length + (puladas.length === 1 ? " fica de fora: a fatura de " : " ficam de fora: as faturas de ") +
+            meses.join(", ") + (puladas.length === 1 ? " já está quitada ou transportada." : " já estão quitadas ou transportadas.") +
+            " Lançar nela reabriria um mês que já fechou."
+          : "");
+      // Marcar a caixa não faz sentido quando não sobra nada para criar.
+      var caixa = document.getElementById("imp-parcelas");
+      caixa.disabled = !cabem.length;
+      if (!cabem.length) caixa.checked = false;
     }
 
     var aviso = document.getElementById("imp-aviso-pagamento");
@@ -8381,31 +8431,33 @@
      * Levam o mesmo carimbo do lote, então desfazer a importação leva embora
      * a projeção junto — senão sobrariam parcelas de uma compra que já não
      * está lá. */
-    var projetadas = 0;
+    var projetadas = 0, puladasPorFatura = 0;
     if (criarParcelas && imp.ehCartao) {
       var jaTem = chavesExistentes();
-      (imp.series || []).forEach(function (s) {
+      /* Os destinos são calculados ANTES de criar qualquer coisa. Se fossem
+       * avaliados um a um durante a criação, a primeira parcela poderia mudar
+       * o status da fatura seguinte e a segunda passaria a ver outro mundo. */
+      destinosDasParcelas(imp.series, imp.destinoId, imp.fatura).forEach(function (d) {
+        if (d.encerrada) { puladasPorFatura++; return; }
+        var s = d.serie;
         var origem = marcadas.filter(function (l) {
           return l.base.desc === s.desde.desc && l.base.valor === s.desde.valor;
         })[0];
-        s.faltam.forEach(function (n, i) {
-          var fut = adicionarMeses(new Date(s.data + "T00:00:00"), i + 1);
-          var mesFatura = adicionarMeses(new Date(imp.fatura.y, imp.fatura.m, 1), i + 1);
-          var nova = {
-            id: uid("t"), tipo: s.tipo, valor: s.valor,
-            categoriaId: (origem && origem.categoriaId) || null,
-            desc: s.lojista + " - Parcela " + n + "/" + s.total,
-            data: isoDate(fut), contaId: null, cartaoId: imp.destinoId,
-            confirmada: true,
-            faturaMesOverride: monthKey({ y: mesFatura.getFullYear(), m: mesFatura.getMonth() }),
-            importacaoId: loteId, importadoEm: agora
-          };
-          // Se a parcela já existe no app, não se cria de novo — a mesma
-          // regra do resto da importação.
-          if (jaTem[chaveDeLancamento(nova)]) return;
-          state.transactions.push(nova);
-          projetadas++;
-        });
+        var fut = adicionarMeses(new Date(s.data + "T00:00:00"), d.passo + 1);
+        var nova = {
+          id: uid("t"), tipo: s.tipo, valor: s.valor,
+          categoriaId: (origem && origem.categoriaId) || null,
+          desc: s.lojista + " - Parcela " + d.n + "/" + s.total,
+          data: isoDate(fut), contaId: null, cartaoId: imp.destinoId,
+          confirmada: true,
+          faturaMesOverride: monthKey(d.vm),
+          importacaoId: loteId, importadoEm: agora
+        };
+        // Se a parcela já existe no app, não se cria de novo — a mesma
+        // regra do resto da importação.
+        if (jaTem[chaveDeLancamento(nova)]) return;
+        state.transactions.push(nova);
+        projetadas++;
       });
     }
 
@@ -8419,7 +8471,8 @@
       marcadas.length + (marcadas.length === 1 ? " lançamento importado" : " lançamentos importados") +
       (projetadas ? ", mais " + projetadas + (projetadas === 1 ? " parcela criada nas faturas seguintes" : " parcelas criadas nas faturas seguintes") : "") +
       (quantas ? ", e " + quantas + (quantas === 1 ? " categoria criada" : " categorias criadas") : "") + ". " +
-      "Se algo saiu errado, dá para desfazer esta importação inteira na tela Importar.");
+      (puladasPorFatura ? " " + puladasPorFatura + (puladasPorFatura === 1 ? " parcela não foi criada porque a fatura dela já está quitada ou transportada." : " parcelas não foram criadas porque as faturas delas já estão quitadas ou transportadas.") : "") +
+      " Se algo saiu errado, dá para desfazer esta importação inteira na tela Importar.");
     imp = null;
   });
 
