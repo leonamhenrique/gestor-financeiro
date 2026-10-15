@@ -328,6 +328,50 @@
   .hero-pct.caro { color: var(--seg-despesa-tinta); }
   .row-val.caro { color: var(--seg-despesa-tinta); }
 
+  /* ---------- importar extrato ---------- */
+  /* A caixa é o alvo de soltar e também o de clicar. Borda tracejada porque é
+   * o desenho que a web inteira usa para "solte aqui" — inventar outro só
+   * faria a pessoa ter que descobrir. */
+  .imp-solta {
+    display: block; padding: 22px 16px; cursor: pointer;
+    border: 1px dashed var(--controle-borda); border-radius: var(--r-md);
+    transition: border-color 180ms ease-out, background-color 180ms ease-out;
+  }
+  .imp-solta:hover { border-color: var(--accent-borda); }
+  /* O arquivo por cima da caixa: a borda acende e o fundo tinge, para não
+   * haver dúvida de que soltar ali vai funcionar. */
+  .imp-solta.sobre { border-color: var(--accent); background: var(--accent-fraco); }
+  /* O input de arquivo sai de vista mas continua focável pelo teclado — com
+   * `display:none` ele deixaria de receber foco e o campo viraria inalcançável
+   * para quem navega por tabulação. */
+  .imp-solta input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .imp-solta:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .imp-solta-alvo { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--fg-subtle); }
+  .imp-solta-alvo b { font-weight: 500; color: var(--fg); }
+  .imp-solta-alvo svg { width: 22px; height: 22px; color: var(--accent); flex-shrink: 0; }
+  .imp-linha {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px;
+    align-items: center; padding: 10px 0; border-top: 1px solid var(--hairline);
+  }
+  .imp-linha:first-child { border-top: none; }
+  /* A caixa de marcar é o alvo mais tocado da tela: ela leva a banda de 44px
+   * mesmo sendo pequena, como o resto do app faz com ícone. */
+  .imp-marca { width: 18px; height: 18px; position: relative; cursor: pointer; accent-color: var(--accent); }
+  @media (pointer: coarse) { .imp-marca::after { content: ""; position: absolute; inset: -13px; } }
+  .imp-desc { font-size: 13px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .imp-val { font-size: 13px; white-space: nowrap; }
+  .imp-val.sai { color: var(--negative); }
+  .imp-val.entra { color: var(--positive); }
+  .imp-meta { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--fg-subtle); }
+  .imp-meta select { font-size: 11px; padding: 4px 6px; }
+  @media (pointer: coarse) { .imp-meta select { min-height: 44px; } }
+  /* Já existe no app: a linha continua à vista e explicada, mas desmarcada.
+   * Esconder faria o total não bater com o que se vê, e ninguém entenderia. */
+  .imp-linha.repetida .imp-desc, .imp-linha.repetida .imp-val { color: var(--fg-subtle); }
+  .imp-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); }
+  .imp-resumo { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--fg-subtle); }
+  .imp-resumo b { font-weight: 500; color: var(--fg); margin-left: 5px; }
+
   /* ---------- relatório de participação ----------
    * A barra de participação: uma fatia por categoria, lado a lado, somando a
    * largura inteira. O vão de 2px entre elas é o que separa uma fatia da
@@ -1781,6 +1825,9 @@
      * se espalhavam pelas duas colunas — a barra de participação ficava com
      * um terço da largura e o "como ler" ia parar ao lado dela. */
     .view[data-view="relatorio"] > .blk:not(.v-head):not(.v-cta) { grid-column: 1 / -1; }
+    /* Mesma regra, mesmo motivo: sem ela o formulário de importar ia para a
+     * coluna da direita, ao lado do título, em vez de ocupar a linha. */
+    .view[data-view="importar"] > .blk:not(.v-head):not(.v-cta) { grid-column: 1 / -1; }
 
     .split {
       display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
@@ -2014,6 +2061,10 @@
     <button class="nav-item" type="button" data-goto="objetivos" data-ordem-id="objetivos">
       <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>
       <span>Objetivos</span>
+    </button>
+    <button class="nav-item" type="button" data-goto="importar" data-ordem-id="importar">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4M8.5 11.5 12 15l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 16v2.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Importar</span>
     </button>
     <button class="nav-item" type="button" data-goto="relatorio" data-ordem-id="relatorio">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4.5 4.5v15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 8h10M8 12.5h6.5M8 17h3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
@@ -2469,6 +2520,67 @@
       </div>
     </section>
 
+    <!-- ================= IMPORTAR ================= -->
+    <!-- Era camada e virou tela: no menu todo item é uma tela, e uma lista de
+         74 linhas com um seletor de categoria em cada uma não cabe bem numa
+         caixa de diálogo de celular. -->
+    <section class="view" data-view="importar">
+      <div class="blk v-head" style="--i:0"><h1>Importar extrato</h1><div class="sub" id="imp-ctx">Arquivo OFX do banco ou do cartão</div></div>
+
+
+      <div class="blk" id="imp-passo-1" style="--i:1">
+        <div class="field">
+          <label class="lbl" for="imp-arquivo">Arquivo</label>
+          <!-- O `label` envolvendo o input é o que faz a área inteira abrir o
+               seletor, sem script e sem um botão a mais. Arrastar é atalho, não
+               substituto: quem não arrasta continua clicando. -->
+          <label class="imp-solta" id="imp-solta">
+            <input type="file" id="imp-arquivo" accept=".ofx,.OFX,text/plain">
+            <span class="imp-solta-alvo">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4M8.5 11.5 12 15l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 16v2.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+              <span><b>Arraste o arquivo aqui</b> ou clique para escolher</span>
+            </span>
+          </label>
+          <div class="field-help">Exporte o OFX no aplicativo do banco. Por enquanto só OFX.</div>
+        </div>
+        <div class="field" id="imp-destino-campo" hidden>
+          <label class="lbl" for="imp-destino">Importar para</label>
+          <select id="imp-destino"></select>
+          <div class="field-help" id="imp-destino-ajuda"></div>
+        </div>
+        <div class="field" id="imp-fatura-campo" hidden>
+          <div class="lbl">Fatura</div>
+          <div class="month-nav">
+            <span class="month-label num" id="imp-fatura-label">
+              <button type="button" class="mes-abre" data-parte="mes"></button>
+              <button type="button" class="mes-abre" data-parte="ano"></button>
+            </span>
+          </div>
+          <div class="field-help">O extrato é de uma fatura só: todos os lançamentos entram nela, mesmo os de datas anteriores. O mês vem do fim do período do arquivo.</div>
+        </div>
+        <div class="field-error" id="imp-erro"></div>
+        <div class="acoes-linha">
+          <button type="button" class="primary" id="imp-continuar" disabled>Conferir lançamentos</button>
+        </div>
+      </div>
+
+      <div class="blk" id="imp-passo-2" style="--i:1" hidden>
+        <div class="imp-resumo" id="imp-resumo"></div>
+      <div class="field-help" id="imp-aviso-pagamento" hidden></div>
+        <div class="acoes-linha" style="margin-top:12px">
+          <button type="button" class="ghost" id="imp-todos">Marcar todos</button>
+          <button type="button" class="ghost" id="imp-nenhum">Desmarcar todos</button>
+        </div>
+        <div id="imp-lista"></div>
+        <div class="acoes-linha" style="margin-top:16px">
+          <button type="button" class="ghost" id="imp-voltar">Voltar</button>
+          <button type="button" class="primary" id="imp-confirmar">Importar</button>
+        </div>
+      </div>
+
+        
+    </section>
+
     <!-- ================= CARTÕES ================= -->
     <section class="view" data-view="cartoes">
       <div class="blk v-head" style="--i:0"><h1>Cartões</h1><div class="sub" id="k-sub"></div></div>
@@ -2794,6 +2906,10 @@
     <button class="tab" type="button" data-goto="objetivos" data-ordem-id="objetivos">
       <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>
       <span>Objetivos</span>
+    </button>
+    <button class="tab" type="button" data-goto="importar" data-ordem-id="importar">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4M8.5 11.5 12 15l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 16v2.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Importar</span>
     </button>
     <button class="tab" type="button" data-goto="relatorio" data-ordem-id="relatorio">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4.5 4.5v15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 8h10M8 12.5h6.5M8 17h3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
@@ -3362,6 +3478,11 @@
      despesas" ou "Maiores receitas": o ranking diz QUANTO, e isto diz QUANDO. -->
 <!-- Escolher o mês sem precisar bater seta por seta. Um diálogo só serve as
      seis telas que navegam por mês: elas diferem no estado, não no gesto. -->
+<!-- Importar extrato. Dois passos no mesmo diálogo: escolher o arquivo e o
+     destino, depois conferir linha a linha. O segundo passo é o que importa —
+     é lá que se decide o que entra, com que categoria, e o que já existe. -->
+
+
 <dialog id="dlg-mes">
   <div class="layer-head">
     <h3 id="sm-titulo">Escolher o mês</h3>
@@ -6696,6 +6817,125 @@
       '</button>';
   }
 
+  /* ================= importar extrato (OFX) =================
+   *
+   * O OFX é SGML, não XML: as tags de valor não fecham, e o conteúdo vai até
+   * a quebra de linha ou a próxima tag. Por isso nada de parser de XML aqui —
+   * ele recusaria o arquivo inteiro.
+   *
+   * Medido no extrato real do Nubank: 74 lançamentos, nenhum com tag de
+   * categoria. O cabeçalho anuncia CHARSET:1252 e ENCODING:USASCII, e o
+   * arquivo é UTF-8 — lido como o cabeçalho manda, "Antecipação" vira
+   * "AntecipaÃ§Ã£o" em todo lançamento acentuado. Quem decide a leitura é
+   * `lerArquivoOFX`, que testa as duas e fica com a que não produz lixo. */
+  function campoOFX(bloco, tag) {
+    var m = bloco.match(new RegExp("<" + tag + ">([^<\r\n]*)"));
+    return m ? m[1].trim() : "";
+  }
+  function entidadesOFX(s) {
+    return String(s).replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  }
+  function dataOFX(s) {
+    var d = String(s || "").slice(0, 8);
+    return /^\d{8}$/.test(d) ? d.slice(0, 4) + "-" + d.slice(4, 6) + "-" + d.slice(6, 8) : "";
+  }
+
+  /** Lê o arquivo inteiro. Devolve o que o app precisa saber, nada do que não
+   * precisa: de onde veio (cartão ou conta), o fim do período e os
+   * lançamentos já no formato do app. */
+  function lerOFX(texto) {
+    var blocos = String(texto || "").split(/<STMTTRN>/i).slice(1);
+    var lancamentos = [];
+    blocos.forEach(function (b, i) {
+      var valor = Number(campoOFX(b, "TRNAMT"));
+      var data = dataOFX(campoOFX(b, "DTPOSTED"));
+      if (!data || !isFinite(valor) || valor === 0) return;
+      lancamentos.push({
+        // A ordem no arquivo é o desempate final entre linhas idênticas.
+        ordem: i,
+        data: data,
+        valor: Math.abs(valor),
+        // No OFX o sinal é que diz a direção: negativo sai, positivo entra.
+        tipo: valor < 0 ? "EXPENSE" : "INCOME",
+        desc: entidadesOFX(campoOFX(b, "MEMO")) || "Sem histórico",
+        fitid: campoOFX(b, "FITID")
+      });
+    });
+    var fim = texto.match(/<DTEND>(\d{8})/i);
+    return {
+      ehCartao: /<CCSTMTRS>|<CREDITCARDMSGSRSV1>/i.test(texto),
+      fimDoPeriodo: fim ? dataOFX(fim[1]) : "",
+      lancamentos: lancamentos
+    };
+  }
+
+  /** A chave que diz "este lançamento já está no app".
+   *
+   * NÃO é o FITID: no extrato medido, 74 lançamentos usam 30 FITIDs, e um
+   * único FITID cobre 8 linhas diferentes — ele identifica a COMPRA, não a
+   * parcela.
+   *
+   * E não é só data+valor. Essa regra parece bastar e, no mesmo arquivo,
+   * descartaria 30 dos 74 (40,5%): no dia 20/06 há seis lançamentos de
+   * -34,36 que são as parcelas 7 a 12 da mesma compra, antecipadas juntas.
+   * São lançamentos legítimos e diferentes.
+   *
+   * Com o histórico junto, o arquivo não tem nenhuma colisão — e reimportar o
+   * mesmo arquivo continua reconhecendo tudo, que é o que a regra existe para
+   * fazer. */
+  function chaveDeLancamento(t) {
+    return t.data + "|" + Number(t.valor).toFixed(2) + "|" + normalizarNome(t.desc || "");
+  }
+
+  /** Palavras que denunciam a categoria. Lista curta e explícita: adivinhar
+   * demais é pior que não adivinhar — a tela deixa corrigir, e um palpite
+   * errado que passa despercebido vira dado errado. */
+  /* "mercado" NÃO entra na lista. Medido no extrato real: ele casa com
+   * "Mercadolivre", e 44 dos 74 lançamentos são de lá — o palpite mandava 54
+   * de 74 para Alimentação, quase tudo errado. Marketplace não é mercado, e
+   * não existe categoria padrão onde ele caiba; fica sem palpite, que é o
+   * certo quando não se sabe. */
+  var PISTAS_DE_CATEGORIA = [
+    { termos: ["supermercado", "mart minas", "carrefour", "atacad", "padaria", "restaurante", "lanch", "ifood", "pizza", "ki pao"], categoria: "Alimentação" },
+    { termos: ["posto", "combustivel", "shell", "ipiranga", "petrobras", "uber", "99app", "99pay", "estacionamento", "epar", "taxi", "passagem"], categoria: "Transporte" },
+    { termos: ["farmacia", "drogaria", "droga raia", "clinica", "laboratorio", "hospital"], categoria: "Saúde" },
+    { termos: ["netflix", "spotify", "prime", "disney", "assinatura", "mensalidade"], categoria: "Assinaturas" },
+    { termos: ["aluguel", "condominio", "energia", "cemig", "copasa", "agua", "internet", "telefon"], categoria: "Moradia" },
+    { termos: ["escola", "faculdade", "curso", "livro"], categoria: "Educação" }
+  ];
+
+  /** O palpite de categoria para um histórico. Devolve o NOME sugerido, que
+   * pode nem existir no cadastro — quem resolve isso é a tela, oferecendo
+   * criar. Sem palpite, devolve vazio: melhor em branco que errado. */
+  function sugerirCategoria(desc) {
+    var alvo = normalizarNome(desc || "");
+    if (!alvo) return "";
+    for (var i = 0; i < PISTAS_DE_CATEGORIA.length; i++) {
+      var p = PISTAS_DE_CATEGORIA[i];
+      for (var j = 0; j < p.termos.length; j++) {
+        if (alvo.indexOf(p.termos[j]) >= 0) return p.categoria;
+      }
+    }
+    return "";
+  }
+
+  /** Pagamento da fatura não é compra: é a fatura saindo da conta, e o app já
+   * tem caminho próprio para isso. Importado como lançamento, contaria o
+   * mesmo dinheiro duas vezes. No arquivo medido é um crédito de R$ 2.765,01. */
+  function ehPagamentoDeFatura(t) {
+    return t.tipo === "INCOME" && /pagamento recebido|pagamento de fatura|pgto fatura/.test(normalizarNome(t.desc || ""));
+  }
+
+  /** A fatura que recebe tudo. O fim do período do arquivo é o que fecha a
+   * fatura, então é o mês dele que vale — e vale para TODOS os lançamentos,
+   * mesmo os de datas anteriores, porque o extrato é de uma fatura só. */
+  function faturaDoArquivo(ofx) {
+    if (!ofx.fimDoPeriodo) return null;
+    var p = ofx.fimDoPeriodo.split("-");
+    return { y: Number(p[0]), m: Number(p[1]) - 1 };
+  }
+
   /* ---------- a tela de relatório ---------- */
   var relatorioMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
   var relatorioGrupo = "EXPENSE";
@@ -7616,6 +7856,333 @@
       if (!alvo) return;
       abrirCalorDaCategoria(alvo.getAttribute("data-cat"), id === "r-receitas" ? "INCOME" : "EXPENSE");
     });
+  });
+
+  /* ================= importar extrato =================
+   * O estado de uma importação em andamento. Vive aqui e não no `state`: nada
+   * disto é dado do usuário até ele confirmar. */
+  var imp = null;
+
+  /** Lê o arquivo decidindo a codificação pelo RESULTADO, não pelo cabeçalho.
+   *
+   * O extrato do Nubank anuncia CHARSET:1252 e ENCODING:USASCII e é UTF-8.
+   * Obedecer o cabeçalho transforma "Antecipação" em "AntecipaÃ§Ã£o" em todo
+   * lançamento acentuado. O teste do U+FFFD é o que separa os dois: decodificar
+   * UTF-8 inválido produz esse caractere, latin1 nunca produz. */
+  function textoDoArquivo(buffer) {
+    var utf8 = new TextDecoder("utf-8").decode(buffer);
+    if (utf8.indexOf("\uFFFD") < 0) return utf8;
+    return new TextDecoder("windows-1252").decode(buffer);
+  }
+
+  function destinosDeImportacao() {
+    var fora = [];
+    state.cards.forEach(function (c) { fora.push({ id: "k:" + c.id, nome: c.nome, cartao: true }); });
+    state.accounts.filter(function (a) { return a.isActive; })
+      .forEach(function (a) { fora.push({ id: "a:" + a.id, nome: a.nome, cartao: false }); });
+    return fora;
+  }
+
+  /** Devolve a tela ao começo. Chamada ao ENTRAR nela, e não ao sair: quem sai
+   * no meio de uma conferência e volta espera recomeçar limpo, não encontrar a
+   * lista de antes com marcações que já não sabe de onde vieram. */
+  function renderImportar() {
+    imp = null;
+    document.getElementById("imp-arquivo").value = "";
+    document.getElementById("imp-erro").textContent = "";
+    document.getElementById("imp-destino-campo").hidden = true;
+    document.getElementById("imp-fatura-campo").hidden = true;
+    document.getElementById("imp-continuar").disabled = true;
+    document.getElementById("imp-passo-1").hidden = false;
+    document.getElementById("imp-passo-2").hidden = true;
+    document.getElementById("imp-lista").innerHTML = "";
+    document.getElementById("imp-ctx").textContent = "Arquivo OFX do banco ou do cartão";
+  }
+
+  /* Arrastar e soltar. O `preventDefault` nos dois eventos é obrigatório: sem
+   * ele o navegador ABRE o arquivo numa aba, e a pessoa perde a tela em que
+   * estava. `dragleave` dispara também ao passar por cima dos filhos, por isso
+   * o teste de quem recebeu — senão a caixa piscaria durante o arraste. */
+  (function ligarArraste() {
+    var zona = document.getElementById("imp-solta");
+    if (!zona) return;
+    var dentro = 0;
+    zona.addEventListener("dragenter", function (e) {
+      e.preventDefault(); dentro++; zona.classList.add("sobre");
+    });
+    zona.addEventListener("dragover", function (e) {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    });
+    zona.addEventListener("dragleave", function () {
+      dentro--; if (dentro <= 0) { dentro = 0; zona.classList.remove("sobre"); }
+    });
+    zona.addEventListener("drop", function (e) {
+      e.preventDefault();
+      dentro = 0; zona.classList.remove("sobre");
+      var arq = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (arq) lerArquivoEscolhido(arq);
+    });
+    // Soltar FORA da caixa não pode abrir o arquivo por cima do app.
+    ["dragover", "drop"].forEach(function (ev) {
+      window.addEventListener(ev, function (e) { if (!zona.contains(e.target)) e.preventDefault(); });
+    });
+  })();
+
+  document.getElementById("imp-arquivo").addEventListener("change", function (e) {
+    lerArquivoEscolhido(e.target.files && e.target.files[0]);
+  });
+
+  /** Um caminho só para o arquivo, venha ele do seletor ou do arraste. */
+  function lerArquivoEscolhido(arq) {
+    var erro = document.getElementById("imp-erro");
+    erro.textContent = "";
+    if (!arq) return;
+    arq.arrayBuffer().then(function (buf) {
+      var ofx = lerOFX(textoDoArquivo(buf));
+      if (!ofx.lancamentos.length) {
+        erro.textContent = "Não encontrei lançamentos neste arquivo. Ele é mesmo um OFX?";
+        document.getElementById("imp-continuar").disabled = true;
+        document.getElementById("imp-destino-campo").hidden = true;
+        document.getElementById("imp-fatura-campo").hidden = true;
+        return;
+      }
+      var fat = faturaDoArquivo(ofx);
+      imp = { ofx: ofx, fatura: fat || { y: HOJE.getFullYear(), m: HOJE.getMonth() }, linhas: [] };
+
+      // O destino já vem escolhido pelo que o arquivo diz ser: cartão para
+      // extrato de cartão, conta para o resto. Continua trocável.
+      var sel = document.getElementById("imp-destino");
+      var destinos = destinosDeImportacao();
+      sel.innerHTML = destinos.map(function (d) {
+        return '<option value="' + esc(d.id) + '">' + esc(d.nome) + (d.cartao ? " · cartão" : " · conta") + "</option>";
+      }).join("");
+      var provavel = destinos.filter(function (d) { return d.cartao === ofx.ehCartao; })[0];
+      if (provavel) sel.value = provavel.id;
+      document.getElementById("imp-destino-ajuda").textContent = ofx.ehCartao
+        ? "O arquivo é de um cartão de crédito."
+        : "O arquivo é de uma conta.";
+      document.getElementById("imp-destino-campo").hidden = false;
+      document.getElementById("imp-continuar").disabled = false;
+      atualizarCampoDeFatura();
+      document.getElementById("imp-ctx").textContent =
+        ofx.lancamentos.length + (ofx.lancamentos.length === 1 ? " lançamento" : " lançamentos") +
+        (ofx.fimDoPeriodo ? " · período até " + fmtDataBR(ofx.fimDoPeriodo) : "");
+      // Trocar o texto da caixa é o recibo de que o arquivo entrou — sobretudo
+      // no arraste, onde não há nome de arquivo aparecendo em lugar nenhum.
+      var alvo = document.querySelector("#imp-solta .imp-solta-alvo span");
+      if (alvo) alvo.innerHTML = "<b>" + esc(arq.name) + "</b> — toque para trocar";
+    }).catch(function () {
+      erro.textContent = "Não consegui ler o arquivo.";
+    });
+  }
+
+  function destinoEhCartao() {
+    return (document.getElementById("imp-destino").value || "").indexOf("k:") === 0;
+  }
+  function atualizarCampoDeFatura() {
+    var ehCartao = destinoEhCartao();
+    document.getElementById("imp-fatura-campo").hidden = !ehCartao;
+    if (ehCartao && imp) pintarMes("imp-fatura-label", imp.fatura);
+  }
+  document.getElementById("imp-destino").addEventListener("change", atualizarCampoDeFatura);
+  ligarSeletorDeMes("imp-fatura-label",
+    function () { return imp ? imp.fatura : { y: HOJE.getFullYear(), m: HOJE.getMonth() }; },
+    function (vm) { if (imp) { imp.fatura = { y: vm.y, m: vm.m }; pintarMes("imp-fatura-label", imp.fatura); } });
+
+  /** As chaves do que o app já tem. Montadas uma vez por importação: comparar
+   * 74 linhas contra milhares de lançamentos, uma a uma, seria varrer a lista
+   * inteira 74 vezes. */
+  function chavesExistentes() {
+    var mapa = {};
+    state.transactions.forEach(function (t) { mapa[chaveDeLancamento(t)] = true; });
+    return mapa;
+  }
+
+  document.getElementById("imp-continuar").addEventListener("click", function () {
+    if (!imp) return;
+    var jaTem = chavesExistentes();
+    imp.ehCartao = destinoEhCartao();
+    imp.destinoId = document.getElementById("imp-destino").value.slice(2);
+    imp.linhas = imp.ofx.lancamentos.map(function (l) {
+      var repetida = !!jaTem[chaveDeLancamento(l)];
+      var pagamento = ehPagamentoDeFatura(l);
+      var palpite = sugerirCategoria(l.desc);
+      var cat = palpite ? categoriasLancaveis(l.tipo).filter(function (c) { return normalizarNome(c.nome) === normalizarNome(palpite); })[0] : null;
+      return {
+        base: l, repetida: repetida, pagamento: pagamento,
+        // Repetido e pagamento de fatura nascem DESMARCADOS: os dois levariam
+        // o mesmo dinheiro para dentro duas vezes. Continuam à vista e
+        // marcáveis — quem conhece o próprio extrato decide.
+        marcada: !repetida && !pagamento,
+        categoriaId: cat ? cat.id : "",
+        criar: cat ? "" : palpite
+      };
+    });
+    document.getElementById("imp-passo-1").hidden = true;
+    document.getElementById("imp-passo-2").hidden = false;
+    pintarImportacao();
+    window.scrollTo(0, 0);
+  });
+
+  document.getElementById("imp-voltar").addEventListener("click", function () {
+    document.getElementById("imp-passo-1").hidden = false;
+    document.getElementById("imp-passo-2").hidden = true;
+    window.scrollTo(0, 0);
+  });
+
+  function opcoesDeCategoria(linha) {
+    var html = '<option value="">Sem categoria</option>';
+    categoriasLancaveis(linha.base.tipo).forEach(function (c) {
+      html += '<option value="' + esc(c.id) + '"' + (linha.categoriaId === c.id ? " selected" : "") + ">" + esc(nomeCompleto(c)) + "</option>";
+    });
+    // A categoria sugerida que não existe vira uma opção de CRIAR. Sem isto o
+    // palpite seria inútil justamente onde ele mais ajuda: num cadastro novo,
+    // que ainda não tem categoria nenhuma.
+    if (linha.criar) {
+      html += '<option value="novo:' + esc(linha.criar) + '" selected>Criar "' + esc(linha.criar) + '"</option>';
+    }
+    return html;
+  }
+
+  function pintarImportacao() {
+    var lista = document.getElementById("imp-lista");
+    lista.innerHTML = imp.linhas.map(function (l, i) {
+      var b = l.base;
+      return '<div class="imp-linha' + (l.repetida ? " repetida" : "") + '" data-i="' + i + '">' +
+        '<input type="checkbox" class="imp-marca" ' + (l.marcada ? "checked" : "") +
+          ' aria-label="Importar ' + esc(b.desc) + '">' +
+        '<span class="imp-desc" title="' + esc(b.desc) + '">' + esc(b.desc) + "</span>" +
+        '<span class="imp-val num ' + (b.tipo === "EXPENSE" ? "sai" : "entra") + '">' +
+          (b.tipo === "EXPENSE" ? "−" : "+") + money(b.valor) + "</span>" +
+        '<span class="imp-meta">' +
+          "<span>" + fmtDataBR(b.data) + "</span>" +
+          '<select class="imp-cat" aria-label="Categoria de ' + esc(b.desc) + '">' + opcoesDeCategoria(l) + "</select>" +
+          (l.repetida ? '<span class="imp-tag">já existe</span>' : "") +
+          (l.pagamento ? '<span class="imp-tag">pagamento da fatura</span>' : "") +
+          '<button type="button" class="pill imp-igual" data-i="' + i + '">Esta categoria para todos iguais</button>' +
+        "</span>" +
+        "</div>";
+    }).join("");
+    atualizarResumoDaImportacao();
+  }
+
+  /** O resumo mostra SAÍDAS e ENTRADAS separadas, e não um líquido só.
+   *
+   * O líquido sozinho engana: marcando tudo neste extrato ele cai de 4.376,44
+   * para 1.611,43, porque entra junto o "Pagamento recebido" de 2.765,01 — e
+   * nada na tela explicava o tombo. Separado, a conta fica à vista.
+   *
+   * O aviso embaixo existe pelo mesmo motivo: o pagamento da fatura é a
+   * fatura saindo da conta, não uma compra. Marcado, ele abate a própria
+   * fatura que se está importando. */
+  function atualizarResumoDaImportacao() {
+    var marcadas = imp.linhas.filter(function (l) { return l.marcada; });
+    var saidas = 0, entradas = 0, pago = 0;
+    marcadas.forEach(function (l) {
+      if (l.base.tipo === "EXPENSE") saidas += l.base.valor;
+      else { entradas += l.base.valor; if (l.pagamento) pago += l.base.valor; }
+    });
+    var repetidas = imp.linhas.filter(function (l) { return l.repetida; }).length;
+    document.getElementById("imp-resumo").innerHTML =
+      "<span>marcados<b>" + marcadas.length + " de " + imp.linhas.length + "</b></span>" +
+      "<span>saídas<b class='num'>" + money(saidas) + "</b></span>" +
+      (entradas ? "<span>entradas<b class='num'>" + money(entradas) + "</b></span>" : "") +
+      "<span>" + (imp.ehCartao ? "fica na fatura" : "resultado") +
+        "<b class='num'>" + money(Math.abs(saidas - entradas)) + "</b></span>" +
+      (repetidas ? "<span>já existem<b>" + repetidas + "</b></span>" : "") +
+      (imp.ehCartao ? "<span>fatura<b>" + rotuloMes(imp.fatura) + "</b></span>" : "");
+
+    var aviso = document.getElementById("imp-aviso-pagamento");
+    aviso.hidden = !pago;
+    if (pago) {
+      aviso.textContent = "O pagamento da fatura está marcado (" + money(pago) + "). " +
+        "Ele é a fatura saindo da conta, não uma compra: marcado, a fatura fecha em " +
+        money(Math.abs(saidas - entradas)) + " em vez de " + money(Math.abs(saidas - (entradas - pago))) + ".";
+    }
+    document.getElementById("imp-confirmar").disabled = !marcadas.length;
+    document.getElementById("imp-confirmar").textContent =
+      marcadas.length ? "Importar " + marcadas.length : "Importar";
+  }
+
+  document.getElementById("imp-lista").addEventListener("change", function (e) {
+    var linha = e.target.closest(".imp-linha");
+    if (!linha) return;
+    var l = imp.linhas[Number(linha.getAttribute("data-i"))];
+    if (e.target.classList.contains("imp-marca")) { l.marcada = e.target.checked; atualizarResumoDaImportacao(); }
+    if (e.target.classList.contains("imp-cat")) {
+      var v = e.target.value;
+      if (v.indexOf("novo:") === 0) { l.criar = v.slice(5); l.categoriaId = ""; }
+      else { l.categoriaId = v; l.criar = ""; }
+    }
+  });
+
+  // Repetir a mesma categoria em 44 parcelas do mesmo lojista, uma a uma, é
+  // trabalho que o app pode fazer. O que conta como "igual" é o histórico.
+  document.getElementById("imp-lista").addEventListener("click", function (e) {
+    var b = e.target.closest(".imp-igual");
+    if (!b) return;
+    var origem = imp.linhas[Number(b.getAttribute("data-i"))];
+    var alvo = normalizarNome(origem.base.desc);
+    var n = 0;
+    imp.linhas.forEach(function (l) {
+      if (l === origem || normalizarNome(l.base.desc) !== alvo) return;
+      l.categoriaId = origem.categoriaId; l.criar = origem.criar; n++;
+    });
+    pintarImportacao();
+    avisar("Categoria repetida", n ? ("Apliquei a mesma categoria a mais " + n + (n === 1 ? " lançamento" : " lançamentos") + " com o mesmo histórico.") : "Nenhum outro lançamento tem este mesmo histórico.");
+  });
+
+  ["imp-todos", "imp-nenhum"].forEach(function (id) {
+    document.getElementById(id).addEventListener("click", function () {
+      var ligar = id === "imp-todos";
+      imp.linhas.forEach(function (l) { l.marcada = ligar; });
+      pintarImportacao();
+    });
+  });
+
+  document.getElementById("imp-confirmar").addEventListener("click", function () {
+    var marcadas = imp.linhas.filter(function (l) { return l.marcada; });
+    if (!marcadas.length) return;
+    var criadas = {};
+    var chaveFatura = imp.ehCartao ? monthKey(imp.fatura) : null;
+
+    marcadas.forEach(function (l) {
+      var categoriaId = l.categoriaId;
+      // Categoria pedida e ainda inexistente: nasce aqui, uma vez só por nome.
+      if (!categoriaId && l.criar) {
+        var nome = l.criar;
+        if (!criadas[nome]) {
+          var nova = { id: uid("c"), nome: nome, tipo: l.base.tipo, cor: CORES[state.categories.length % CORES.length], padrao: false, paiId: null };
+          state.categories.push(nova);
+          criadas[nome] = nova.id;
+        }
+        categoriaId = criadas[nome];
+      }
+      var nova = {
+        id: uid("t"), tipo: l.base.tipo, valor: l.base.valor, categoriaId: categoriaId || null,
+        desc: l.base.desc, data: l.base.data,
+        contaId: imp.ehCartao ? null : imp.destinoId,
+        cartaoId: imp.ehCartao ? imp.destinoId : null,
+        confirmada: true,
+        // O extrato é de UMA fatura: o override é o que impede cada compra de
+        // cair na fatura da própria data, que é a regra normal do cartão.
+        faturaMesOverride: chaveFatura
+      };
+      state.transactions.push(nova);
+      if (nova.confirmada) aplicarEfeito(nova, 1);
+    });
+
+    persist(); renderAll();
+    // Leva para a tela onde o resultado aparece: de nada adianta dizer
+    // "importei 73" e deixar a pessoa na tela de importar, sem ver nada.
+    var ehCartao = imp.ehCartao;
+    irPara(ehCartao ? "cartoes" : "lancamentos");
+    var quantas = Object.keys(criadas).length;
+    avisar("Extrato importado",
+      marcadas.length + (marcadas.length === 1 ? " lançamento importado" : " lançamentos importados") +
+      (quantas ? ", e " + quantas + (quantas === 1 ? " categoria criada" : " categorias criadas") : "") + ".");
+    imp = null;
   });
 
   /* ================= escolher o mês pela grade =================
@@ -11127,11 +11694,11 @@
    * uso, não dado financeiro. Não vai para o servidor — nenhum campo novo,
    * nenhuma migração, e funciona offline e no modo demonstração. */
   var CHAVE_MENU = "gestor-menu-ordem";
-  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas", "objetivos", "relatorio", "planejamento"];
+  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas", "objetivos", "relatorio", "planejamento", "importar"];
   var MENU_NOME = {
     resumo: "Resumo", fluxo: "Fluxo de caixa", lancamentos: "Extrato",
     cartoes: "Cartões", categorias: "Categorias", contas: "Contas",
-    objetivos: "Objetivos", relatorio: "Relatório", planejamento: "Planejamento"
+    objetivos: "Objetivos", relatorio: "Relatório", planejamento: "Planejamento", importar: "Importar"
   };
   var ordemDoMenu = MENU_PADRAO.slice();
 
@@ -11265,6 +11832,7 @@
     // O relatório é buscado no servidor: só vale a pena pedir quando a tela
     // de fato abre, e não a cada `renderAll` de qualquer outra mudança.
     if (view === "fluxo") renderFluxo();
+    if (view === "importar") renderImportar();
     if (view === "relatorio") renderRelatorio();
     if (view === "planejamento") renderPlanejamento();
     window.scrollTo(0, 0);
