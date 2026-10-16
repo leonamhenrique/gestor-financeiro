@@ -2084,6 +2084,10 @@
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4M8.5 11.5 12 15l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 16v2.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Importar</span>
     </button>
+    <button class="nav-item" type="button" data-goto="compartilhadas" data-ordem-id="compartilhadas">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="12" r="5" stroke="currentColor" stroke-width="1.7"/><circle cx="15" cy="12" r="5" stroke="currentColor" stroke-width="1.7"/></svg>
+      <span>Compartilhadas</span>
+    </button>
     <button class="nav-item" type="button" data-goto="relatorio" data-ordem-id="relatorio">
       <svg viewBox="0 0 24 24" fill="none"><path d="M4.5 4.5v15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M8 8h10M8 12.5h6.5M8 17h3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       <span>Relatório</span>
@@ -12741,11 +12745,17 @@
    * uso, não dado financeiro. Não vai para o servidor — nenhum campo novo,
    * nenhuma migração, e funciona offline e no modo demonstração. */
   var CHAVE_MENU = "gestor-menu-ordem";
-  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas", "objetivos", "relatorio", "planejamento", "importar"];
+  // Uma tela só existe no menu se estiver NAS TRÊS listas: aqui, na barra de
+  // baixo (`.tabbar`) e no trilho do desktop (`#nav-principal`). Faltar numa
+  // delas não quebra nada visivelmente — a tela simplesmente não tem caminho
+  // naquela superfície, e quem usa desktop jura que a função não existe.
+  // `sanearOrdemDoMenu` ainda descarta o que não estiver aqui.
+  var MENU_PADRAO = ["resumo", "fluxo", "lancamentos", "cartoes", "categorias", "contas", "objetivos", "compartilhadas", "relatorio", "planejamento", "importar"];
   var MENU_NOME = {
     resumo: "Resumo", fluxo: "Fluxo de caixa", lancamentos: "Extrato",
     cartoes: "Cartões", categorias: "Categorias", contas: "Contas",
-    objetivos: "Objetivos", relatorio: "Relatório", planejamento: "Planejamento", importar: "Importar"
+    objetivos: "Objetivos", compartilhadas: "Compartilhadas",
+    relatorio: "Relatório", planejamento: "Planejamento", importar: "Importar"
   };
   var ordemDoMenu = MENU_PADRAO.slice();
 
