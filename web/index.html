@@ -2550,13 +2550,13 @@
                seletor, sem script e sem um botão a mais. Arrastar é atalho, não
                substituto: quem não arrasta continua clicando. -->
           <label class="imp-solta" id="imp-solta">
-            <input type="file" id="imp-arquivo" accept=".ofx,.OFX,.csv,.CSV,text/csv,text/plain">
+            <input type="file" id="imp-arquivo" accept=".ofx,.OFX,.csv,.CSV,.pdf,.PDF,application/pdf,text/csv,text/plain">
             <span class="imp-solta-alvo">
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4M8.5 11.5 12 15l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 16v2.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-              <span><b>Arraste o arquivo aqui</b> ou clique para escolher — OFX ou CSV</span>
+              <span><b>Arraste o arquivo aqui</b> ou clique para escolher — OFX, CSV ou PDF</span>
             </span>
           </label>
-          <div class="field-help">Exporte o extrato no aplicativo do banco, em OFX ou CSV.</div>
+          <div class="field-help">Exporte o extrato no aplicativo do banco. OFX e CSV são os mais confiáveis; o PDF é lido por layout, e hoje só o do Nubank.</div>
         </div>
         <div class="field" id="imp-destino-campo" hidden>
           <label class="lbl" for="imp-destino">Importar para</label>
@@ -6923,6 +6923,232 @@
     };
   }
 
+  /* ---------- PDF ----------
+   * PDF é o pior dos três formatos e o mais pedido, porque é o que todo banco
+   * manda por e-mail. Não há dado estruturado: há texto posicionado numa
+   * página, e cada banco posiciona do seu jeito. Por isso o leitor é
+   * dividido em duas partes — tirar o texto (igual para todos) e entender o
+   * layout (um por banco).
+   *
+   * Medido no extrato real do Nubank: o texto existe, mas vem cifrado pela
+   * codificação da fonte embutida, com os códigos deslocados. E o
+   * deslocamento é propriedade DAQUELE arquivo, não do banco: por isso ele é
+   * descoberto, nunca fixado. */
+
+  /** Os streams de conteúdo do PDF, já inflados.
+   *
+   * `DecompressionStream` é do próprio navegador — não entra biblioteca
+   * nenhuma no app por causa disto. "deflate" é o formato certo: FlateDecode
+   * do PDF é zlib, com cabeçalho. */
+  async function inflarStreamsDoPDF(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var bruto = "";
+    for (var i = 0; i < bytes.length; i++) bruto += String.fromCharCode(bytes[i]);
+    var fora = [], pos = 0;
+    while (true) {
+      var ini = bruto.indexOf("stream", pos);
+      if (ini < 0) break;
+      var cab = bruto.slice(Math.max(0, ini - 300), ini);
+      var p = ini + 6;
+      if (bruto.charAt(p) === "\r") p++;
+      if (bruto.charAt(p) === "\n") p++;
+      var fim = bruto.indexOf("endstream", p);
+      if (fim < 0) break;
+      pos = fim + 9;
+      if (!/FlateDecode/.test(cab)) continue;
+      /* A quebra de linha ANTES de "endstream" faz parte do PDF, não do dado
+       * comprimido. O zlib de linha de comando engole esse resto; o
+       * `DecompressionStream` do navegador recusa com "trailing junk" e o
+       * arquivo inteiro sai vazio. Medido: 60 streams, 0 inflados. */
+      var fimDados = fim;
+      while (fimDados > p && (bruto.charCodeAt(fimDados - 1) === 10 || bruto.charCodeAt(fimDados - 1) === 13)) fimDados--;
+      try {
+        var ds = new DecompressionStream("deflate");
+        var resp = new Response(new Blob([bytes.slice(p, fimDados)]).stream().pipeThrough(ds));
+        var buf = await resp.arrayBuffer();
+        var saida = new Uint8Array(buf), txt = "";
+        for (var j = 0; j < saida.length; j++) txt += String.fromCharCode(saida[j]);
+        fora.push(txt);
+      } catch (e) { /* stream que não é conteúdo de página */ }
+    }
+    return fora;
+  }
+
+  /** Os pedaços de texto de um stream, na ordem em que foram desenhados. */
+  function pedacosDoPDF(conteudo) {
+    var fora = [];
+    String(conteudo || "").split(/\r?\n/).forEach(function (linha) {
+      var saida = "", achou = false, m;
+      var reTJ = /\[((?:[^\[\]\\]|\\.)*)\]\s*TJ/g;
+      while ((m = reTJ.exec(linha))) {
+        achou = true;
+        var re2 = /\(((?:[^()\\]|\\.)*)\)/g, m2;
+        while ((m2 = re2.exec(m[1]))) saida += m2[1];
+      }
+      var reTj = /\(((?:[^()\\]|\\.)*)\)\s*Tj/g;
+      while ((m = reTj.exec(linha))) { achou = true; saida += m[1]; }
+      if (achou) fora.push(saida);
+    });
+    return fora;
+  }
+
+  function escapesDoPDF(s) {
+    return String(s).replace(/\\(\d{1,3})/g, function (_, o) { return String.fromCharCode(parseInt(o, 8)); })
+      .replace(/\\\(/g, "(").replace(/\\\)/g, ")").replace(/\\\\/g, "\\");
+  }
+
+  /** Aplica o deslocamento da fonte. Espaço duplo separa PALAVRA; espaço
+   * simples é só o vão entre glifos que o extrator deixou. */
+  function deslocarTexto(s, n) {
+    return String(s).split("  ").map(function (palavra) {
+      return palavra.split(" ").join("").split("").map(function (c) {
+        return String.fromCharCode(c.charCodeAt(0) + n);
+      }).join("");
+    }).join(" ").replace(/[\r\n]+/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  /** Descobre o deslocamento da fonte testando todos e contando acertos.
+   *
+   * Fixar o número seria pedir para quebrar: ele vem do subconjunto de fonte
+   * que o gerador embutiu, e muda de arquivo para arquivo. As âncoras são
+   * palavras que qualquer fatura tem. Zero é testado primeiro: PDF com texto
+   * normal não precisa de deslocamento nenhum. */
+  var ANCORAS_PDF = ["R$", "TRANSA", "JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
+  function descobrirDeslocamento(pedacos) {
+    var melhor = 0, melhorNota = -1;
+    for (var n = -40; n <= 40; n++) {
+      var nota = 0;
+      for (var i = 0; i < pedacos.length; i++) {
+        var l = deslocarTexto(pedacos[i], n);
+        for (var a = 0; a < ANCORAS_PDF.length; a++) {
+          if (l.indexOf(ANCORAS_PDF[a]) >= 0) { nota++; break; }
+        }
+      }
+      // Empate fica com o menor deslocamento em módulo: zero antes de tudo.
+      if (nota > melhorNota || (nota === melhorNota && Math.abs(n) < Math.abs(melhor))) {
+        melhorNota = nota; melhor = n;
+      }
+    }
+    return melhor;
+  }
+
+  var MESES_PDF = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
+
+  /** O layout do Nubank, lido das linhas já decodificadas.
+   *
+   * Medido no extrato real: depois do título TRANSAÇÕES e da faixa do período
+   * ("DE 01 MAI A 01 JUN"), cada compra ocupa QUATRO linhas —
+   *
+   *     01 MAI  /  ···· 0772  /  Mercadolivre*Eritecha - Parcela 5/12  /  R$ 11,16
+   *
+   * — e os pagamentos vêm depois, numa seção própria, com três linhas e o
+   * valor negativo. A seção de pagamentos é o que separa o que ENTRA do que
+   * SAI: no corpo da fatura não há sinal nenhum, tudo é compra.
+   *
+   * O ano não está nas linhas: as datas são "01 MAI". Ele sai do período,
+   * cujo ano vem da data de emissão — e é por isso que o período é procurado
+   * antes de qualquer lançamento. */
+  function lerPDFNubank(linhas) {
+    var fora = { ehCartao: true, fimDoPeriodo: "", lancamentos: [], layout: "Nubank" };
+
+    // Ano: a primeira data completa da página, que é a emissão ou o vencimento.
+    var ano = 0;
+    for (var i = 0; i < linhas.length && !ano; i++) {
+      var m = linhas[i].match(/^\d{2} ([A-Z]{3}) (\d{4})$/);
+      if (m) ano = Number(m[2]);
+    }
+    if (!ano) return fora;
+
+    // Período: "DE 01 MAI A 01 JUN". Marca onde começam as transações.
+    var iPeriodo = -1, pIni = null, pFim = null;
+    for (var j = 0; j < linhas.length; j++) {
+      var p = linhas[j].match(/^DE (\d{2}) ([A-Z]{3}) A (\d{2}) ([A-Z]{3})$/);
+      if (!p) continue;
+      iPeriodo = j;
+      pIni = { dia: Number(p[1]), mes: MESES_PDF.indexOf(p[2]) };
+      pFim = { dia: Number(p[3]), mes: MESES_PDF.indexOf(p[4]) };
+      break;
+    }
+    if (iPeriodo < 0) return fora;
+
+    // O período pode atravessar o ano: "DE 15 DEZ A 15 JAN" termina no ano
+    // seguinte ao que começou.
+    var anoFim = ano, anoIni = pIni.mes > pFim.mes ? ano - 1 : ano;
+    fora.fimDoPeriodo = anoFim + "-" + String(pFim.mes + 1).padStart(2, "0") + "-" + String(pFim.dia).padStart(2, "0");
+
+    /** A data de "01 MAI": recebe o ano que a coloca dentro do período. */
+    function dataComAno(dia, mes) {
+      var cand = [anoFim, anoIni];
+      for (var k = 0; k < cand.length; k++) {
+        var iso = cand[k] + "-" + String(mes + 1).padStart(2, "0") + "-" + String(dia).padStart(2, "0");
+        if (iso >= anoIni + "-" + String(pIni.mes + 1).padStart(2, "0") + "-" + String(pIni.dia).padStart(2, "0") &&
+            iso <= fora.fimDoPeriodo) return iso;
+      }
+      // Fora do período declarado: fica com o ano do fim, que é o da fatura.
+      return anoFim + "-" + String(mes + 1).padStart(2, "0") + "-" + String(dia).padStart(2, "0");
+    }
+
+    var ehData = /^(\d{2}) ([A-Z]{3})$/;
+    var ehValor = /^-?R\$ ?([\d.]+,\d{2})$/;
+    // O "···· 0772" perde os pontos na decodificação: sobra lixo e quatro
+    // dígitos. Reconhecer a linha é o que impede confundi-la com descrição.
+    var ehCartaoLinha = /^[^A-Za-z0-9]*\d{4}$/;
+    var emPagamentos = false;
+
+    /* Sobram caracteres de controle de um glifo que a fonte não mapeou — o
+     * valor do pagamento vem como "\u001eR$ 913,20". Sem tirá-los, a linha
+     * não casa com nada e o pagamento some: medido, 38 lidos de 39. */
+    function limpo(s) { return String(s).replace(/^[^\w\-R$]+/, "").trim(); }
+
+    for (var n = iPeriodo + 1; n < linhas.length; n++) {
+      var l = limpo(linhas[n]);
+      if (/^Pagamentos$/i.test(l)) { emPagamentos = true; continue; }
+      // Cabeçalho de página repete o título; não reinicia nada.
+      if (/^TRANSA/.test(l)) continue;
+
+      var d = l.match(ehData);
+      if (!d) continue;
+      var dia = Number(d[1]), mes = MESES_PDF.indexOf(d[2]);
+      if (mes < 0) continue;
+
+      // Depois da data vem, opcionalmente, o cartão; depois a descrição; por
+      // fim o valor. Pular o que não for nenhum dos três evita que uma linha
+      // solta desalinhe o resto da lista.
+      var k2 = n + 1, desc = "", valor = NaN, bruto = "";
+      while (k2 < linhas.length && k2 <= n + 4) {
+        var c = limpo(linhas[k2]);
+        if (ehCartaoLinha.test(linhas[k2])) { k2++; continue; }
+        var v = c.match(ehValor);
+        if (v) { bruto = c; valor = numeroDoCSV(v[1]); k2++; break; }
+        if (!desc) desc = c.replace(/^[^A-Za-z0-9]+/, "").trim();
+        k2++;
+      }
+      if (!isFinite(valor) || valor === 0) continue;
+
+      fora.lancamentos.push({
+        ordem: fora.lancamentos.length,
+        data: dataComAno(dia, mes),
+        valor: Math.abs(valor),
+        // Dentro de TRANSAÇÕES tudo é compra; a seção de pagamentos é o que
+        // traz o que entra. O sinal "-" do próprio valor confirma.
+        tipo: (emPagamentos || /^-/.test(bruto)) ? "INCOME" : "EXPENSE",
+        desc: desc || "Sem histórico",
+        fitid: ""
+      });
+      n = k2 - 1;
+    }
+    return fora;
+  }
+
+  /** Os layouts que o app sabe ler. Cada banco entra aqui com o jeito de
+   * reconhecer o arquivo e a função que entende o formato dele. */
+  var LAYOUTS_PDF = [
+    { banco: "Nubank", reconhece: function (linhas) {
+        return linhas.some(function (l) { return /^DE \d{2} [A-Z]{3} A \d{2} [A-Z]{3}$/.test(l); }) &&
+               linhas.some(function (l) { return /^TRANSA/.test(l); });
+      }, ler: lerPDFNubank }
+  ];
+
   /* ---------- CSV ----------
    * CSV não tem padrão: cada banco inventa o seu. O que muda de arquivo para
    * arquivo, e que este leitor precisa resolver sozinho, foi medido no extrato
@@ -7062,8 +7288,21 @@
    * Com o histórico junto, o arquivo não tem nenhuma colisão — e reimportar o
    * mesmo arquivo continua reconhecendo tudo, que é o que a regra existe para
    * fazer. */
+  /** O histórico reduzido ao que sobrevive a qualquer formato.
+   *
+   * O PDF PERDE caracteres: "Mercadolivre*Eritecha" sai de lá como
+   * "MercadolivreEritecha", e "Uber* Trip" como "Uber Trip". Medido no
+   * extrato real. Se a chave guardasse a pontuação, o mesmo lançamento vindo
+   * do PDF e do CSV viraria dois — e o aviso de repetido, que existe
+   * justamente para isso, não veria nada.
+   *
+   * Então some tudo que não é letra ou número. O que resta ainda distingue
+   * "Parcela 7/12" de "Parcela 8/12", que é o que importa. */
+  function chaveDeTexto(s) {
+    return normalizarNome(s).replace(/[^a-z0-9]+/g, "");
+  }
   function chaveDeLancamento(t) {
-    return t.data + "|" + Number(t.valor).toFixed(2) + "|" + normalizarNome(t.desc || "");
+    return t.data + "|" + Number(t.valor).toFixed(2) + "|" + chaveDeTexto(t.desc || "");
   }
 
   /** Palavras que denunciam a categoria. Lista curta e explícita: adivinhar
@@ -7177,7 +7416,11 @@
    * tem caminho próprio para isso. Importado como lançamento, contaria o
    * mesmo dinheiro duas vezes. No arquivo medido é um crédito de R$ 2.765,01. */
   function ehPagamentoDeFatura(t) {
-    return t.tipo === "INCOME" && /pagamento recebido|pagamento de fatura|pgto fatura/.test(normalizarNome(t.desc || ""));
+    /* Cada formato escreve isto à sua maneira: o CSV e o OFX dizem "Pagamento
+     * recebido"; o PDF do Nubank diz "Pagamento em 08 MAI". Sem a terceira
+     * forma, o pagamento vinha MARCADO na importação do PDF e entrava como
+     * receita no cartão. */
+    return t.tipo === "INCOME" && /pagamento recebido|pagamento de fatura|pgto fatura|^pagamento em /.test(normalizarNome(t.desc || ""));
   }
 
   /** A fatura que recebe tudo. O fim do período do arquivo é o que fecha a
@@ -8190,7 +8433,29 @@
   /** Um caminho só para o arquivo, venha ele do seletor ou do arraste. */
   /** OFX ou CSV, decidido pelo CONTEÚDO e não pela extensão: arquivo renomeado
    * é comum, e a tag <OFX> não deixa dúvida. */
-  function lerExtrato(texto) {
+  /** Lê o PDF: tira o texto, descobre a codificação e entrega ao layout do
+   * banco que reconhecer o arquivo. Sem layout conhecido não há o que
+   * adivinhar — e dizer isso é melhor que importar lixo. */
+  async function lerPDF(buffer) {
+    var streams = await inflarStreamsDoPDF(buffer);
+    var pedacos = [];
+    streams.forEach(function (s) { pedacos = pedacos.concat(pedacosDoPDF(s)); });
+    pedacos = pedacos.map(escapesDoPDF);
+    var desloc = descobrirDeslocamento(pedacos);
+    var linhas = pedacos.map(function (p) { return deslocarTexto(p, desloc); }).filter(Boolean);
+    for (var i = 0; i < LAYOUTS_PDF.length; i++) {
+      if (LAYOUTS_PDF[i].reconhece(linhas)) {
+        var r = LAYOUTS_PDF[i].ler(linhas);
+        r.formato = "PDF";
+        r.banco = LAYOUTS_PDF[i].banco;
+        return r;
+      }
+    }
+    return { ehCartao: false, fimDoPeriodo: "", lancamentos: [], formato: "PDF", banco: null };
+  }
+
+  async function lerExtrato(texto, buffer, ehPDF) {
+    if (ehPDF) return await lerPDF(buffer);
     if (/<OFX>|<STMTTRN>/i.test(texto)) {
       var ofx = lerOFX(texto);
       ofx.formato = "OFX";
@@ -8218,11 +8483,19 @@
     erro.textContent = "";
     if (!arq) return;
     arq.arrayBuffer().then(function (buf) {
-      var ofx = lerExtrato(textoDoArquivo(buf));
+      // PDF se reconhece pelos primeiros bytes, não pela extensão.
+      var cabecalho = new Uint8Array(buf.slice(0, 5));
+      var ehPDF = cabecalho[0] === 0x25 && cabecalho[1] === 0x50 && cabecalho[2] === 0x44 && cabecalho[3] === 0x46;
+      return lerExtrato(ehPDF ? "" : textoDoArquivo(buf), buf, ehPDF);
+    }).then(function (ofx) {
       if (!ofx.lancamentos.length) {
-        erro.textContent = ofx.formato === "CSV" && ofx.colunas
-          ? "Li o CSV mas não achei as colunas de data e valor. Encontrei: " + ofx.colunas.join(", ") + "."
-          : "Não encontrei lançamentos neste arquivo. Ele é mesmo um OFX ou CSV?";
+        erro.textContent = ofx.formato === "PDF"
+          ? (ofx.banco
+              ? "Li o PDF do " + ofx.banco + " mas não achei lançamentos nele."
+              : "Não reconheço o layout deste PDF. Por enquanto só sei ler o do Nubank — se o seu banco oferecer OFX ou CSV, prefira esses.")
+          : (ofx.formato === "CSV" && ofx.colunas
+            ? "Li o CSV mas não achei as colunas de data e valor. Encontrei: " + ofx.colunas.join(", ") + "."
+            : "Não encontrei lançamentos neste arquivo. Ele é mesmo um OFX, CSV ou PDF?");
         document.getElementById("imp-continuar").disabled = true;
         document.getElementById("imp-destino-campo").hidden = true;
         document.getElementById("imp-fatura-campo").hidden = true;
@@ -8252,6 +8525,7 @@
       atualizarCampoDeFatura();
       document.getElementById("imp-ctx").textContent =
         ofx.lancamentos.length + (ofx.lancamentos.length === 1 ? " lançamento" : " lançamentos") +
+        (ofx.banco ? " · PDF do " + ofx.banco : "") +
         (ofx.fimDoPeriodo ? " · período até " + fmtDataBR(ofx.fimDoPeriodo) : "");
       // Trocar o texto da caixa é o recibo de que o arquivo entrou — sobretudo
       // no arraste, onde não há nome de arquivo aparecendo em lugar nenhum.
