@@ -21,7 +21,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { TransactionType } from '@prisma/client';
-import { resolveInvoicePeriod } from '../transactions/transaction.utils';
+import { mesDeCaixa, resolveInvoicePeriod } from '../transactions/transaction.utils';
 import { datasDoMesChave } from '../credit-cards/billing-cycle';
 import { hojeNoFuso } from '../credit-cards/invoice-statement';
 import { PrismaService } from '../prisma/prisma.service';
@@ -82,7 +82,7 @@ export class ReportsService {
     const nomePorCategoria = new Map(categorias.map((c) => [c.id, c.name]));
 
     const lancamentos: LancamentoDoRelatorio[] = transacoes.map((t) => ({
-      mes: this.mesDeCaixa(t, cartaoPorId),
+      mes: mesDeCaixa(t, cartaoPorId),
       tipo: t.type === TransactionType.INCOME ? 'INCOME' : 'EXPENSE',
       valor: dec(t.amount),
       categoriaId: t.categoryId,
@@ -164,18 +164,6 @@ export class ReportsService {
    * data; para cartão é o mês em que a fatura daquela compra VENCE — e o
    * `invoiceMonthOverride` manda, porque antecipar parcela muda a fatura.
    */
-  private mesDeCaixa(
-    t: { transactionDate: Date; creditCardId: string | null; invoiceMonthOverride: Date | null },
-    cartoes: Map<string, { closingDay: number; dueDay: number }>,
-  ): string {
-    if (!t.creditCardId) return chaveDoMes(t.transactionDate);
-    const card = cartoes.get(t.creditCardId);
-    if (!card) return chaveDoMes(t.transactionDate); // cartão apagado: cai no próprio mês
-    const ciclo = t.invoiceMonthOverride
-      ? datasDoMesChave(chaveDoMes(t.invoiceMonthOverride), card.closingDay, card.dueDay)
-      : resolveInvoicePeriod(t.transactionDate, card.closingDay, card.dueDay);
-    return chaveDoMes(ciclo.dueDate);
-  }
 
   /** Gasto variável = o que não vem de lançamento recorrente. */
   private ehVariavel(l: LancamentoDoRelatorio): boolean {

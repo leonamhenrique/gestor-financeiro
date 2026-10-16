@@ -12949,7 +12949,13 @@
   async function cpCarregarExtrato() {
     if (!cpPessoaAberta || !cpTemServidor()) { cpExtrato = null; return; }
     var mes = cpMes.y + "-" + String(cpMes.m + 1).padStart(2, "0");
-    cpExtrato = await api("/shared/people/" + cpPessoaAberta + "/statement?month=" + mes);
+    // `por` é a mesma escolha do resto do app (ver `dataDeRelatorio`): compra
+    // de cartão conta no mês em que a fatura vence, ou no da compra. Sem
+    // mandar isto, esta tela respondia por um critério e o resto do app por
+    // outro — dois meses diferentes para o mesmo gasto.
+    cpExtrato = await api(
+      "/shared/people/" + cpPessoaAberta + "/statement?month=" + mes + "&por=" + relatorioPor
+    );
   }
 
   // ---------- tela 1: a lista de pessoas ----------
@@ -13034,9 +13040,20 @@
       "saldo anterior " + sinal(anterior) + " · movimento do mês " + sinal(movimento);
 
     // A coluna fecha porque o final é a SOMA dos dois, não uma terceira conta.
+    //
+    // E quando há compra de cartão na lista, a tela DIZ por que ela aparece
+    // neste mês e não no da compra. Número que diverge sem explicação é
+    // defeito; com o motivo ao lado, é informação.
+    var temCartao = (cpExtrato.lancamentos || []).some(function (l) { return l.formaEhCartao; });
     document.getElementById("cpp-saldo-ajuda").textContent =
       "O saldo é acumulado: este mês começa do que ficou de trás (" + brl(anterior) +
-      ") e termina em " + brl(saldo) + ".";
+      ") e termina em " + brl(saldo) + "." +
+      (temCartao && relatorioPor === "fatura"
+        ? " Compra no cartão aparece no mês em que a fatura vence, não no da compra — é a mesma regra dos seus relatórios, e dá para trocar no perfil."
+        : "") +
+      (temCartao && relatorioPor === "compra"
+        ? " Compra no cartão aparece no mês da compra, como você escolheu no perfil — e não no mês em que a fatura vence."
+        : "");
 
     var minhaParte = Number(cpExtrato.minhaParteNoMes || 0);
     var totalMes = Number(cpExtrato.totalDoMes || 0);

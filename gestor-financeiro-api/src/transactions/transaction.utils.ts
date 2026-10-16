@@ -8,7 +8,8 @@
 // ============================================================
 
 import { BadRequestException } from '@nestjs/common';
-import { cicloDaData } from '../credit-cards/billing-cycle';
+import { cicloDaData, datasDoMesChave } from '../credit-cards/billing-cycle';
+import { chaveDoMes } from '../reports/report.utils';
 
 /**
  * Calcula a qual mês de referência uma compra de cartão pertence, com
@@ -39,4 +40,32 @@ export function validateAccountXorCard(bankAccountId?: string, creditCardId?: st
       'A transação deve pertencer a exatamente uma conta bancária OU um cartão de crédito.',
     );
   }
+}
+
+/**
+ * Em que mês um lançamento conta para RELATÓRIO.
+ *
+ * Compra de cartão conta no mês em que a FATURA VENCE, não no da compra: é
+ * quando o dinheiro sai da conta. Lançamento de conta conta na própria data.
+ *
+ * Esta é a ÚNICA função do backend que decide isso, e é de propósito. Quando
+ * duas telas respondem à mesma pergunta por caminhos diferentes, elas acabam
+ * dando dois números para o mesmo mês — já aconteceu neste app, com o total
+ * contando pela fatura e o mapa de calor pela data da compra. O espelho dela
+ * no app web é `dataDeRelatorio`, e os dois têm de concordar.
+ *
+ * `datasDoMesChave` entra quando a compra foi atribuída a mão a outra fatura:
+ * aí vale a fatura escolhida, não a que a data indicaria.
+ */
+export function mesDeCaixa(
+  t: { transactionDate: Date; creditCardId: string | null; invoiceMonthOverride?: Date | null },
+  cartoes: Map<string, { closingDay: number; dueDay: number }>,
+): string {
+  if (!t.creditCardId) return chaveDoMes(t.transactionDate);
+  const card = cartoes.get(t.creditCardId);
+  if (!card) return chaveDoMes(t.transactionDate); // cartão apagado: cai no próprio mês
+  const ciclo = t.invoiceMonthOverride
+    ? datasDoMesChave(chaveDoMes(t.invoiceMonthOverride), card.closingDay, card.dueDay)
+    : resolveInvoicePeriod(t.transactionDate, card.closingDay, card.dueDay);
+  return chaveDoMes(ciclo.dueDate);
 }

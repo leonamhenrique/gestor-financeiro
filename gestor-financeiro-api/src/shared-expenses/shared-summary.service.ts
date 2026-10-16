@@ -18,6 +18,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PeopleService } from './people.service';
+import { mesDeCaixa } from '../transactions/transaction.utils';
+import { chaveDoMes } from '../reports/report.utils';
 import {
   saldoDaPessoa,
   normalizarDespesa,
@@ -26,6 +28,10 @@ import {
   DespesaParaSaldo,
   AcertoParaSaldo,
 } from './shared-expense.utils';
+
+/** Como o usuário escolheu ver compra de cartão: no mês do vencimento da
+ * fatura (padrão) ou no mês da compra. É a mesma escolha do resto do app. */
+export type ModoDeData = 'fatura' | 'compra';
 
 const COM_TUDO = {
   transaction: { include: { category: true, bankAccount: true, creditCard: true } },
@@ -83,7 +89,7 @@ export class SharedSummaryService {
    *
    * `mes` em 'AAAA-MM'. Sem ele, devolve tudo e o saldo anterior é zero.
    */
-  async extratoDaPessoa(userId: string, personId: string, mes?: string) {
+  async extratoDaPessoa(userId: string, personId: string, mes?: string, por: ModoDeData = 'fatura') {
     const pessoa = await this.people.minha(userId, personId);
 
     const [despesas, acertos] = await Promise.all([
@@ -94,10 +100,9 @@ export class SharedSummaryService {
       this.prisma.settlement.findMany({ where: { userId, personId } }),
     ]);
 
-    const faixa = mes ? this.faixaDoMes(mes) : null;
-    const antes = faixa ? this.ate(despesas, acertos, personId, faixa.inicio) : vazio();
-    const noMes = faixa
-      ? this.entre(despesas, acertos, personId, faixa.inicio, faixa.fim)
+    const antes = mes ? this.ate(despesas, acertos, personId, mes, por) : vazio();
+    const noMes = mes
+      ? this.entre(despesas, acertos, personId, mes, por)
       : this.tudo(despesas, acertos, personId);
 
     const saldoAnterior = saldoDaPessoa(antes.despesas, antes.acertos);
@@ -106,6 +111,7 @@ export class SharedSummaryService {
     return {
       person: { id: pessoa.id, name: pessoa.name, pixKey: pessoa.pixKey },
       mes: mes ?? null,
+      por,
       saldoAnterior,
       movimentoDoMes: doMes,
       // O saldo final é a SOMA, e não uma terceira conta: assim a coluna
@@ -213,9 +219,7 @@ export class SharedSummaryService {
    * O que esta conta responde é outra pergunta, e que vale a pena ter:
    * "destes 2.000 que gastei, quanto era meu de verdade?".
    */
-  async impactoNoMes(userId: string, mes: string) {
-    const { inicio, fim } = this.faixaDoMes(mes);
-
+  async impactoNoMes(userId: string, mes: string, por: ModoDeData = 'fatura') {
     const despesas = await this.prisma.sharedExpense.findMany({
       where: { userId },
       include: COM_TUDO,
@@ -229,8 +233,14 @@ export class SharedSummaryService {
       const n = normalizarDespesa(d);
       // Só o que saiu de MIM: o que o amigo pagou nunca entrou no meu mês.
       if (!n.euPaguei || n.date === null) continue;
-      const data = new Date(n.date);
-      if (data < inicio || data > fim) continue;
+      // Pelo MESMO mês que o relatório usa: este número vai ao lado dos
+      // dele, e dois critérios dariam duas respostas para o mesmo mês.
+      const linha = {
+        date: n.date,
+        creditCard: d.transaction?.creditCard ?? null,
+        invoiceMonthOverride: d.transaction?.invoiceMonthOverride ?? null,
+      };
+      if (this.mesDaLinha(linha, por) !== mes) continue;
 
       gastoDividido += emCentavos(n.total);
       meu += emCentavos(n.minhaParte);
@@ -272,6 +282,11 @@ export class SharedSummaryService {
         forma: d.transaction?.creditCard
           ? 'Cartão ' + d.transaction.creditCard.name
           : (d.transaction?.bankAccount?.institutionName ?? null),
+        // O que `mesDaLinha` precisa para saber em que mês isto entra. Sem o
+        // cartão aqui, a conta do vencimento não teria como ser feita e a
+        // linha cairia no mês da compra.
+        creditCard: d.transaction?.creditCard ?? null,
+        invoiceMonthOverride: d.transaction?.invoiceMonthOverride ?? null,
       });
       paraSaldo.push({ euPaguei: n.euPaguei, total: n.total, parteDela: Number(parte.amount) });
     }
@@ -288,6 +303,31 @@ export class SharedSummaryService {
     return linha.date ? new Date(linha.date) : null;
   }
 
+  /**
+   * Em que MÊS a linha entra, que não é necessariamente o mês da data dela.
+   *
+   * Compra no cartão sai da conta quando a fatura vence, e o app inteiro já
+   * conta assim por padrão — é a escolha `relatorioPor` do usuário, que vale
+   * para todos os relatórios. Esta tela lia a data crua e por isso mostrava
+   * em outubro um gasto que o resto do app mostra em novembro: dois números
+   * para o mesmo mês, que é exatamente o que `mesDeCaixa` existe para evitar.
+   *
+   * No modo `compra`, e em tudo que não é cartão, vale a própria data.
+   */
+  private mesDaLinha(linha: any, por: ModoDeData): string | null {
+    const d = this.dataDa(linha);
+    if (!d) return null;
+    if (por === 'compra' || !linha.creditCard) return chaveDoMes(d);
+    return mesDeCaixa(
+      {
+        transactionDate: d,
+        creditCardId: 'x',
+        invoiceMonthOverride: linha.invoiceMonthOverride ?? null,
+      },
+      new Map([['x', linha.creditCard]]),
+    );
+  }
+
   private tudo(despesas: any[], acertos: any[], personId: string) {
     const { linhas, paraSaldo } = this.despesasDe(despesas, personId);
     return {
@@ -302,28 +342,27 @@ export class SharedSummaryService {
   }
 
   /** O que aconteceu ANTES do começo do mês — o saldo que veio de trás. */
-  private ate(despesas: any[], acertos: any[], personId: string, inicio: Date) {
+  /** O que aconteceu ANTES do mês pedido — o saldo que veio de trás.
+   * Compara CHAVE DE MÊS, e não data: no modo `fatura` uma compra de 28/10
+   * pertence a novembro, e comparar datas a deixaria em outubro. */
+  private ate(despesas: any[], acertos: any[], personId: string, mes: string, por: ModoDeData) {
     const { linhas } = this.despesasDe(despesas, personId);
     const antes = linhas.filter((l) => {
-      const d = this.dataDa(l);
-      return d !== null && d < inicio;
+      const m = this.mesDaLinha(l, por);
+      return m !== null && m < mes;
     });
     return {
       despesas: antes.map((l) => ({ euPaguei: l.euPaguei, total: l.total, parteDela: l.parteDela })),
-      acertos: this.paraSaldo(acertos.filter((a) => new Date(a.settledAt) < inicio)),
+      // Acerto é dinheiro que trocou de mão na data dele: não tem fatura, e
+      // por isso não passa pela regra do vencimento.
+      acertos: this.paraSaldo(acertos.filter((a) => chaveDoMes(new Date(a.settledAt)) < mes)),
     };
   }
 
-  private entre(despesas: any[], acertos: any[], personId: string, inicio: Date, fim: Date) {
+  private entre(despesas: any[], acertos: any[], personId: string, mes: string, por: ModoDeData) {
     const { linhas } = this.despesasDe(despesas, personId);
-    const noMes = linhas.filter((l) => {
-      const d = this.dataDa(l);
-      return d !== null && d >= inicio && d <= fim;
-    });
-    const acertosNoMes = acertos.filter((a) => {
-      const d = new Date(a.settledAt);
-      return d >= inicio && d <= fim;
-    });
+    const noMes = linhas.filter((l) => this.mesDaLinha(l, por) === mes);
+    const acertosNoMes = acertos.filter((a) => chaveDoMes(new Date(a.settledAt)) === mes);
     return {
       linhas: noMes.sort((a, b) => +this.dataDa(b)! - +this.dataDa(a)!),
       despesas: noMes.map((l) => ({ euPaguei: l.euPaguei, total: l.total, parteDela: l.parteDela })),

@@ -371,3 +371,110 @@ describe('SharedSummaryService — impacto no relatório', () => {
     expect(i).toMatchObject({ gastoDividido: 0, dosOutros: 0, meu: 0 });
   });
 });
+
+// Compra no cartao sai da conta quando a FATURA VENCE, e o app inteiro ja
+// conta assim por padrao. Esta tela lia a data crua e mostrava em outubro um
+// gasto que o resto do app mostra em novembro -- dois numeros para o mesmo
+// mes, que e exatamente o que a regra existe para evitar.
+describe('SharedSummaryService — o mes de uma compra de cartao', () => {
+  // Fecha dia 25, vence dia 5: como 5 vem ANTES de 25, o vencimento cai no
+  // mes seguinte. E o arranjo mais comum do mercado.
+  const CARTAO = { closingDay: 25, dueDay: 5, name: 'Itaucard' };
+
+  function noCartao(data: string, total: number, parte: number) {
+    return {
+      id: 'dc',
+      transactionId: 'tx-c',
+      paidByPersonId: null,
+      transaction: {
+        amount: total,
+        description: 'Despesa dividida',
+        transactionDate: new Date(data + 'T00:00:00Z'),
+        categoryId: 'cat',
+        creditCardId: 'card-1',
+        creditCard: CARTAO,
+        invoiceMonthOverride: null,
+      },
+      shares: [{ personId: 'rafael', amount: parte, percent: null }],
+    };
+  }
+
+  async function montar(despesas: any[]) {
+    const prisma: any = {
+      person: { findMany: jest.fn(async () => [RAFAEL]) },
+      sharedExpense: { findMany: jest.fn(async () => despesas) },
+      settlement: { findMany: jest.fn(async () => []) },
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        SharedSummaryService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: PeopleService, useValue: { minha: jest.fn(async () => RAFAEL) } },
+      ],
+    }).compile();
+    return mod.get(SharedSummaryService);
+  }
+
+  it('compra de 16/10 entra em NOVEMBRO, que é quando a fatura vence', async () => {
+    const s = await montar([noCartao('2026-10-16', 40, 20)]);
+
+    const outubro = await s.extratoDaPessoa('u1', 'rafael', '2026-10');
+    expect(outubro.lancamentos).toHaveLength(0);
+    expect(outubro.movimentoDoMes).toBe(0);
+
+    const novembro = await s.extratoDaPessoa('u1', 'rafael', '2026-11');
+    expect(novembro.lancamentos).toHaveLength(1);
+    expect(novembro.movimentoDoMes).toBe(20);
+  });
+
+  it('no modo "compra" ela volta para outubro', async () => {
+    const s = await montar([noCartao('2026-10-16', 40, 20)]);
+
+    const outubro = await s.extratoDaPessoa('u1', 'rafael', '2026-10', 'compra');
+    expect(outubro.lancamentos).toHaveLength(1);
+    expect(outubro.movimentoDoMes).toBe(20);
+  });
+
+  // O saldo acumulado tem de enxergar a mesma coisa: uma compra que pertence
+  // a novembro nao pode aparecer como "saldo anterior" de novembro.
+  it('o saldo anterior respeita o mesmo mês', async () => {
+    const s = await montar([noCartao('2026-10-16', 40, 20)]);
+
+    const novembro = await s.extratoDaPessoa('u1', 'rafael', '2026-11');
+    expect(novembro.saldoAnterior).toBe(0);
+    expect(novembro.saldoFinal).toBe(20);
+
+    const dezembro = await s.extratoDaPessoa('u1', 'rafael', '2026-12');
+    expect(dezembro.saldoAnterior).toBe(20);
+    expect(dezembro.lancamentos).toHaveLength(0);
+  });
+
+  it('gasto em conta não se move: não há fatura para esperar', async () => {
+    const naConta = {
+      id: 'dk', transactionId: 'tx-k', paidByPersonId: null,
+      transaction: {
+        amount: 40, description: 'Mercado',
+        transactionDate: new Date('2026-10-16T00:00:00Z'),
+        categoryId: 'cat', creditCardId: null, creditCard: null, invoiceMonthOverride: null,
+      },
+      shares: [{ personId: 'rafael', amount: 20, percent: null }],
+    };
+    const s = await montar([naConta]);
+
+    expect((await s.extratoDaPessoa('u1', 'rafael', '2026-10')).lancamentos).toHaveLength(1);
+    expect((await s.extratoDaPessoa('u1', 'rafael', '2026-11')).lancamentos).toHaveLength(0);
+  });
+
+  it('o impacto no relatório usa o mesmo mês que o relatório', async () => {
+    const s = await montar([noCartao('2026-10-16', 40, 20)]);
+
+    expect((await s.impactoNoMes('u1', '2026-10')).gastoDividido).toBe(0);
+    expect((await s.impactoNoMes('u1', '2026-11')).gastoDividido).toBe(40);
+  });
+
+  it('o resumo não muda: dívida é acumulada, não tem mês', async () => {
+    const s = await montar([noCartao('2026-10-16', 40, 20)]);
+    const r = await s.resumo('u1');
+    expect(r.pessoas[0].saldo).toBe(20);
+  });
+});

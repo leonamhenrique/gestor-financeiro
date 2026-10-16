@@ -33,9 +33,17 @@ export class SharedExpensesController {
     return this.resumos.resumo(req.user.id);
   }
 
+  //  e a escolha do usuario entre contar compra de cartao no vencimento
+  // da fatura (padrao) ou na data da compra. A mesma do resto do app: duas
+  // telas com criterios diferentes dariam dois numeros para o mesmo mes.
   @Get('people/:id/statement')
-  extrato(@Req() req: any, @Param('id') id: string, @Query('month') month?: string) {
-    return this.resumos.extratoDaPessoa(req.user.id, id, month);
+  extrato(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('month') month?: string,
+    @Query('por') por?: string,
+  ) {
+    return this.resumos.extratoDaPessoa(req.user.id, id, month, por === 'compra' ? 'compra' : 'fatura');
   }
 
   @Get('statement')
@@ -44,8 +52,8 @@ export class SharedExpensesController {
   }
 
   @Get('report-impact')
-  impacto(@Req() req: any, @Query('month') month: string) {
-    return this.resumos.impactoNoMes(req.user.id, month);
+  impacto(@Req() req: any, @Query('month') month: string, @Query('por') por?: string) {
+    return this.resumos.impactoNoMes(req.user.id, month, por === 'compra' ? 'compra' : 'fatura');
   }
 
   // ---------- despesas ----------
