@@ -299,16 +299,16 @@ describe('SharedSummaryService', () => {
     // Este número vem do saldo ACUMULADO, e por isso pode passar do total
     // do próprio mês: ele carrega o que ficou de trás.
     it('o topo mostra o a receber acumulado, não o do mês', async () => {
-      const e = await service.extratoGeral('u1', { from: '2026-10-13', to: '2026-10-31' });
-      expect(e.linhas).toHaveLength(1); // só o Pix cai nessa faixa
+      const e = await service.extratoGeral('u1', '2026-09');
+      expect(e.linhas).toHaveLength(0); // nada aconteceu em setembro
       expect(e.aReceber).toBe(700); // mas o acumulado continua 700
       expect(e.aPagar).toBe(120);
     });
 
-    it('a faixa de datas filtra os dois tipos de linha', async () => {
-      const e = await service.extratoGeral('u1', { from: '2026-10-01', to: '2026-10-08' });
+    it('o mês filtra despesas e acertos juntos', async () => {
+      const e = await service.extratoGeral('u1', '2026-10');
       const datas = e.linhas.map((l: any) => new Date(l.date).toISOString().slice(0, 10));
-      expect(datas).toEqual(['2026-10-07', '2026-10-05', '2026-10-02']);
+      expect(datas).toEqual(['2026-10-14', '2026-10-12', '2026-10-09', '2026-10-07', '2026-10-05', '2026-10-02']);
     });
   });
 });
@@ -476,5 +476,62 @@ describe('SharedSummaryService — o mes de uma compra de cartao', () => {
     const s = await montar([noCartao('2026-10-16', 40, 20)]);
     const r = await s.resumo('u1');
     expect(r.pessoas[0].saldo).toBe(20);
+  });
+});
+
+// A aba do extrato chama a mesma regra de mes por outro caminho. Duas telas
+// do MESMO modulo discordando sobre em que mes um gasto entra seria repetir,
+// por dentro, o erro que foi corrigido por fora.
+describe('SharedSummaryService — a aba do extrato segue a mesma regra de mes', () => {
+  const CARTAO = { closingDay: 25, dueDay: 5, name: 'Itaucard' };
+
+  async function montar() {
+    const comCartao = {
+      id: 'dc', transactionId: 'tx-c', paidByPersonId: null,
+      transaction: {
+        amount: 40, description: 'Dividido no cartao',
+        transactionDate: new Date('2026-10-16T00:00:00Z'),
+        categoryId: 'cat', creditCardId: 'card-1', creditCard: CARTAO,
+        invoiceMonthOverride: null, bankAccount: null,
+      },
+      shares: [{ personId: 'rafael', amount: 20, percent: null, person: RAFAEL }],
+      paidBy: null,
+    };
+    const prisma: any = {
+      person: { findMany: jest.fn(async () => [RAFAEL]) },
+      sharedExpense: { findMany: jest.fn(async () => [comCartao]) },
+      settlement: { findMany: jest.fn(async () => []) },
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        SharedSummaryService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: PeopleService, useValue: { minha: jest.fn(async () => RAFAEL) } },
+      ],
+    }).compile();
+    return mod.get(SharedSummaryService);
+  }
+
+  it('compra de 16/10 aparece em novembro, igual ao extrato da pessoa', async () => {
+    const s = await montar();
+    expect((await s.extratoGeral('u1', '2026-10')).linhas).toHaveLength(0);
+    expect((await s.extratoGeral('u1', '2026-11')).linhas).toHaveLength(1);
+  });
+
+  it('e volta para outubro no modo "compra"', async () => {
+    const s = await montar();
+    expect((await s.extratoGeral('u1', '2026-10', 'compra')).linhas).toHaveLength(1);
+  });
+
+  it('sem mês, traz tudo', async () => {
+    const s = await montar();
+    expect((await s.extratoGeral('u1')).linhas).toHaveLength(1);
+  });
+
+  // O numero do topo e o saldo ACUMULADO: nao depende do mes que esta aberto.
+  it('o a receber do topo não muda com o mês', async () => {
+    const s = await montar();
+    expect((await s.extratoGeral('u1', '2026-10')).aReceber).toBe(20);
+    expect((await s.extratoGeral('u1', '2026-11')).aReceber).toBe(20);
   });
 });

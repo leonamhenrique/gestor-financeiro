@@ -47,8 +47,8 @@ export class SharedExpensesController {
   }
 
   @Get('statement')
-  extratoGeral(@Req() req: any, @Query() query: ListSharedQueryDto) {
-    return this.resumos.extratoGeral(req.user.id, query);
+  extratoGeral(@Req() req: any, @Query('month') month?: string, @Query('por') por?: string) {
+    return this.resumos.extratoGeral(req.user.id, month, por === 'compra' ? 'compra' : 'fatura');
   }
 
   @Get('report-impact')

@@ -138,16 +138,16 @@ export class SharedSummaryService {
    *   ACERTO                dinheiro trocou de mão, mas não é receita nem
    *                         despesa: só abate dívida.
    */
-  async extratoGeral(userId: string, filtro: { from?: string; to?: string } = {}) {
+  async extratoGeral(userId: string, mes?: string, por: ModoDeData = 'fatura') {
     const [despesas, acertos] = await Promise.all([
       this.prisma.sharedExpense.findMany({ where: { userId }, include: COM_TUDO }),
       this.prisma.settlement.findMany({ where: { userId }, include: { person: true } }),
     ]);
 
-    const inicio = filtro.from ? new Date(filtro.from) : null;
-    const fim = filtro.to ? new Date(filtro.to) : null;
-    const dentro = (d: Date | null) =>
-      d !== null && (!inicio || d >= inicio) && (!fim || d <= fim);
+    // Mesmo critério de mês do extrato por pessoa. Duas telas do MESMO módulo
+    // discordando sobre em que mês um gasto entra seria repetir, por dentro,
+    // o erro que acabou de ser corrigido por fora.
+    const noMes = (linha: any) => !mes || this.mesDaLinha(linha, por) === mes;
 
     const linhasDespesa = despesas
       .map((d: any) => {
@@ -164,6 +164,9 @@ export class SharedSummaryService {
           description: n.description,
           euPaguei: n.euPaguei,
           forma,
+          formaEhCartao: Boolean(d.transaction?.creditCard),
+          creditCard: d.transaction?.creditCard ?? null,
+          invoiceMonthOverride: d.transaction?.invoiceMonthOverride ?? null,
           // Quando eu paguei, o valor cheio saiu de mim: entra negativo. Quando
           // ela pagou, nada saiu daqui — o valor fica fora do meu mês.
           valor: n.euPaguei ? -n.total : 0,
@@ -178,10 +181,11 @@ export class SharedSummaryService {
           paidBy: d.paidBy ? { personId: d.paidBy.id, name: d.paidBy.name } : null,
         };
       })
-      .filter((l) => dentro(l.date));
+      .filter(noMes);
 
     const linhasAcerto = acertos
-      .filter((a: any) => dentro(new Date(a.settledAt)))
+      // Acerto não tem fatura para esperar: entra no mês da própria data.
+      .filter((a: any) => !mes || chaveDoMes(new Date(a.settledAt)) === mes)
       .map((a: any) => ({
         tipo: 'ACERTO' as const,
         id: a.id,

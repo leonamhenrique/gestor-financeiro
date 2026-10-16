@@ -8208,6 +8208,12 @@
         + "vencimento e os previstos. Aqui está só o dinheiro que entrou e saiu das contas.";
     }
 
+    // A aba Compartilhadas mostra outra coisa, e não um recorte desta lista:
+    // aqui cada gasto dividido aparece INTEIRO, com a parte do outro ao lado,
+    // e a fatura do cartão não é consolidada numa linha só. São perguntas
+    // diferentes — "o que saiu da conta" e "como estamos eu e você".
+    if (filtro === "COMPARTILHADAS") { renderExtratoCompartilhado(); return; }
+
     var linhas = [];
     tot.avulsos.forEach(function (t) {
       if (filtro !== "TODOS" && t.tipo !== filtro) return;
@@ -8261,9 +8267,105 @@
       : '<div class="empty">Nenhum lançamento neste mês.</div>';
   }
 
+  /* ---------- a aba Compartilhadas do extrato ---------- */
+
+  var cpGeral = null;      // o que o servidor respondeu
+  var cpGeralChave = "";   // mês + modo que geraram essa resposta
+
+  /** Busca a lista do mês, se ainda não for a que está na mão. A chave inclui
+   * o modo (relatorioPor) porque trocar de modo muda em que mês cada compra
+   * de cartão entra — a resposta anterior deixa de valer. */
+  async function cpGarantirGeral() {
+    var mes = monthKey(extratoMes);
+    var chave = mes + "|" + relatorioPor;
+    if (cpGeralChave === chave && cpGeral) return;
+    cpGeral = await api("/shared/statement?month=" + mes + "&por=" + relatorioPor);
+    cpGeralChave = chave;
+  }
+
+  function renderExtratoCompartilhado() {
+    var lista = document.getElementById("l-lista");
+    document.getElementById("l-cabecalho").innerHTML = "";
+
+    if (!cpTemServidor()) {
+      document.getElementById("l-contagem").textContent = "";
+      lista.innerHTML = '<div class="empty">Dividir gasto precisa do servidor: é lá que a conta entre vocês é somada.</div>';
+      return;
+    }
+
+    if (cpGeralChave !== monthKey(extratoMes) + "|" + relatorioPor || !cpGeral) {
+      lista.innerHTML = '<div class="empty">Carregando…</div>';
+      cpGarantirGeral().then(function () {
+        // Só redesenha se a pessoa ainda estiver olhando esta aba: ela pode
+        // ter trocado de filtro ou de mês enquanto o servidor respondia.
+        if (filtro === "COMPARTILHADAS") renderExtrato();
+      }).catch(function (e) {
+        lista.innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
+      });
+      return;
+    }
+
+    var linhas = cpGeral.linhas || [];
+    var aReceber = Number(cpGeral.aReceber || 0);
+    var aPagar = Number(cpGeral.aPagar || 0);
+
+    document.getElementById("l-contagem").textContent =
+      linhas.length + (linhas.length === 1 ? " lançamento" : " lançamentos") +
+      (aReceber ? " · a receber " + brl(aReceber) : "") +
+      (aPagar ? " · a pagar " + brl(aPagar) : "");
+
+    lista.innerHTML = linhas.map(linhaCompartilhadaHTML).join("") ||
+      '<div class="empty">Nenhum gasto dividido neste mês.</div>';
+  }
+
+  /** Uma linha da aba Compartilhadas.
+   *
+   * Três formas, e a diferença entre elas é o ponto da tela:
+   *   gasto meu      saiu da minha conta, valor cheio negativo, e a parte do
+   *                  outro ao lado — informação, não desconto;
+   *   gasto dela     não saiu nada daqui: "fora da conta", e o que sobra é a
+   *                  minha dívida;
+   *   acerto         mexeu no saldo, mas não é receita nem despesa, e a linha
+   *                  diz isso em letras.
+   */
+  function linhaCompartilhadaHTML(l) {
+    var data = fmtDataBR(String(l.date).slice(0, 10));
+
+    if (l.tipo === "ACERTO") {
+      var recebi = l.direction === "RECEIVED";
+      return '<div class="row">' +
+        '<span class="row-main">' +
+        '<span class="row-title"><span class="row-name">' + esc(l.description) + '</span>' +
+        '<span class="tag">acerto</span></span>' +
+        '<span class="row-meta">' + data + ' · não conta como receita nem despesa</span></span>' +
+        '<span class="row-val num' + (recebi ? " pos" : " neg") + '">' + sinal(l.valor) + '</span></div>';
+    }
+
+    var nomes = (l.pessoas || []).map(function (p) { return p.name; }).filter(Boolean).join(", ");
+    var meta = [data, l.forma, nomes ? "÷ " + nomes : null].filter(Boolean).join(" · ");
+
+    if (l.foraDaConta) {
+      return '<div class="row">' +
+        '<span class="row-main">' +
+        '<span class="row-title"><span class="row-name">' + esc(l.description || "sem descrição") + '</span>' +
+        '<span class="tag">fora da conta</span></span>' +
+        '<span class="row-meta">' + esc("pago por " + ((l.paidBy && l.paidBy.name) || "outra pessoa")) +
+        " · " + esc(meta) + '</span></span>' +
+        '<span class="row-val num neg">você deve ' + money(l.minhaParte) + '</span></div>';
+    }
+
+    return '<div class="row">' +
+      '<span class="row-main">' +
+      '<span class="row-title"><span class="row-name">' + esc(l.description || "sem descrição") + '</span></span>' +
+      '<span class="row-meta">' + esc(meta) + '</span></span>' +
+      '<span class="row-val num">' + sinal(l.valor) +
+      '<br><span class="row-meta">sua parte ' + money(l.minhaParte) + '</span></span></div>';
+  }
+
   function montarPillsExtrato() {
     // Mesmo vocabulário do resto do app: receita e despesa, não entrada e saída.
-    var opcoes = [{ id: "TODOS", nome: "Todos" }, { id: "INCOME", nome: "Receitas" }, { id: "EXPENSE", nome: "Despesas" }];
+    var opcoes = [{ id: "TODOS", nome: "Todos" }, { id: "INCOME", nome: "Receitas" }, { id: "EXPENSE", nome: "Despesas" },
+      { id: "COMPARTILHADAS", nome: "Compartilhadas" }];
     var host = document.getElementById("l-pills");
     host.innerHTML = opcoes.map(function (o) {
       return '<button type="button" class="pill' + (o.id === filtro ? " on" : "") + '" data-filtro="' + o.id + '">' + o.nome + '</button>';
@@ -12938,6 +13040,9 @@
   /** Recarrega e redesenha. Todo caminho que muda dado compartilhado termina
    * aqui — inclusive o saldo das contas, porque um acerto mexe nele. */
   async function cpRecarregar() {
+    // A lista da aba do extrato também envelheceu: ela é do servidor, e o
+    // servidor acabou de mudar.
+    cpEsquecerGeral();
     await cpCarregar();
     if (cpPessoaAberta) await cpCarregarExtrato();
     await carregarDoServidor().catch(function () {});
@@ -13364,6 +13469,9 @@
     renderPessoa();
     cpCarregarExtrato().then(renderPessoa).catch(function () {});
   });
+
+  /** O mês do extrato mudou: o que estava na mão é de outro mês. */
+  function cpEsquecerGeral() { cpGeral = null; cpGeralChave = ""; }
 
   function cpTrocarMes(passo) {
     var d = adicionarMeses(new Date(cpMes.y, cpMes.m, 1), passo);
