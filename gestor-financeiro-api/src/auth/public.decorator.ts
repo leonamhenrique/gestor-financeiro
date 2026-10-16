@@ -7,10 +7,13 @@ import { SetMetadata } from '@nestjs/common';
  * revisão. Antes era o contrário — um controlador novo nascia público se
  * alguém esquecesse o `@UseGuards`, e esquecimento não faz barulho.
  *
- * Só três famílias de rota podem usar isto, e todas por necessidade:
+ * Só quatro famílias de rota podem usar isto, e todas por necessidade:
  * entrar/cadastrar (quem ainda não tem token), renovar/sair (que se
- * identificam pelo cookie de sessão, não pelo token de acesso) e o webhook
- * do provedor de pagamento, que é chamado por outro servidor. */
+ * identificam pelo cookie de sessão, não pelo token de acesso), o webhook
+ * do provedor de pagamento, que é chamado por outro servidor, e a página de
+ * despesa compartilhada, que é aberta por quem não tem conta no app — essa
+ * se identifica pelo token do link, confere limite de requisições e devolve
+ * 404 igual para token inválido, revogado e vencido. */
 export const IS_PUBLIC = 'rota_publica';
 
 export const Public = () => SetMetadata(IS_PUBLIC, true);

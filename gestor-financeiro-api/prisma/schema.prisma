@@ -15,8 +15,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   // Migration não passa por pool. No Neon (e em qualquer PgBouncer), a conexão
   // "pooled" não sustenta o lock que o `migrate deploy` usa para garantir que
   // só um deploy migre por vez, e a migration falha no meio. DIRECT_URL é a
@@ -40,9 +40,9 @@ enum TransactionSource {
 }
 
 enum AccountType {
-  CHECKING   // conta corrente
-  SAVINGS    // poupança
-  WALLET     // dinheiro / carteira física
+  CHECKING // conta corrente
+  SAVINGS // poupança
+  WALLET // dinheiro / carteira física
   INVESTMENT
 }
 
@@ -89,16 +89,16 @@ enum PaymentProvider {
 // ------------------------------------------------------------
 
 model User {
-  id             String   @id @default(uuid())
-  name           String
-  email          String   @unique
-  passwordHash   String   @map("password_hash")
+  id                  String    @id @default(uuid())
+  name                String
+  email               String    @unique
+  passwordHash        String    @map("password_hash")
   // Bloqueio temporário contra adivinhação de senha. Fica no banco, e não em
   // memória, para valer igual com mais de uma instância da API rodando.
   failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
   lockedUntil         DateTime? @map("locked_until")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   bankAccounts        BankAccount[]
   categories          Category[]
@@ -114,6 +114,10 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   transactionSeries   TransactionSeries[]
+  people              Person[]
+  sharedExpenses      SharedExpense[]
+  settlements         Settlement[]
+  shareLinks          ShareLink[]
 
   @@map("users")
 }
@@ -186,9 +190,9 @@ model Subscription {
   userId String @unique @map("user_id") // uma assinatura por usuário
   planId String @map("plan_id")
 
-  status             SubscriptionStatus @default(INCOMPLETE)
-  currentPeriodEnd   DateTime?          @map("current_period_end")
-  cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
+  status            SubscriptionStatus @default(INCOMPLETE)
+  currentPeriodEnd  DateTime?          @map("current_period_end")
+  cancelAtPeriodEnd Boolean            @default(false) @map("cancel_at_period_end")
 
   // Identificadores do lado do gateway. São a ponte entre os dois sistemas:
   // sem eles não dá para reconciliar um webhook com o usuário local.
@@ -236,10 +240,10 @@ model PaymentMethod {
   provider      PaymentProvider
   providerToken String          @map("provider_token")
   brand         String? // "visa", "mastercard"
-  last4         String? @db.VarChar(4)
-  expMonth      Int?    @map("exp_month")
-  expYear       Int?    @map("exp_year")
-  isDefault     Boolean @default(false) @map("is_default")
+  last4         String?         @db.VarChar(4)
+  expMonth      Int?            @map("exp_month")
+  expYear       Int?            @map("exp_year")
+  isDefault     Boolean         @default(false) @map("is_default")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -272,21 +276,21 @@ model WebhookEvent {
 // ------------------------------------------------------------
 
 model BankAccount {
-  id                String      @id @default(uuid())
-  userId            String      @map("user_id")
-  institutionName   String      @map("institution_name") // "Itaú", "Nubank", "Bradesco"...
-  institutionLogoUrl String?    @map("institution_logo_url")
-  accountType       AccountType @map("account_type")
-  initialBalance    Decimal     @default(0) @db.Decimal(14, 2) @map("initial_balance")
-  currentBalance    Decimal     @default(0) @db.Decimal(14, 2) @map("current_balance") // cache atualizado a cada transação
-  color             String?     // hex, ex: "#8A05BE" (Nubank)
-  isActive          Boolean     @default(true) @map("is_active")
+  id                 String      @id @default(uuid())
+  userId             String      @map("user_id")
+  institutionName    String      @map("institution_name") // "Itaú", "Nubank", "Bradesco"...
+  institutionLogoUrl String?     @map("institution_logo_url")
+  accountType        AccountType @map("account_type")
+  initialBalance     Decimal     @default(0) @map("initial_balance") @db.Decimal(14, 2)
+  currentBalance     Decimal     @default(0) @map("current_balance") @db.Decimal(14, 2) // cache atualizado a cada transação
+  color              String? // hex, ex: "#8A05BE" (Nubank)
+  isActive           Boolean     @default(true) @map("is_active")
   // Oculta: continua valendo, mas fica fora do saldo geral e dos lançamentos
   // listados por padrão (ex: conta conjunta, reserva que não se quer ver).
-  isHidden          Boolean     @default(false) @map("is_hidden")
-  sortOrder         Int         @default(0) @map("sort_order") // ordem escolhida pelo usuário
-  createdAt         DateTime    @default(now()) @map("created_at")
-  updatedAt         DateTime    @updatedAt @map("updated_at")
+  isHidden           Boolean     @default(false) @map("is_hidden")
+  sortOrder          Int         @default(0) @map("sort_order") // ordem escolhida pelo usuário
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions    Transaction[]
@@ -294,8 +298,9 @@ model BankAccount {
   transfersIn     Transfer[]       @relation("TransferTo")
   goals           Goal[]
   goalMovements   GoalMovement[]
-  creditCards     CreditCard[]     // cartões vinculados a esta conta (fatura debitada daqui)
+  creditCards     CreditCard[] // cartões vinculados a esta conta (fatura debitada daqui)
   invoicePayments InvoicePayment[] // pagamentos de fatura que saíram desta conta
+  settlements     Settlement[] // acertos de despesa compartilhada que passaram por aqui
 
   @@index([userId])
   @@map("bank_accounts")
@@ -306,24 +311,25 @@ model BankAccount {
 // ------------------------------------------------------------
 
 model Category {
-  id        String           @id @default(uuid())
-  userId    String?          @map("user_id") // null = categoria padrão do sistema (seed)
+  id        String          @id @default(uuid())
+  userId    String?         @map("user_id") // null = categoria padrão do sistema (seed)
   name      String
   type      TransactionType
-  icon      String?          // nome do ícone (ex: "shopping-cart")
+  icon      String? // nome do ícone (ex: "shopping-cart")
   color     String?
-  isDefault Boolean          @default(false) @map("is_default")
+  isDefault Boolean         @default(false) @map("is_default")
   // Um nível só: a pai é sempre raiz e do mesmo tipo. Só folha recebe
   // lançamento novo (ver CategoriesService).
-  parentId  String?          @map("parent_id")
-  sortOrder Int              @default(0) @map("sort_order") // ordem entre irmãs
-  createdAt DateTime         @default(now()) @map("created_at")
+  parentId  String?         @map("parent_id")
+  sortOrder Int             @default(0) @map("sort_order") // ordem entre irmãs
+  createdAt DateTime        @default(now()) @map("created_at")
 
-  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parent       Category?     @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children     Category[]    @relation("CategoryTree")
-  transactions Transaction[]
-  budgetItems  BudgetItem[]
+  user           User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent         Category?       @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children       Category[]      @relation("CategoryTree")
+  transactions   Transaction[]
+  budgetItems    BudgetItem[]
+  sharedExpenses SharedExpense[]
 
   // Nome único entre IRMÃS (mesmo pai, mesmo tipo), sem diferenciar
   // maiúsculas e acentos — conferido no service. "Moradia > Luz" e
@@ -338,44 +344,47 @@ model Category {
 // ------------------------------------------------------------
 
 model Transaction {
-  id              String            @id @default(uuid())
-  userId          String            @map("user_id")
-  bankAccountId   String?           @map("bank_account_id") // null se for despesa de cartão
-  creditCardId    String?           @map("credit_card_id")  // null se for movimentação de conta
-  categoryId      String            @map("category_id")
-  type            TransactionType
-  amount          Decimal           @db.Decimal(14, 2)
-  description     String?
-  transactionDate DateTime          @map("transaction_date") @db.Date // data definida pelo usuário
-  isRecurring     Boolean           @default(false) @map("is_recurring")
+  id                   String            @id @default(uuid())
+  userId               String            @map("user_id")
+  bankAccountId        String?           @map("bank_account_id") // null se for despesa de cartão
+  creditCardId         String?           @map("credit_card_id") // null se for movimentação de conta
+  categoryId           String            @map("category_id")
+  type                 TransactionType
+  amount               Decimal           @db.Decimal(14, 2)
+  description          String?
+  transactionDate      DateTime          @map("transaction_date") @db.Date // data definida pelo usuário
+  isRecurring          Boolean           @default(false) @map("is_recurring")
   // Previsto (false) × confirmado (true). Só o confirmado mexe no saldo da
   // conta e no total da fatura — um previsto é intenção, não dinheiro que
   // já saiu. O padrão é `true` porque todo lançamento que já existia antes
   // deste campo já tinha sido aplicado ao saldo.
-  isConfirmed     Boolean           @default(true) @map("is_confirmed")
+  isConfirmed          Boolean           @default(true) @map("is_confirmed")
   // Só para compra no cartão: a fatura (dia 1 do mês) em que ela entra,
   // quando não é a que a data indicaria — escolhida no lançamento ou por
   // antecipação de parcelas. A data da compra continua a real.
-  invoiceMonthOverride DateTime?    @map("invoice_month_override") @db.Date
+  invoiceMonthOverride DateTime?         @map("invoice_month_override") @db.Date
   // Série (repetição fixa ou parcelamento) e a posição nela, começando em 0.
-  seriesId        String?           @map("series_id")
-  seriesIndex     Int?              @map("series_index")
+  seriesId             String?           @map("series_id")
+  seriesIndex          Int?              @map("series_index")
   // Chave de idempotência do cliente. A fila offline só tira um item dela
   // DEPOIS que a resposta chega; se o servidor gravou e a resposta se perdeu
   // no caminho, o item é reenviado — e sem esta chave o mesmo dinheiro entra
   // duas vezes. Com ela, o reenvio devolve o lançamento que já existe.
   // Nula em tudo que foi gravado antes dela e em quem não manda chave: no
   // Postgres, nulos não colidem entre si num índice único.
-  clientKey       String?           @map("client_key")
-  source          TransactionSource @default(APP)
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
+  clientKey            String?           @map("client_key")
+  source               TransactionSource @default(APP)
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
 
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bankAccount BankAccount?        @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
-  creditCard  CreditCard?         @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
-  category    Category            @relation(fields: [categoryId], references: [id])
-  series      TransactionSeries?  @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccount   BankAccount?       @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  creditCard    CreditCard?        @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  category      Category           @relation(fields: [categoryId], references: [id])
+  series        TransactionSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  // A divisão deste gasto com outras pessoas, quando existe. Cascade: apagar
+  // o lançamento apaga a divisão dele — não sobra parte de gasto nenhum.
+  sharedExpense SharedExpense?
 
   // Uma transação deve pertencer a UMA conta OU a UM cartão, nunca nenhum ou os dois.
   // Essa regra é validada na camada de aplicação (Prisma não suporta CHECK constraints
@@ -470,18 +479,18 @@ model Budget {
 
 /// Meta de uma categoria dentro de um planejamento.
 model BudgetItem {
-  id         String  @id @default(uuid())
-  userId     String  @map("user_id")
-  budgetId   String  @map("budget_id")
-  categoryId String  @map("category_id")
-  amount     Decimal @db.Decimal(14, 2)
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  budgetId     String   @map("budget_id")
+  categoryId   String   @map("category_id")
+  amount       Decimal  @db.Decimal(14, 2)
   /// "Usar total das subcategorias": a meta do pai é a soma das filhas e se
   /// recalcula sozinha quando uma filha muda. O valor fica gravado mesmo
   /// assim — quem lê a lista não precisa refazer a conta, e desmarcar a opção
   /// deixa o número de partida certo.
-  fromChildren Boolean @default(false) @map("from_children")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  fromChildren Boolean  @default(false) @map("from_children")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   budget   Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
@@ -494,8 +503,8 @@ model BudgetItem {
 }
 
 enum GoalMovementType {
-  DEPOSIT   // aplicar: sai da conta, entra no objetivo
-  WITHDRAW  // resgatar: sai do objetivo, volta para uma conta
+  DEPOSIT // aplicar: sai da conta, entra no objetivo
+  WITHDRAW // resgatar: sai do objetivo, volta para uma conta
 }
 
 /// Objetivo de poupança: uma meta com prazo e um dinheiro guardado para ela.
@@ -563,12 +572,12 @@ model GoalMovement {
 }
 
 enum SeriesKind {
-  FIXED       // repete o mesmo lançamento (aluguel, assinatura)
+  FIXED // repete o mesmo lançamento (aluguel, assinatura)
   INSTALLMENT // parcelamento de uma compra: "parcela i de N"
 }
 
 enum SeriesFrequency {
-  BIWEEKLY  // a cada 15 dias
+  BIWEEKLY // a cada 15 dias
   MONTHLY
   QUARTERLY
   YEARLY
@@ -581,7 +590,7 @@ model TransactionSeries {
   userId    String          @map("user_id")
   kind      SeriesKind
   frequency SeriesFrequency
-  count     Int             // quantas ocorrências foram criadas
+  count     Int // quantas ocorrências foram criadas
   createdAt DateTime        @default(now()) @map("created_at")
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -599,18 +608,18 @@ model CreditCard {
   id            String   @id @default(uuid())
   userId        String   @map("user_id")
   bankAccountId String?  @map("bank_account_id") // conta de onde a fatura é debitada (opcional)
-  name          String   // "Nubank Roxinho", "Itaú Click"
-  limitAmount   Decimal  @db.Decimal(14, 2) @map("limit_amount")
+  name          String // "Nubank Roxinho", "Itaú Click"
+  limitAmount   Decimal  @map("limit_amount") @db.Decimal(14, 2)
   closingDay    Int      @map("closing_day") // 1-31
-  dueDay        Int      @map("due_day")     // 1-31
+  dueDay        Int      @map("due_day") // 1-31
   color         String?
   isActive      Boolean  @default(true) @map("is_active")
   sortOrder     Int      @default(0) @map("sort_order") // ordem escolhida pelo usuário
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bankAccount  BankAccount?          @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccount  BankAccount?        @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   transactions Transaction[]
   invoices     CreditCardInvoice[]
 
@@ -626,7 +635,7 @@ model CreditCardInvoice {
   id             String        @id @default(uuid())
   creditCardId   String        @map("credit_card_id")
   referenceMonth DateTime      @map("reference_month") @db.Date // sempre dia 1 do mês, ex: 2026-09-01
-  totalAmount    Decimal       @default(0) @db.Decimal(14, 2) @map("total_amount")
+  totalAmount    Decimal       @default(0) @map("total_amount") @db.Decimal(14, 2)
   status         InvoiceStatus @default(OPEN)
   closingDate    DateTime      @map("closing_date") @db.Date
   dueDate        DateTime      @map("due_date") @db.Date
@@ -664,4 +673,175 @@ model InvoicePayment {
   @@index([invoiceId])
   @@index([bankAccountId])
   @@map("invoice_payments")
+}
+
+// ------------------------------------------------------------
+// DESPESAS COMPARTILHADAS
+// ------------------------------------------------------------
+// Dividir um gasto com alguém não cria dinheiro novo, e acertar a conta
+// depois não é receita: é dívida sendo quitada. Por isso NADA aqui vira
+// Transaction — é o mesmo motivo que deu tabela própria à Transferência.
+// Um acerto que fosse Transaction entraria em todo relatório de receita e
+// despesa, e cada um precisaria de uma exceção para expulsá-lo.
+//
+// O saldo de cada pessoa NÃO é guardado em lugar nenhum. Ele é a conta:
+//
+//   Σ(parte dela nas que eu paguei)
+//   − Σ(minha parte nas que ela pagou)
+//   − Σ(acertos recebidos dela)
+//   + Σ(acertos pagos a ela)
+//
+// Guardar esse número seria mais um saldo para sair do ar com o resto.
+
+enum SettlementDirection {
+  RECEIVED // a pessoa me pagou
+  PAID // eu paguei a pessoa
+}
+
+/// Alguém com quem se divide gasto. Não é usuário do app nem tem login:
+/// é um nome na agenda de quem divide.
+model Person {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  // Só para aparecer na página pública ("copiar chave Pix"). É dado de
+  // contato, não meio de pagamento: o app não cobra ninguém.
+  pixKey    String?  @map("pix_key")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shares       ExpenseShare[]
+  expensesPaid SharedExpense[] // as que ELA pagou
+  settlements  Settlement[]
+  shareLinks   ShareLink[]
+
+  @@index([userId])
+  @@map("people")
+}
+
+/// Um gasto dividido. Existe em duas formas, e exatamente uma delas:
+///
+///   EU PAGUEI    `transactionId` aponta para o lançamento real. Ele é a
+///                verdade sobre valor, data, descrição e categoria — aqui
+///                não se repete nada disso, para não haver duas versões do
+///                mesmo número.
+///   ELA PAGOU    `paidByPersonId` diz quem pagou, e os campos descritivos
+///                são preenchidos AQUI. Não há lançamento nenhum: o dinheiro
+///                não passou por conta nem cartão meu. É a linha "fora da
+///                conta" do extrato.
+///
+/// Nunca as duas, nunca nenhuma — a mesma convenção XOR que Transaction já
+/// usa entre conta e cartão, conferida na camada de aplicação.
+model SharedExpense {
+  id             String  @id @default(uuid())
+  userId         String  @map("user_id")
+  transactionId  String? @unique @map("transaction_id")
+  paidByPersonId String? @map("paid_by_person_id")
+
+  // Só na forma "ela pagou". Na outra, vêm do lançamento.
+  description String?
+  amount      Decimal?  @db.Decimal(14, 2)
+  expenseDate DateTime? @map("expense_date") @db.Date
+  categoryId  String?   @map("category_id")
+
+  clientKey String?  @map("client_key")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction Transaction?   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  // Restrict: pessoa que já pagou alguma coisa é histórico, e só é
+  // arquivada (isActive = false), nunca apagada.
+  paidBy      Person?        @relation(fields: [paidByPersonId], references: [id], onDelete: Restrict)
+  category    Category?      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  shares      ExpenseShare[]
+
+  @@unique([userId, clientKey])
+  @@index([userId])
+  @@index([paidByPersonId])
+  @@map("shared_expenses")
+}
+
+/// A parte de UMA pessoa em um gasto dividido.
+///
+/// A minha parte não tem linha aqui: ela é `total − Σ(partes dos outros)`.
+/// Guardada, seria o quarto número a ter de bater com os outros três; e um
+/// arredondamento de centavo em qualquer lado abriria uma diferença que
+/// ninguém consegue explicar olhando a tela.
+model ExpenseShare {
+  id              String   @id @default(uuid())
+  sharedExpenseId String   @map("shared_expense_id")
+  personId        String   @map("person_id")
+  amount          Decimal  @db.Decimal(14, 2)
+  // Guardado só quando a divisão foi FEITA por percentual, para a tela
+  // poder mostrar "50%" em vez de recalcular e exibir 49,99%.
+  percent         Decimal? @db.Decimal(7, 4)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  sharedExpense SharedExpense @relation(fields: [sharedExpenseId], references: [id], onDelete: Cascade)
+  person        Person        @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  @@unique([sharedExpenseId, personId])
+  @@index([personId])
+  @@map("expense_shares")
+}
+
+/// Um acerto: dinheiro que trocou de mão para abater dívida.
+///
+/// Mexe em saldo de conta quando tem `bankAccountId`, pelo mesmo caminho
+/// atômico de todo o resto (increment/decrement dentro de $transaction).
+/// Mas não é receita nem despesa e não tem categoria — não há "para onde o
+/// dinheiro foi": ele voltou para quem já era dono dele.
+model Settlement {
+  id            String              @id @default(uuid())
+  userId        String              @map("user_id")
+  personId      String              @map("person_id")
+  direction     SettlementDirection
+  amount        Decimal             @db.Decimal(14, 2)
+  settledAt     DateTime            @map("settled_at") @db.Date
+  // Nulo quando o acerto não passou por conta cadastrada (dinheiro vivo).
+  bankAccountId String?             @map("bank_account_id")
+  description   String?
+  clientKey     String?             @map("client_key")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person      Person       @relation(fields: [personId], references: [id], onDelete: Restrict)
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, clientKey])
+  @@index([userId, settledAt])
+  @@index([personId])
+  @@map("settlements")
+}
+
+/// Link de leitura para mostrar a conta a quem deve (ou a quem me deve).
+///
+/// O token em claro existe uma vez só, na resposta da criação. Aqui fica o
+/// SHA-256 dele — quem ler o banco não consegue usar o que encontrar, igual
+/// aos tokens de sessão.
+///
+/// Esta tabela é a ÚNICA do módulo FORA do RLS, e de propósito: a rota
+/// pública não tem dono para o banco ler, então precisa conseguir resolver
+/// o token antes de saber de quem ele é. Só guarda hash, data e dois ids.
+model ShareLink {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  personId     String    @map("person_id")
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime? @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  lastViewedAt DateTime? @map("last_viewed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([personId])
+  @@map("share_links")
 }

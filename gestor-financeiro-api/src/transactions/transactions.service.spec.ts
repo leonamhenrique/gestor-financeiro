@@ -107,6 +107,8 @@ describe('TransactionsService (fluxo com Prisma mockado)', () => {
   beforeEach(async () => {
     prismaMock = {
       $transaction: jest.fn((callback) => callback(prismaMock)),
+      // Nenhum lançamento destes testes está dividido com ninguém.
+      sharedExpense: { findUnique: jest.fn(async () => null) },
       transaction: {
         create: jest.fn(),
         findUnique: jest.fn(),
@@ -269,6 +271,8 @@ describe('TransactionsService — fatura de cartão', () => {
 
     prismaMock = {
       $transaction: jest.fn((callback) => callback(prismaMock)),
+      // Nenhum lançamento destes testes está dividido com ninguém.
+      sharedExpense: { findUnique: jest.fn(async () => null) },
       transaction: {
         create: jest.fn(),
         findUnique: jest.fn(async ({ where }: any) => transacoes.get(where.id) ?? null),
@@ -424,6 +428,8 @@ describe('TransactionsService — previsto × confirmado', () => {
     seq = 0;
     prismaMock = {
       $transaction: jest.fn((cb) => cb(prismaMock)),
+      // Nenhum lançamento destes testes está dividido com ninguém.
+      sharedExpense: { findUnique: jest.fn(async () => null) },
       transaction: {
         create: jest.fn(),
         findUnique: jest.fn(async ({ where }: any) => transacoes.get(where.id) ?? null),
@@ -508,6 +514,34 @@ describe('TransactionsService — previsto × confirmado', () => {
     expect(saldo).toBe(870);
   });
 
+  // Gasto dividido: as partes já gravadas não acompanhariam o valor novo, e
+  // a diferença cairia toda na MINHA parte, em silêncio — com o amigo tendo
+  // visto o número antigo na página compartilhada.
+  it('não deixa mudar o valor de um gasto dividido com alguém', async () => {
+    const id = await lancar({ amount: 200 });
+    prismaMock.sharedExpense.findUnique.mockResolvedValue({ id: 'div-1' });
+
+    await expect(service.update(id, { amount: 300 }, 'user-1')).rejects.toThrow(
+      /dividido com outra pessoa/,
+    );
+    expect(saldo).toBe(800); // nada se mexeu
+  });
+
+  it('mas deixa mudar o resto: descrição e data não afetam o rateio', async () => {
+    const id = await lancar({ amount: 200 });
+    prismaMock.sharedExpense.findUnique.mockResolvedValue({ id: 'div-1' });
+
+    await service.update(id, { description: 'Jantar de sexta' }, 'user-1');
+    expect(saldo).toBe(800);
+  });
+
+  it('repetir o MESMO valor não é mudança e passa', async () => {
+    const id = await lancar({ amount: 200 });
+    prismaMock.sharedExpense.findUnique.mockResolvedValue({ id: 'div-1' });
+
+    await expect(service.update(id, { amount: 200 }, 'user-1')).resolves.toBeDefined();
+  });
+
   it('excluir um previsto não devolve dinheiro que nunca saiu', async () => {
     const id = await lancar({ amount: 100, isConfirmed: false });
     await service.delete(id, 'user-1');
@@ -571,6 +605,8 @@ describe('TransactionsService — categoria e conta oculta', () => {
     const categorias: Record<string, any> = { [MERCADO.id]: MERCADO, [ALIMENTACAO.id]: ALIMENTACAO };
     prismaMock = {
       $transaction: jest.fn((cb: any) => cb(prismaMock)),
+      // Nenhum lançamento destes testes está dividido com ninguém.
+      sharedExpense: { findUnique: jest.fn(async () => null) },
       transaction: {
         create: jest.fn(async ({ data }: any) => ({ id: 'novo', ...data })),
         findUnique: jest.fn(async () => ({ ...existente })),

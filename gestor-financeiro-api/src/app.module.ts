@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -13,6 +14,7 @@ import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
 import { ReportsModule } from './reports/reports.module';
+import { SharedExpensesModule } from './shared-expenses/shared-expenses.module';
 import { BillingModule } from './billing/billing.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
@@ -20,6 +22,10 @@ import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    // Limite padrão, usado hoje só pela rota pública de despesa
+    // compartilhada (ver PublicSharedController). Não há guard global: as
+    // rotas autenticadas já têm o token como porta.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     PrismaModule,
     AuthModule,
     TransactionsModule,
@@ -31,6 +37,7 @@ import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
     CreditCardsModule,
     BillingModule,
     ReportsModule,
+    SharedExpensesModule,
   ],
   controllers: [AppController],
   providers: [

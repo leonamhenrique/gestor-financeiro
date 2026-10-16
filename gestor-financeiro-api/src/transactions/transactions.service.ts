@@ -45,7 +45,7 @@ import { MAX_OCORRENCIAS, MIN_OCORRENCIAS, dataDaOcorrencia, dataParaMes, mesPar
 
 const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-interface CreateTransactionInput {
+export interface CreateTransactionInput {
   userId: string;
   categoryId: string;
   type: TransactionType;
@@ -109,32 +109,46 @@ export class TransactionsService {
    * envios ao mesmo tempo, em que os dois consultariam antes de qualquer um
    * gravar. No segundo caso o perdedor lê o vencedor e devolve ele. */
   async create(input: CreateTransactionInput) {
-    const override = this.validarEntrada(input);
-
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const repetido = await this.jaGravado(tx, input.userId, input.clientKey);
-        if (repetido) return repetido;
-
-        await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
-        await this.conferirCategoria(tx, input.userId, input.categoryId);
-
-        // 1. Cria a transação
-        const transaction = await tx.transaction.create({
-          data: { ...this.dadosDoLancamento(input), invoiceMonthOverride: override },
-        });
-
-        // 2. Atualiza o saldo (conta) ou a fatura (cartão), dentro da mesma tx
-        //    — só se o lançamento nasceu confirmado.
-        await this.applyEffect(tx, this.efeitoDe(transaction));
-
-        return transaction;
-      });
+      return await this.prisma.$transaction((tx) => this.criarEm(tx, input));
     } catch (e) {
       const existente = await this.perdeuACorrida(e, input.userId, input.clientKey);
       if (existente) return existente;
       throw e;
     }
+  }
+
+  /**
+   * O miolo do `create`, numa transação de banco JÁ ABERTA.
+   *
+   * Existe público para quem precisa criar um lançamento junto com outra
+   * coisa, atomicamente — hoje o módulo de despesas compartilhadas, que grava
+   * o lançamento e a divisão dele de uma vez. Chamar `create()` de lá abriria
+   * uma segunda transação dentro da primeira, e uma falha na divisão deixaria
+   * o lançamento gravado sozinho, já tendo mexido no saldo.
+   *
+   * Quem chama é responsável por tratar a corrida de `clientKey` (P2002) como
+   * `create` faz — aqui dentro ela não tem como ser resolvida.
+   */
+  async criarEm(tx: Prisma.TransactionClient, input: CreateTransactionInput) {
+    const override = this.validarEntrada(input);
+
+    const repetido = await this.jaGravado(tx, input.userId, input.clientKey);
+    if (repetido) return repetido;
+
+    await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
+    await this.conferirCategoria(tx, input.userId, input.categoryId);
+
+    // 1. Cria a transação
+    const transaction = await tx.transaction.create({
+      data: { ...this.dadosDoLancamento(input), invoiceMonthOverride: override },
+    });
+
+    // 2. Atualiza o saldo (conta) ou a fatura (cartão), dentro da mesma tx
+    //    — só se o lançamento nasceu confirmado.
+    await this.applyEffect(tx, this.efeitoDe(transaction));
+
+    return transaction;
   }
 
   /** O lançamento desta chave, se já estiver gravado. */
@@ -333,6 +347,25 @@ export class TransactionsService {
           throw new BadRequestException('Só compra no cartão tem fatura para escolher.');
         }
         newOverride = input.invoiceMonth === null ? null : this.mesDaFaturaInformado(input.invoiceMonth);
+      }
+
+      // Mudar o valor de um gasto DIVIDIDO mudaria em silêncio o que a outra
+      // pessoa deve — as partes gravadas continuariam as antigas, e a minha
+      // parte (que é o que sobra) absorveria sozinha a diferença: um gasto de
+      // 200 dividido 100/100 virando 300 deixaria o amigo com 100 e eu com
+      // 200. Pior: ele já pode ter visto 100 na página compartilhada.
+      // Por isso o valor se altera pelo módulo das compartilhadas, que
+      // refaz o rateio inteiro, e não por aqui.
+      if (input.amount !== undefined && input.amount !== Number(existing.amount)) {
+        const dividido = await tx.sharedExpense.findUnique({
+          where: { transactionId },
+          select: { id: true },
+        });
+        if (dividido) {
+          throw new BadRequestException(
+            'Este gasto está dividido com outra pessoa. Altere o valor pela tela de despesas compartilhadas, para o rateio ser refeito junto.',
+          );
+        }
       }
 
       // 1. Reverte o efeito da transação atual (se ela era confirmada)
