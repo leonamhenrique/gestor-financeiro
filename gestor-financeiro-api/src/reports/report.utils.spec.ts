@@ -371,3 +371,63 @@ describe('previstosDoMes', () => {
     expect(upcoming).toHaveLength(41); // 40 + a linha do resto
   });
 });
+
+// O reembolso chega aqui ja como DESPESA NEGATIVA -- quem converte e o
+// mapeamento do ReportsService, de proposito: resolvido num lugar so, todas
+// as somas daqui para baixo acertam sozinhas.
+//
+// A pergunta que isto responde: quando alguem devolve a sua parte de um gasto
+// que voce pagou inteiro, esse dinheiro nao e renda. Contar como receita
+// inflaria o seu ganho do mes com dinheiro que nunca foi seu.
+describe('reembolso: dinheiro que volta abate a despesa', () => {
+  const mes = '2026-10';
+  function lanc(tipo: 'INCOME' | 'EXPENSE', valor: number, categoriaId = 'cat-1') {
+    return {
+      mes, tipo, valor: dec(valor), categoriaId,
+      descricao: null, confirmado: true, recorrente: false,
+    };
+  }
+
+  it('abate a despesa do mes, em vez de somar na receita', () => {
+    // Jantar de 1.000 que voce pagou, e 500 que o amigo devolveu.
+    const meses = fluxoPorMes([lanc('EXPENSE', 1000), lanc('EXPENSE', -500)], 2026, mes, dec(0));
+    const outubro = meses.find((m) => m.month === mes)!;
+
+    expect(Number(outubro.expense)).toBe(500);
+    expect(Number(outubro.income)).toBe(0);
+  });
+
+  it('na categoria tambem: o ranking enxerga 500, nao 1.000', () => {
+    const cats = despesasPorCategoria(
+      [lanc('EXPENSE', 1000), lanc('EXPENSE', -500)],
+      new Map([['cat-1', 'Alimentação']]),
+      mes,
+    );
+    const alimentacao = cats.find((c) => c.name === 'Alimentação')!;
+    expect(Number(alimentacao.amount)).toBe(500);
+  });
+
+  it('o resultado do mes fica igual ao de quem nunca adiantou nada', () => {
+    const comAdiantamento = fluxoPorMes(
+      [lanc('EXPENSE', 1000), lanc('EXPENSE', -500)], 2026, mes, dec(0),
+    ).find((m) => m.month === mes)!;
+    const semAdiantamento = fluxoPorMes([lanc('EXPENSE', 500)], 2026, mes, dec(0))
+      .find((m) => m.month === mes)!;
+
+    expect(Number(comAdiantamento.net)).toBe(Number(semAdiantamento.net));
+    expect(Number(comAdiantamento.expense)).toBe(Number(semAdiantamento.expense));
+    expect(Number(comAdiantamento.income)).toBe(Number(semAdiantamento.income));
+  });
+
+  // Se virasse receita, o resultado do mes ate fecharia -- mas as duas pontas
+  // estariam erradas, e e nelas que o usuario olha.
+  it('como RECEITA o resultado fecharia, mas as duas pontas mentiriam', () => {
+    const comoReceita = fluxoPorMes(
+      [lanc('EXPENSE', 1000), lanc('INCOME', 500)], 2026, mes, dec(0),
+    ).find((m) => m.month === mes)!;
+
+    expect(Number(comoReceita.net)).toBe(-500); // o mesmo resultado
+    expect(Number(comoReceita.expense)).toBe(1000);  // mas despesa inflada
+    expect(Number(comoReceita.income)).toBe(500);   // e renda que nao existiu
+  });
+});

@@ -12,6 +12,7 @@ import { SettlementsService } from './settlements.service';
 import { PeopleService } from './people.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettlementDirection } from '@prisma/client';
+import { TransactionsService } from '../transactions/transactions.service';
 
 describe('SettlementsService', () => {
   let service: SettlementsService;
@@ -51,12 +52,16 @@ describe('SettlementsService', () => {
     };
 
     const people = { minha: jest.fn(async () => ({ id: 'rafael', userId: 'u1' })) };
+    // Sem categoria nenhum teste daqui cria lancamento; o duble existe so
+    // para o grafo de injecao fechar.
+    const transactions = { criarEm: jest.fn(), apagarEm: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SettlementsService,
         { provide: PrismaService, useValue: prisma },
         { provide: PeopleService, useValue: people },
+        { provide: TransactionsService, useValue: transactions },
       ],
     }).compile();
 
@@ -130,7 +135,7 @@ describe('SettlementsService', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('não grava categoria: acerto não é gasto e não vai para relatório', async () => {
+  it('sem categoria, o acerto só abate a dívida: não vira lançamento', async () => {
     await service.create({ ...BASE, direction: SettlementDirection.RECEIVED });
     expect(gravado).not.toHaveProperty('categoryId');
     expect(gravado).not.toHaveProperty('type');
@@ -164,6 +169,7 @@ describe('SettlementsService — o prazo da transacao', () => {
         SettlementsService,
         { provide: PrismaService, useValue: prisma },
         { provide: PeopleService, useValue: { minha: jest.fn(async () => ({ id: 'p' })) } },
+        { provide: TransactionsService, useValue: { criarEm: jest.fn(), apagarEm: jest.fn() } },
       ],
     }).compile();
     const s = mod.get(SettlementsService);
@@ -176,5 +182,119 @@ describe('SettlementsService — o prazo da transacao', () => {
 
     await s.remove('u1', 's1');
     expect(prisma.$transaction.mock.calls[1][1].timeout).toBeGreaterThan(5000);
+  });
+});
+
+// O buraco que isto fecha: quando a outra pessoa pagava e voce acertava com
+// ela, saiam 500 da conta e NENHUMA despesa era reconhecida. O dinheiro
+// sumia dos relatorios, e a sua metade do gasto -- que e consumo seu -- nao
+// aparecia em "para onde foi o dinheiro".
+describe('SettlementsService — o acerto que vira lançamento', () => {
+  let service: SettlementsService;
+  let prisma: any;
+  let transactions: any;
+  let saldo: number;
+  let gravado: any;
+
+  const BASE = {
+    userId: 'u1', personId: 'rafael', amount: 500,
+    settledAt: '2026-10-16', bankAccountId: 'acc-1', categoryId: 'cat-1',
+  };
+
+  beforeEach(async () => {
+    saldo = 1000;
+    gravado = null;
+    transactions = {
+      criarEm: jest.fn(async (_tx: any, i: any) => {
+        // O lançamento é quem mexe no saldo, como no serviço de verdade.
+        if (i.isConfirmed !== false) saldo += i.type === 'INCOME' ? i.amount : -i.amount;
+        return { id: 'tx-1', ...i };
+      }),
+      apagarEm: jest.fn(async () => ({ success: true })),
+    };
+    prisma = {
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+      settlement: {
+        create: jest.fn(async ({ data }: any) => { gravado = data; return { id: 's1', ...data, amount: Number(data.amount) }; }),
+        findFirst: jest.fn(async () => (gravado ? { id: 's1', ...gravado, amount: Number(gravado.amount) } : null)),
+        update: jest.fn(),
+        delete: jest.fn(),
+      },
+      bankAccount: {
+        findFirst: jest.fn(async () => ({ id: 'acc-1' })),
+        update: jest.fn(async ({ data }: any) => {
+          saldo += data.currentBalance.increment ?? -data.currentBalance.decrement;
+        }),
+      },
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        SettlementsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: PeopleService, useValue: { minha: jest.fn(async () => ({ id: 'rafael' })) } },
+        { provide: TransactionsService, useValue: transactions },
+      ],
+    }).compile();
+    service = mod.get(SettlementsService);
+  });
+
+  it('pagar a alguém vira DESPESA: o consumo foi seu', async () => {
+    await service.create({ ...BASE, direction: SettlementDirection.PAID });
+
+    expect(transactions.criarEm).toHaveBeenCalledTimes(1);
+    const lanc = transactions.criarEm.mock.calls[0][1];
+    expect(lanc.type).toBe('EXPENSE');
+    expect(lanc.isRefund).toBe(false);
+    expect(lanc.categoryId).toBe('cat-1');
+    expect(saldo).toBe(500);
+  });
+
+  it('receber de volta vira REEMBOLSO, não receita', async () => {
+    await service.create({ ...BASE, direction: SettlementDirection.RECEIVED });
+
+    const lanc = transactions.criarEm.mock.calls[0][1];
+    // O dinheiro entrou, então o saldo sobe — mas o relatório vai ler isto
+    // como despesa negativa, abatendo o gasto original.
+    expect(lanc.type).toBe('INCOME');
+    expect(lanc.isRefund).toBe(true);
+    expect(saldo).toBe(1500);
+  });
+
+  // O risco desta mudança: o acerto mexia no saldo por conta própria. Se
+  // continuasse mexendo com o lançamento junto, o dinheiro andaria duas vezes.
+  it('com lançamento, o acerto NÃO mexe no saldo por fora', async () => {
+    await service.create({ ...BASE, direction: SettlementDirection.PAID });
+    expect(prisma.bankAccount.update).not.toHaveBeenCalled();
+    expect(saldo).toBe(500); // só o lançamento mexeu
+  });
+
+  it('sem categoria, nada de lançamento: volta a ser só abate de dívida', async () => {
+    await service.create({ ...BASE, categoryId: undefined, direction: SettlementDirection.PAID });
+    expect(transactions.criarEm).not.toHaveBeenCalled();
+    expect(prisma.bankAccount.update).toHaveBeenCalled();
+    expect(saldo).toBe(500);
+  });
+
+  // Dinheiro vivo não passa por conta nenhuma, e lançamento sem destino não
+  // existe neste app.
+  it('sem conta, nada de lançamento, mesmo com categoria', async () => {
+    await service.create({ ...BASE, bankAccountId: undefined, direction: SettlementDirection.PAID });
+    expect(transactions.criarEm).not.toHaveBeenCalled();
+    expect(saldo).toBe(1000); // dinheiro vivo não mexe em saldo do app
+  });
+
+  it('pode nascer previsto e não mexer no saldo ainda', async () => {
+    await service.create({ ...BASE, direction: SettlementDirection.PAID, isConfirmed: false });
+    expect(transactions.criarEm.mock.calls[0][1].isConfirmed).toBe(false);
+    expect(saldo).toBe(1000);
+  });
+
+  it('apagar o acerto apaga o lançamento, que sabe desfazer o próprio efeito', async () => {
+    await service.create({ ...BASE, direction: SettlementDirection.PAID });
+    await service.remove('u1', 's1');
+
+    expect(transactions.apagarEm).toHaveBeenCalledWith(prisma, 'tx-1', 'u1');
+    // E não desfaz pelo caminho antigo: isso tiraria o dinheiro duas vezes.
+    expect(prisma.bankAccount.update).not.toHaveBeenCalled();
   });
 });

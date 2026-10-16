@@ -83,8 +83,16 @@ export class ReportsService {
 
     const lancamentos: LancamentoDoRelatorio[] = transacoes.map((t) => ({
       mes: mesDeCaixa(t, cartaoPorId),
-      tipo: t.type === TransactionType.INCOME ? 'INCOME' : 'EXPENSE',
-      valor: dec(t.amount),
+      // Reembolso entra como DESPESA NEGATIVA, e não como receita: ele abate
+      // a despesa original, na categoria dela. Dinheiro que volta de um gasto
+      // que você adiantou não é renda — contar como receita inflaria o ganho
+      // do mês com dinheiro que nunca foi seu.
+      //
+      // Resolvido aqui, no mapeamento, e não espalhado pelas somas: daqui
+      // para baixo o fluxo mensal, o ranking de categorias e os indicadores
+      // só veem um número com sinal, e acertam sozinhos.
+      tipo: t.isRefund ? 'EXPENSE' : t.type === TransactionType.INCOME ? 'INCOME' : 'EXPENSE',
+      valor: t.isRefund ? dec(t.amount).negated() : dec(t.amount),
       categoriaId: t.categoryId,
       descricao: t.description,
       confirmado: t.isConfirmed,

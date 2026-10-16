@@ -55,6 +55,9 @@ export interface CreateTransactionInput {
   bankAccountId?: string; // XOR com creditCardId
   creditCardId?: string;
   isRecurring?: boolean;
+  // Dinheiro que ENTRA abatendo uma despesa, em vez de ser receita (ver o
+  // comentário de  no schema). Só faz sentido com type INCOME.
+  isRefund?: boolean;
   isConfirmed?: boolean; // padrão: true (dinheiro que já entrou ou saiu)
   invoiceMonth?: string; // 'AAAA-MM', só para cartão
   source?: TransactionSource;
@@ -487,19 +490,24 @@ export class TransactionsService {
   // DELETE
   // ----------------------------------------------------------
   async delete(transactionId: string, requestingUserId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.transaction.findUnique({ where: { id: transactionId } });
-      if (!existing) throw new NotFoundException('Transação não encontrada');
-      if (existing.userId !== requestingUserId) {
-        throw new NotFoundException('Transação não encontrada');
-      }
+    return this.prisma.$transaction((tx) => this.apagarEm(tx, transactionId, requestingUserId));
+  }
 
-      await this.reverseEffect(tx, this.efeitoDe(existing));
+  /** O miolo do `delete`, numa transação de banco JÁ ABERTA. Existe pelo
+   * mesmo motivo de `criarEm` e `atualizarEm`: quem apaga um lançamento junto
+   * com outra coisa precisa de tudo na mesma transação. */
+  async apagarEm(tx: Prisma.TransactionClient, transactionId: string, requestingUserId: string) {
+    const existing = await tx.transaction.findUnique({ where: { id: transactionId } });
+    if (!existing) throw new NotFoundException('Transação não encontrada');
+    if (existing.userId !== requestingUserId) {
+      throw new NotFoundException('Transação não encontrada');
+    }
 
-      await tx.transaction.delete({ where: { id: transactionId } });
+    await this.reverseEffect(tx, this.efeitoDe(existing));
 
-      return { success: true };
-    });
+    await tx.transaction.delete({ where: { id: transactionId } });
+
+    return { success: true };
   }
 
   /** Exclusão a partir de uma ocorrência de série: só ela (ONLY), ela e as
@@ -673,6 +681,9 @@ export class TransactionsService {
       bankAccountId: input.bankAccountId,
       creditCardId: input.creditCardId,
       isRecurring: input.isRecurring ?? false,
+      // Só marca reembolso o que de fato ENTRA: uma despesa marcada assim
+      // viraria uma despesa que abate despesa, e não existe isso.
+      isRefund: (input.isRefund ?? false) && input.type === TransactionType.INCOME,
       isConfirmed: input.isConfirmed ?? true,
       source: input.source ?? TransactionSource.APP,
       clientKey: input.clientKey ?? null,

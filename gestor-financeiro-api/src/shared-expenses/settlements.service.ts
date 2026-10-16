@@ -16,9 +16,10 @@
 // ============================================================
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, SettlementDirection } from '@prisma/client';
+import { Prisma, SettlementDirection, TransactionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PeopleService } from './people.service';
+import { TransactionsService } from '../transactions/transactions.service';
 import { PRAZO } from './shared-expenses.service';
 import { emCentavos } from './shared-expense.utils';
 
@@ -31,6 +32,13 @@ export interface CriarAcerto {
   bankAccountId?: string;
   description?: string;
   clientKey?: string;
+  /** Com categoria, o acerto vira um LANÇAMENTO no extrato — e é ele que
+   * mexe no saldo e entra nos relatórios. Sem categoria, o acerto só abate a
+   * dívida, como antes. */
+  categoryId?: string;
+  /** Só faz sentido com `categoryId`: o lançamento pode nascer previsto e
+   * ser confirmado depois, como qualquer outro. */
+  isConfirmed?: boolean;
 }
 
 @Injectable()
@@ -38,6 +46,7 @@ export class SettlementsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly people: PeopleService,
+    private readonly transactions: TransactionsService,
   ) {}
 
   async create(input: CriarAcerto) {
@@ -53,6 +62,8 @@ export class SettlementsService {
 
         if (input.bankAccountId) await this.conferirConta(tx, input.userId, input.bankAccountId);
 
+        const lancamento = await this.lancamentoDoAcerto(tx, input);
+
         const acerto = await tx.settlement.create({
           data: {
             userId: input.userId,
@@ -63,11 +74,16 @@ export class SettlementsService {
             bankAccountId: input.bankAccountId ?? null,
             description: input.description ?? null,
             clientKey: input.clientKey ?? null,
+            transactionId: lancamento?.id ?? null,
           },
           include: { person: true, bankAccount: true },
         });
 
-        await this.mexerNoSaldo(tx, acerto.bankAccountId, acerto.direction, acerto.amount, 1);
+        // Com lançamento, o saldo JÁ se moveu dentro de `criarEm`. Mexer de
+        // novo aqui faria o dinheiro andar duas vezes.
+        if (!lancamento) {
+          await this.mexerNoSaldo(tx, acerto.bankAccountId, acerto.direction, acerto.amount, 1);
+        }
         return acerto;
       }, PRAZO);
     } catch (e) {
@@ -103,6 +119,17 @@ export class SettlementsService {
       const acerto = await tx.settlement.findFirst({ where: { id, userId } });
       if (!acerto) throw new NotFoundException('Acerto não encontrado');
 
+      if (acerto.transactionId) {
+        // Quem mexeu no saldo foi o LANÇAMENTO, então é ele que precisa
+        // desfazer — `atualizarEm`/`delete` sabem estornar o efeito certo,
+        // inclusive se ele estava previsto e nunca tocou no saldo. Apagá-lo
+        // leva o acerto junto pela cascata.
+        await tx.settlement.update({ where: { id }, data: { transactionId: null } });
+        await this.transactions.apagarEm(tx, acerto.transactionId, userId);
+        await tx.settlement.delete({ where: { id } });
+        return { id };
+      }
+
       await this.mexerNoSaldo(tx, acerto.bankAccountId, acerto.direction, acerto.amount, -1);
       await tx.settlement.delete({ where: { id } });
       return { id };
@@ -112,6 +139,40 @@ export class SettlementsService {
   // ----------------------------------------------------------
   // Helpers
   // ----------------------------------------------------------
+
+  /**
+   * O lançamento que representa o acerto no extrato, quando pedido.
+   *
+   * O sinal sai da direção, e é aqui que mora a contabilidade do módulo:
+   *
+   *   PAGUEI    vira DESPESA. Pagar a alguém o que ela adiantou por você é
+   *             consumo SEU: o dinheiro sai da conta e o gasto é seu. Sem
+   *             isto, saíam 500 do banco e nenhum relatório via a despesa.
+   *   RECEBI    vira INCOME marcada como REEMBOLSO. O dinheiro entrou, então
+   *             o saldo sobe — mas não é renda: você está recebendo de volta
+   *             o que adiantou. Marcada assim, ela abate a despesa original
+   *             nos relatórios em vez de inflar o seu ganho do mês.
+   *
+   * Sem conta não há lançamento: dinheiro vivo não passa por conta nenhuma, e
+   * um lançamento sem destino não existe neste app.
+   */
+  private async lancamentoDoAcerto(tx: Prisma.TransactionClient, input: CriarAcerto) {
+    if (!input.categoryId || !input.bankAccountId) return null;
+
+    const recebi = input.direction === SettlementDirection.RECEIVED;
+    return this.transactions.criarEm(tx, {
+      userId: input.userId,
+      categoryId: input.categoryId,
+      type: recebi ? TransactionType.INCOME : TransactionType.EXPENSE,
+      isRefund: recebi,
+      amount: input.amount,
+      description: input.description,
+      transactionDate: new Date(input.settledAt),
+      bankAccountId: input.bankAccountId,
+      isConfirmed: input.isConfirmed,
+      clientKey: input.clientKey ? input.clientKey + ':acerto' : undefined,
+    });
+  }
 
   /**
    * RECEIVED entra na conta, PAID sai dela. `sinal` é 1 ao criar e -1 ao

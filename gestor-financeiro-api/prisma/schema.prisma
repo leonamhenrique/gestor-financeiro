@@ -354,6 +354,19 @@ model Transaction {
   description          String?
   transactionDate      DateTime          @map("transaction_date") @db.Date // data definida pelo usuário
   isRecurring          Boolean           @default(false) @map("is_recurring")
+  /// Dinheiro que entra ABATENDO uma despesa, em vez de ser receita.
+  ///
+  /// Nasceu do acerto de despesa compartilhada: quando alguém devolve a sua
+  /// parte de um gasto que você pagou inteiro, esse dinheiro não é renda —
+  /// você só está recebendo de volta o que adiantou. Contar como receita
+  /// inflaria o seu ganho do mês com dinheiro que nunca foi seu.
+  ///
+  /// O lançamento continua INCOME (o dinheiro de fato entrou, e o saldo
+  /// sobe), mas todo RELATÓRIO o lê como despesa negativa: ele abate a
+  /// despesa original, na categoria dela. O cartão já fazia isso há muito
+  /// tempo — receita no cartão é estorno e reduz a fatura; aqui a mesma
+  /// ideia passa a valer para conta.
+  isRefund             Boolean           @default(false) @map("is_refund")
   // Previsto (false) × confirmado (true). Só o confirmado mexe no saldo da
   // conta e no total da fatura — um previsto é intenção, não dinheiro que
   // já saiu. O padrão é `true` porque todo lançamento que já existia antes
@@ -385,6 +398,7 @@ model Transaction {
   // A divisão deste gasto com outras pessoas, quando existe. Cascade: apagar
   // o lançamento apaga a divisão dele — não sobra parte de gasto nenhum.
   sharedExpense SharedExpense?
+  settlement    Settlement?
 
   // Uma transação deve pertencer a UMA conta OU a UM cartão, nunca nenhum ou os dois.
   // Essa regra é validada na camada de aplicação (Prisma não suporta CHECK constraints
@@ -798,6 +812,18 @@ model ExpenseShare {
 model Settlement {
   id            String              @id @default(uuid())
   userId        String              @map("user_id")
+  /// O lançamento que representa este acerto no extrato, quando ele deve
+  /// aparecer lá. Com ele, é o LANÇAMENTO que mexe no saldo e entra nos
+  /// relatórios, e o acerto não mexe em nada sozinho — senão o dinheiro
+  /// andaria duas vezes.
+  ///
+  /// Existe porque pagar a alguém o que ela adiantou por você É uma despesa
+  /// sua: o dinheiro sai da sua conta e o consumo foi seu. Sem isto, saíam
+  /// 500 do banco e nenhum relatório via a despesa.
+  ///
+  /// Nulo quando o acerto é só um abate de dívida — dinheiro vivo, ou quem
+  /// prefere não ver a linha no extrato.
+  transactionId String?             @unique @map("transaction_id")
   personId      String              @map("person_id")
   direction     SettlementDirection
   amount        Decimal             @db.Decimal(14, 2)
@@ -812,6 +838,9 @@ model Settlement {
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   person      Person       @relation(fields: [personId], references: [id], onDelete: Restrict)
   bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  // Cascade: apagar o lançamento apaga o acerto que ele representava — o
+  // dinheiro deixou de existir no extrato, e a dívida volta ao que era.
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@unique([userId, clientKey])
   @@index([userId, settledAt])

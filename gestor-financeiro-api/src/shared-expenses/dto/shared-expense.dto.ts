@@ -128,6 +128,18 @@ export class CreateSettlementDto {
   @IsOptional()
   @IsString()
   clientKey?: string;
+
+  /** Com categoria, o acerto vira um LANCAMENTO no extrato -- e e ele que
+   * mexe no saldo e entra nos relatorios. Sem ela, o acerto so abate a
+   * divida, como antes. */
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  /** So faz sentido com categoria: o lancamento pode nascer previsto. */
+  @IsOptional()
+  @IsBoolean()
+  isConfirmed?: boolean;
 }
 
 export class ListSharedQueryDto {

@@ -3480,6 +3480,16 @@
         <div class="field-help">Em dinheiro vivo, escolha "Nenhuma": a dívida é abatida do mesmo jeito e nenhum saldo do app muda.</div>
       </div>
       <div class="field"><label class="lbl" for="ace-desc">Descrição</label><input id="ace-desc" type="text" maxlength="140" placeholder="Opcional"></div>
+
+      <div class="field" id="ace-categoria-campo">
+        <label class="lbl" for="ace-categoria">Categoria</label>
+        <select id="ace-categoria"></select>
+        <div class="field-help" id="ace-categoria-ajuda"></div>
+      </div>
+
+      <label class="check" id="ace-confirmado-campo"><input type="checkbox" id="ace-confirmado" checked> Já aconteceu</label>
+      <div class="field-help">Desmarque para deixar o acerto combinado, mas ainda previsto: ele entra no extrato sem mexer no saldo até você confirmar.</div>
+
       <div class="field-help" id="ace-previa"></div>
       <div class="field-error" id="ace-erro"></div>
     </div>
@@ -4839,7 +4849,8 @@
       return t.data.slice(0, 7) === mk && transacaoVisivel(t);
     });
     var entradas = 0, saidas = 0;
-    avulsos.forEach(function (t) { if (t.tipo === "INCOME") entradas += t.valor; else saidas += t.valor; });
+    // Pelo olhar de relatório: reembolso abate despesa, não soma receita.
+    avulsos.map(paraRelatorio).forEach(function (t) { if (t.tipo === "INCOME") entradas += t.valor; else saidas += t.valor; });
 
     // As faturas são sempre calculadas, mesmo no modo por compra: quem precisa
     // delas ali é o SALDO previsto, que é caixa e não muda de regime — o
@@ -5778,6 +5789,9 @@
       desc: j.description || "", data: soData(j.transactionDate),
       contaId: j.bankAccountId || null, cartaoId: j.creditCardId || null,
       confirmada: !!j.isConfirmed,
+      // Dinheiro que entra ABATENDO despesa, em vez de virar receita: ver
+      // `paraRelatorio`.
+      reembolso: !!j.isRefund,
       faturaMesOverride: j.invoiceMonthOverride ? String(j.invoiceMonthOverride).slice(0, 7) : null,
       serieId: j.seriesId || null, serieIndex: j.seriesIndex == null ? null : j.seriesIndex,
       // "Parcela 2/6" é derivado da série, não gravado na descrição: gravado,
@@ -6448,11 +6462,27 @@
   /** O que o mês mostra nos relatórios de categoria e no mapa de calor. Usa a
    * data de relatório, não a do lançamento: é o que faz o mapa de calor somar
    * o mesmo que o total do mês. */
+  /** Os lançamentos do mês, do jeito que RELATÓRIO os enxerga.
+   *
+   * Reembolso vira despesa NEGATIVA aqui, e não receita: quando alguém
+   * devolve a sua parte de um gasto que você pagou inteiro, esse dinheiro
+   * não é renda — você está recebendo de volta o que adiantou. Contar como
+   * receita inflaria o ganho do mês com dinheiro que nunca foi seu.
+   *
+   * Convertido NUM LUGAR SÓ, como o servidor faz no mapeamento do relatório:
+   * daqui para baixo o mapa de calor, o ranking de categorias e o resumo só
+   * veem um número com sinal, e acertam sozinhos. Espalhar a regra por cada
+   * soma seria a receita para uma delas discordar das outras. */
+  function paraRelatorio(t) {
+    if (!t.reembolso) return t;
+    return Object.assign({}, t, { tipo: "EXPENSE", valor: -t.valor });
+  }
+
   function movimentoDoMes(vm) {
     var mk = monthKey(vm);
     return state.transactions.filter(function (t) {
       return dataDeRelatorio(t).slice(0, 7) === mk && transacaoVisivel(t);
-    });
+    }).map(paraRelatorio);
   }
   /* ---------- o que falta pagar e receber ---------- */
   /** Tudo que ainda não se resolveu, do mês escolhido para trás.
@@ -13383,6 +13413,11 @@
   var calAcerto = null;
   var aceDirecao = "RECEIVED";
 
+  function nomeDaCategoria(id) {
+    var c = id ? byId(state.categories, id) : null;
+    return c ? c.nome : "";
+  }
+
   function aceDesenhar() {
     var saldo = cpExtrato ? Number(cpExtrato.saldoFinal || 0) : 0;
     var nome = primeiroNome((cpPessoa(cpPessoaAberta) || {}).name || "ela");
@@ -13390,11 +13425,30 @@
     var depois = saldo + (aceDirecao === "RECEIVED" ? -valor : valor);
     var conta = document.getElementById("ace-conta").value;
 
+    var categoria = document.getElementById("ace-categoria").value;
+    var vira = conta !== "" && categoria;
+    var confirmado = document.getElementById("ace-confirmado").checked;
+
+    // A categoria só faz sentido com conta: dinheiro vivo não vira lançamento,
+    // porque lançamento sem destino não existe neste app.
+    document.getElementById("ace-categoria-campo").hidden = conta === "";
+    document.getElementById("ace-confirmado-campo").hidden = !vira;
+    document.getElementById("ace-categoria-ajuda").textContent = aceDirecao === "PAID"
+      ? "Com categoria, este acerto vira uma despesa no seu extrato — e é isso que ele é: você está pagando a sua parte de um gasto que outra pessoa adiantou. Sem categoria, ele só abate a dívida."
+      : "Com categoria, este dinheiro ABATE a despesa original em vez de virar receita: você está recebendo de volta o que adiantou, não ganhando. Sem categoria, ele só abate a dívida.";
+
     document.getElementById("ace-previa").innerHTML = !valor ? "" :
       "<b>Depois de salvar:</b> a dívida vai de " + brl(saldo) + " para " + brl(depois) + ". " +
-      (conta === "" ? "Nenhum saldo do app muda, porque o dinheiro não passou por conta cadastrada. " :
-        "O saldo da conta " + (aceDirecao === "RECEIVED" ? "sobe" : "cai") + " " + brl(valor) + ". ") +
-      "Entra como receita? <b>Não</b> — só abate a dívida com " + nome + ".";
+      (conta === ""
+        ? "Nenhum saldo do app muda, porque o dinheiro não passou por conta cadastrada. "
+        : !confirmado && vira
+          ? "Nada muda no saldo ainda: o lançamento nasce previsto. "
+          : "O saldo da conta " + (aceDirecao === "RECEIVED" ? "sobe" : "cai") + " " + brl(valor) + ". ") +
+      (!vira
+        ? "Entra em algum relatório? <b>Não</b> — só abate a dívida com " + nome + "."
+        : aceDirecao === "PAID"
+          ? "Entra como <b>despesa</b> de " + esc(nomeDaCategoria(categoria)) + ": o consumo foi seu, e é agora que o dinheiro sai."
+          : "Abate a <b>despesa</b> de " + esc(nomeDaCategoria(categoria)) + " em vez de virar receita — você está recebendo de volta o que adiantou.");
   }
 
   function abrirDialogoAcerto() {
@@ -13413,6 +13467,15 @@
       '<option value="">Nenhuma (dinheiro)</option>' +
       state.accounts.filter(function (a) { return a.isActive !== false; })
         .map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.nome) + "</option>"; }).join("");
+    // Despesa quando eu pago, receita quando recebo: a lista segue o lado da
+    // conta em que o dinheiro entra.
+    var tipoCat = aceDirecao === "PAID" ? "EXPENSE" : "INCOME";
+    document.getElementById("ace-categoria").innerHTML =
+      '<option value="">Sem categoria — só abater a dívida</option>' +
+      state.categories.filter(function (c) { return c.tipo === tipoCat; })
+        .map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.nome) + "</option>"; }).join("");
+    document.getElementById("ace-confirmado").checked = true;
+
     if (!calAcerto) calAcerto = montarCalendario(document.getElementById("ace-data-cal"), {});
     calAcerto.definir(isoDate(dataDeHoje()), true);
     aceDesenhar();
@@ -13618,6 +13681,12 @@
     document.querySelectorAll("#ace-direcoes .pill").forEach(function (p) {
       p.classList.toggle("on", p.dataset.direcao === aceDirecao);
     });
+    // Pagar é despesa, receber é entrada: a lista de categorias troca junto.
+    var tipoCat = aceDirecao === "PAID" ? "EXPENSE" : "INCOME";
+    document.getElementById("ace-categoria").innerHTML =
+      '<option value="">Sem categoria — só abater a dívida</option>' +
+      state.categories.filter(function (c) { return c.tipo === tipoCat; })
+        .map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.nome) + "</option>"; }).join("");
     aceDesenhar();
   });
   document.getElementById("ace-tudo").addEventListener("click", function () {
@@ -13627,6 +13696,8 @@
   });
   document.getElementById("ace-valor").addEventListener("input", aceDesenhar);
   document.getElementById("ace-conta").addEventListener("change", aceDesenhar);
+  document.getElementById("ace-categoria").addEventListener("change", aceDesenhar);
+  document.getElementById("ace-confirmado").addEventListener("change", aceDesenhar);
   document.getElementById("ace-hoje").addEventListener("click", function () {
     calAcerto.definir(isoDate(dataDeHoje()), true);
   });
@@ -13639,13 +13710,18 @@
     if (!data) { erro.textContent = "Escolha a data."; return; }
     var conta = document.getElementById("ace-conta").value;
     try {
+      var categoria = document.getElementById("ace-categoria").value;
       await api("/shared/settlements", {
         personId: cpPessoaAberta,
         direction: aceDirecao,
         amount: Number(document.getElementById("ace-valor").value),
         settledAt: data,
         bankAccountId: conta || undefined,
-        description: document.getElementById("ace-desc").value.trim() || undefined
+        description: document.getElementById("ace-desc").value.trim() || undefined,
+        // Sem conta não há lançamento: o servidor ignora a categoria nesse
+        // caso, mas mandar só o que faz sentido deixa o pedido honesto.
+        categoryId: (conta && categoria) || undefined,
+        isConfirmed: conta && categoria ? document.getElementById("ace-confirmado").checked : undefined
       });
       fechar("dlg-acerto");
       await cpRecarregar();
