@@ -19,6 +19,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, SettlementDirection } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PeopleService } from './people.service';
+import { PRAZO } from './shared-expenses.service';
 import { emCentavos } from './shared-expense.utils';
 
 export interface CriarAcerto {
@@ -68,7 +69,7 @@ export class SettlementsService {
 
         await this.mexerNoSaldo(tx, acerto.bankAccountId, acerto.direction, acerto.amount, 1);
         return acerto;
-      });
+      }, PRAZO);
     } catch (e) {
       const existente = await this.perdeuACorrida(e, input.userId, input.clientKey);
       if (existente) return existente;
@@ -105,7 +106,7 @@ export class SettlementsService {
       await this.mexerNoSaldo(tx, acerto.bankAccountId, acerto.direction, acerto.amount, -1);
       await tx.settlement.delete({ where: { id } });
       return { id };
-    });
+    }, PRAZO);
   }
 
   // ----------------------------------------------------------

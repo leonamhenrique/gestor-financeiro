@@ -386,3 +386,56 @@ describe('SharedExpensesService — a regra do XOR continua valendo', () => {
     expect(input.type).toBe('EXPENSE');
   });
 });
+
+// O prazo padrao do Prisma e 5 segundos, e esta operacao nao cabe nele: nove
+// consultas numa transacao so, numa instancia de 0,1 de CPU. Em producao
+// falhava SEMPRE, com "Transaction not found" -- a transacao era fechada pelo
+// relogio e a consulta seguinte nao achava mais ela. O teste existe para o
+// prazo nao sumir numa refatoracao futura.
+describe('SharedExpensesService — o prazo da transacao', () => {
+  async function montar() {
+    const prisma: any = {
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+      sharedExpense: {
+        create: jest.fn(async ({ data }: any) => ({ id: 'd', ...data })),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      expenseShare: { deleteMany: jest.fn(), createMany: jest.fn() },
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        SharedExpensesService,
+        { provide: PrismaService, useValue: prisma },
+        {
+          provide: TransactionsService,
+          useValue: { criarEm: jest.fn(async (_t: any, i: any) => ({ id: 'tx', amount: i.amount })) },
+        },
+        { provide: PeopleService, useValue: { minha: jest.fn(async (_u: any, id: string) => ({ id })) } },
+      ],
+    }).compile();
+    return { service: mod.get(SharedExpensesService), prisma };
+  }
+
+  it('criar abre a transacao com prazo folgado, nao com o padrao', async () => {
+    const { service, prisma } = await montar();
+    await service.create({
+      userId: 'u1', amount: 100, date: '2026-10-01', categoryId: 'c',
+      creditCardId: 'card-1', mode: 'IGUAL', participants: [{ personId: 'p' }],
+    });
+
+    const opcoes = prisma.$transaction.mock.calls[0][1];
+    expect(opcoes).toBeDefined();
+    expect(opcoes.timeout).toBeGreaterThan(5000);
+    expect(opcoes.maxWait).toBeGreaterThan(2000);
+  });
+
+  it('refazer o rateio tambem', async () => {
+    const { service, prisma } = await montar();
+    prisma.sharedExpense.findFirst.mockResolvedValue({ id: 'd1', transaction: { amount: 200 } });
+
+    await service.updateSplit('u1', 'd1', 'VALOR', [{ personId: 'p', amount: 50 }]);
+
+    expect(prisma.$transaction.mock.calls[0][1].timeout).toBeGreaterThan(5000);
+  });
+});

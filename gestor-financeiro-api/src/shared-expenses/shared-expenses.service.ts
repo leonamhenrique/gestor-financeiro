@@ -42,6 +42,25 @@ export interface CriarDespesaCompartilhada {
   clientKey?: string;
 }
 
+/**
+ * Prazo da transação de banco deste módulo.
+ *
+ * O padrão do Prisma é 5 segundos, e ele NÃO basta aqui. Criar um gasto
+ * dividido faz nove consultas numa transação só — confere a conta ou o
+ * cartão, a categoria, grava o lançamento, acha o cartão, soma a fatura,
+ * grava a divisão e as partes. Um lançamento comum faz seis.
+ *
+ * Seis cabem em 5 segundos; nove não, numa instância de 0,1 de CPU falando
+ * com um banco do outro lado da rede. Quando o prazo estoura, o Prisma fecha
+ * a transação e a consulta seguinte volta com "Transaction not found" — um
+ * erro que parece de banco de dados e é de relógio. Medido em produção:
+ * falhava SEMPRE, enquanto o lançamento comum passava sempre.
+ *
+ * `maxWait` é a espera por uma conexão livre do pool, e sobe junto: numa
+ * instância que hiberna, a primeira requisição depois do sono também espera.
+ */
+export const PRAZO = { timeout: 20_000, maxWait: 10_000 };
+
 /** O que vem junto da despesa em toda leitura. Num lugar só, para as duas
  * formas chegarem sempre com as mesmas peças na mão. */
 const COM_TUDO = {
@@ -110,7 +129,7 @@ export class SharedExpensesService {
           },
           include: COM_TUDO,
         });
-      });
+      }, PRAZO);
     } catch (e) {
       const existente = await this.perdeuACorrida(e, input.userId, input.clientKey);
       if (existente) return existente;
@@ -240,7 +259,7 @@ export class SharedExpensesService {
         })),
       });
       return tx.sharedExpense.findUnique({ where: { id }, include: COM_TUDO });
-    });
+    }, PRAZO);
   }
 
   // ----------------------------------------------------------

@@ -145,3 +145,36 @@ describe('SettlementsService', () => {
     expect(prisma.settlement.create).toHaveBeenCalledTimes(1);
   });
 });
+
+// Mesmo motivo do modulo todo: ver o comentario de PRAZO em
+// shared-expenses.service.ts.
+describe('SettlementsService — o prazo da transacao', () => {
+  it('criar e apagar abrem a transacao com prazo folgado', async () => {
+    const prisma: any = {
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+      settlement: {
+        create: jest.fn(async ({ data }: any) => ({ id: 's1', ...data, amount: Number(data.amount) })),
+        findFirst: jest.fn(async () => ({ id: 's1', bankAccountId: null, direction: 'RECEIVED', amount: 10 })),
+        delete: jest.fn(),
+      },
+      bankAccount: { findFirst: jest.fn(async () => ({ id: 'a' })), update: jest.fn() },
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        SettlementsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: PeopleService, useValue: { minha: jest.fn(async () => ({ id: 'p' })) } },
+      ],
+    }).compile();
+    const s = mod.get(SettlementsService);
+
+    await s.create({
+      userId: 'u1', personId: 'p', direction: SettlementDirection.RECEIVED,
+      amount: 10, settledAt: '2026-10-14',
+    });
+    expect(prisma.$transaction.mock.calls[0][1].timeout).toBeGreaterThan(5000);
+
+    await s.remove('u1', 's1');
+    expect(prisma.$transaction.mock.calls[1][1].timeout).toBeGreaterThan(5000);
+  });
+});
