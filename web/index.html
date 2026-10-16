@@ -2550,20 +2550,30 @@
                seletor, sem script e sem um botão a mais. Arrastar é atalho, não
                substituto: quem não arrasta continua clicando. -->
           <label class="imp-solta" id="imp-solta">
-            <input type="file" id="imp-arquivo" accept=".ofx,.OFX,text/plain">
+            <input type="file" id="imp-arquivo" accept=".ofx,.OFX,.csv,.CSV,text/csv,text/plain">
             <span class="imp-solta-alvo">
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4M8.5 11.5 12 15l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 16v2.5a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-              <span><b>Arraste o arquivo aqui</b> ou clique para escolher</span>
+              <span><b>Arraste o arquivo aqui</b> ou clique para escolher — OFX ou CSV</span>
             </span>
           </label>
-          <div class="field-help">Exporte o OFX no aplicativo do banco. Por enquanto só OFX.</div>
+          <div class="field-help">Exporte o extrato no aplicativo do banco, em OFX ou CSV.</div>
         </div>
         <div class="field" id="imp-destino-campo" hidden>
           <label class="lbl" for="imp-destino">Importar para</label>
           <select id="imp-destino"></select>
           <div class="field-help" id="imp-destino-ajuda"></div>
         </div>
-        <div class="field" id="imp-fatura-campo" hidden>
+        <!-- Só para CSV: o sinal não é padronizado, e adivinhar errado
+           transforma todo gasto em receita. O palpite fica à vista e trocável. -->
+      <div class="field" id="imp-sinal-campo" hidden>
+        <div class="lbl">Como ler os valores</div>
+        <div class="pills" id="imp-sinal">
+          <button type="button" class="pill" data-sinal="pos">Positivo é despesa</button>
+          <button type="button" class="pill" data-sinal="neg">Negativo é despesa</button>
+        </div>
+        <div class="field-help" id="imp-sinal-ajuda"></div>
+      </div>
+      <div class="field" id="imp-fatura-campo" hidden>
           <div class="lbl">Fatura</div>
           <div class="month-nav">
             <span class="month-label num" id="imp-fatura-label">
@@ -6913,6 +6923,131 @@
     };
   }
 
+  /* ---------- CSV ----------
+   * CSV não tem padrão: cada banco inventa o seu. O que muda de arquivo para
+   * arquivo, e que este leitor precisa resolver sozinho, foi medido no extrato
+   * real do Nubank: separador, aspas, vírgula decimal, e principalmente o
+   * SINAL — lá a compra é positiva e o pagamento é negativo, o contrário do
+   * OFX. Lido com a convenção do OFX, as 38 compras daquele arquivo virariam
+   * receitas. */
+
+  /** Uma linha de CSV respeitando aspas: o separador dentro de aspas é texto,
+   * e "" é uma aspa literal. Sem isto, "Loja, Filial 2" vira duas colunas. */
+  function camposCSV(linha, sep) {
+    var fora = [], atual = "", aspas = false;
+    for (var i = 0; i < linha.length; i++) {
+      var c = linha.charAt(i);
+      if (c === '"') {
+        if (aspas && linha.charAt(i + 1) === '"') { atual += '"'; i++; }
+        else aspas = !aspas;
+      } else if (c === sep && !aspas) { fora.push(atual); atual = ""; }
+      else atual += c;
+    }
+    fora.push(atual);
+    return fora;
+  }
+
+  /** O número de um CSV brasileiro ou americano.
+   *
+   * "1.234,56" e "1234.56" são o mesmo valor escrito por povos diferentes:
+   * quem manda é o ÚLTIMO separador. E "- 913,20" existe de verdade — o
+   * Nubank escreve o sinal separado do número. */
+  function numeroDoCSV(s) {
+    var txt = String(s == null ? "" : s).replace(/\s/g, "").replace(/R\$/gi, "");
+    if (!txt) return NaN;
+    var neg = txt.charAt(0) === "-" || /^\(.*\)$/.test(txt);
+    txt = txt.replace(/[()\-+]/g, "");
+    var ultimaVirgula = txt.lastIndexOf(","), ultimoPonto = txt.lastIndexOf(".");
+    if (ultimaVirgula >= 0 && ultimaVirgula > ultimoPonto) txt = txt.replace(/\./g, "").replace(",", ".");
+    else if (ultimaVirgula >= 0) txt = txt.replace(/,/g, "");
+    var n = Number(txt);
+    if (!isFinite(n)) return NaN;
+    return neg ? -n : n;
+  }
+
+  /** Qual coluna é qual. Aceita os nomes que os bancos daqui usam; sem achar
+   * data ou valor, não há o que importar. */
+  var COLUNAS_CSV = {
+    data: ["date", "data", "data da compra", "data do lançamento", "data lancamento"],
+    desc: ["title", "descrição", "descricao", "description", "histórico", "historico", "lançamento", "lancamento", "estabelecimento", "memo"],
+    valor: ["amount", "valor", "value", "valor (r$)", "quantia"]
+  };
+  function acharColuna(cabecalho, nomes) {
+    for (var i = 0; i < cabecalho.length; i++) {
+      if (nomes.indexOf(cabecalho[i]) >= 0) return i;
+    }
+    return -1;
+  }
+
+  /** A data de um CSV: ISO, ou dd/mm/aaaa, que é o que se digita aqui. */
+  function dataDoCSV(s) {
+    var txt = String(s || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return txt.slice(0, 10);
+    var m = txt.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (m) return m[3] + "-" + m[2] + "-" + m[1];
+    var m2 = txt.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+    if (m2) return "20" + m2[3] + "-" + m2[2] + "-" + m2[1];
+    return "";
+  }
+
+  /** Lê o CSV e devolve o MESMO formato do OFX, para tudo o que vem depois —
+   * repetidos, categorias, parcelas, desfazer — não precisar saber de onde o
+   * arquivo veio.
+   *
+   * `despesaPositiva` diz como ler o sinal. O padrão é descoberto no próprio
+   * arquivo (ver `sinalDoCSV`), e a tela deixa inverter: adivinhar errado
+   * aqui transforma todo gasto em receita, e nenhum palpite merece essa
+   * confiança sem uma saída. */
+  function lerCSV(texto, despesaPositiva) {
+    var limpo = String(texto || "").replace(/^\uFEFF/, "");
+    var linhas = limpo.split(/\r?\n/).filter(function (l) { return l.trim(); });
+    if (linhas.length < 2) return { ehCartao: false, fimDoPeriodo: "", lancamentos: [], colunas: null };
+    // Separador: o que mais aparece no cabeçalho, entre vírgula e ponto-e-vírgula.
+    var sep = (linhas[0].split(";").length > linhas[0].split(",").length) ? ";" : ",";
+    var cab = camposCSV(linhas[0], sep).map(function (s) { return s.trim().toLowerCase().replace(/^"|"$/g, ""); });
+    var iData = acharColuna(cab, COLUNAS_CSV.data);
+    var iDesc = acharColuna(cab, COLUNAS_CSV.desc);
+    var iVal = acharColuna(cab, COLUNAS_CSV.valor);
+    if (iData < 0 || iVal < 0) return { ehCartao: false, fimDoPeriodo: "", lancamentos: [], colunas: cab };
+
+    var lancamentos = [];
+    linhas.slice(1).forEach(function (linha, i) {
+      var f = camposCSV(linha, sep);
+      var data = dataDoCSV(f[iData]);
+      var bruto = numeroDoCSV(f[iVal]);
+      if (!data || !isFinite(bruto) || bruto === 0) return;
+      lancamentos.push({
+        ordem: i, data: data, bruto: bruto, valor: Math.abs(bruto),
+        tipo: (despesaPositiva ? bruto > 0 : bruto < 0) ? "EXPENSE" : "INCOME",
+        desc: (iDesc >= 0 ? String(f[iDesc] || "").trim() : "") || "Sem histórico",
+        fitid: ""
+      });
+    });
+    return { ehCartao: false, fimDoPeriodo: "", lancamentos: lancamentos, colunas: cab };
+  }
+
+  /** De que lado está a despesa neste arquivo.
+   *
+   * Num extrato de CARTÃO a compra é positiva e o pagamento da fatura é o
+   * negativo solitário — foi o que o arquivo real mostrou: 38 positivos
+   * somando 2.765,01 e um único negativo, "Pagamento recebido". Numa conta
+   * corrente é o contrário: saída é negativa.
+   *
+   * A pergunta que separa os dois: o lado MENOS numeroso é onde mora o
+   * pagamento? Se sim, o outro lado são as compras. Sem pista, cai no
+   * costume — negativo é saída. */
+  function sinalDoCSV(linhas) {
+    var pos = 0, neg = 0, pagPos = false, pagNeg = false;
+    (linhas || []).forEach(function (l) {
+      var ehPag = /pagamento recebido|pagamento de fatura|pgto fatura/.test(normalizarNome(l.desc || ""));
+      if (l.bruto > 0) { pos++; if (ehPag) pagPos = true; }
+      else if (l.bruto < 0) { neg++; if (ehPag) pagNeg = true; }
+    });
+    if (pagNeg && !pagPos) return true;    // pagamento negativo => compra positiva
+    if (pagPos && !pagNeg) return false;
+    return pos > neg;                       // sem pagamento: o lado cheio e o das compras
+  }
+
   /** A chave que diz "este lançamento já está no app".
    *
    * NÃO é o FITID: no extrato medido, 74 lançamentos usam 30 FITIDs, e um
@@ -8053,21 +8188,50 @@
   });
 
   /** Um caminho só para o arquivo, venha ele do seletor ou do arraste. */
+  /** OFX ou CSV, decidido pelo CONTEÚDO e não pela extensão: arquivo renomeado
+   * é comum, e a tag <OFX> não deixa dúvida. */
+  function lerExtrato(texto) {
+    if (/<OFX>|<STMTTRN>/i.test(texto)) {
+      var ofx = lerOFX(texto);
+      ofx.formato = "OFX";
+      return ofx;
+    }
+    // No CSV o sinal não é padronizado: lê-se uma vez para descobrir de que
+    // lado está a despesa, e de novo já sabendo. Ver `sinalDoCSV`.
+    var cru = lerCSV(texto, false);
+    var positiva = sinalDoCSV(cru.lancamentos);
+    var csv = lerCSV(texto, positiva);
+    csv.formato = "CSV";
+    csv.despesaPositiva = positiva;
+    csv.texto = texto;
+    /* O CSV não diz se é cartão ou conta, e o destino errado é um trabalho
+     * chato de desfazer. Mas o sinal denuncia: extrato de CARTÃO lança a
+     * compra como positiva e o pagamento da fatura como o negativo solitário;
+     * conta corrente faz o contrário, saída é negativa. É palpite, e por isso
+     * só muda qual destino vem pré-escolhido — a lista continua inteira. */
+    csv.ehCartao = positiva;
+    return csv;
+  }
+
   function lerArquivoEscolhido(arq) {
     var erro = document.getElementById("imp-erro");
     erro.textContent = "";
     if (!arq) return;
     arq.arrayBuffer().then(function (buf) {
-      var ofx = lerOFX(textoDoArquivo(buf));
+      var ofx = lerExtrato(textoDoArquivo(buf));
       if (!ofx.lancamentos.length) {
-        erro.textContent = "Não encontrei lançamentos neste arquivo. Ele é mesmo um OFX?";
+        erro.textContent = ofx.formato === "CSV" && ofx.colunas
+          ? "Li o CSV mas não achei as colunas de data e valor. Encontrei: " + ofx.colunas.join(", ") + "."
+          : "Não encontrei lançamentos neste arquivo. Ele é mesmo um OFX ou CSV?";
         document.getElementById("imp-continuar").disabled = true;
         document.getElementById("imp-destino-campo").hidden = true;
         document.getElementById("imp-fatura-campo").hidden = true;
         return;
       }
       var fat = faturaDoArquivo(ofx);
-      imp = { ofx: ofx, fatura: fat || { y: HOJE.getFullYear(), m: HOJE.getMonth() }, linhas: [] };
+      imp = { ofx: ofx, formato: ofx.formato, despesaPositiva: ofx.despesaPositiva,
+              texto: ofx.texto || "",
+              fatura: fat || { y: HOJE.getFullYear(), m: HOJE.getMonth() }, linhas: [] };
 
       // O destino já vem escolhido pelo que o arquivo diz ser: cartão para
       // extrato de cartão, conta para o resto. Continua trocável.
@@ -8083,6 +8247,8 @@
         : "O arquivo é de uma conta.";
       document.getElementById("imp-destino-campo").hidden = false;
       document.getElementById("imp-continuar").disabled = false;
+      document.getElementById("imp-sinal-campo").hidden = ofx.formato !== "CSV";
+      if (ofx.formato === "CSV") pintarSinal();
       atualizarCampoDeFatura();
       document.getElementById("imp-ctx").textContent =
         ofx.lancamentos.length + (ofx.lancamentos.length === 1 ? " lançamento" : " lançamentos") +
@@ -8096,18 +8262,77 @@
     });
   }
 
+  /** Mostra de que lado o app achou que está a despesa, e o resultado disso em
+   * número — é olhando "38 saídas, 1 entrada" que se percebe um palpite errado,
+   * não lendo a palavra "positivo". */
+  function pintarSinal() {
+    if (!imp || imp.formato !== "CSV") return;
+    var sai = imp.ofx.lancamentos.filter(function (l) { return l.tipo === "EXPENSE"; });
+    var entra = imp.ofx.lancamentos.filter(function (l) { return l.tipo === "INCOME"; });
+    document.querySelectorAll("#imp-sinal .pill").forEach(function (p) {
+      var aceso = (p.getAttribute("data-sinal") === "pos") === !!imp.despesaPositiva;
+      p.classList.toggle("on", aceso);
+      p.setAttribute("aria-pressed", aceso ? "true" : "false");
+    });
+    document.getElementById("imp-sinal-ajuda").textContent =
+      "Assim o arquivo tem " + sai.length + (sai.length === 1 ? " saída" : " saídas") +
+      " de " + money(sai.reduce(function (s, l) { return s + l.valor; }, 0)) + " e " +
+      entra.length + (entra.length === 1 ? " entrada" : " entradas") +
+      " de " + money(entra.reduce(function (s, l) { return s + l.valor; }, 0)) +
+      ". Se estiver trocado, mude aqui.";
+  }
+
+  document.getElementById("imp-sinal").addEventListener("click", function (e) {
+    var p = e.target.closest(".pill");
+    if (!p || !imp || imp.formato !== "CSV") return;
+    imp.despesaPositiva = p.getAttribute("data-sinal") === "pos";
+    /* Relê o arquivo inteiro: o sinal decide o tipo de CADA linha.
+     *
+     * O texto vem de `imp.texto`, e não do resultado anterior: `lerCSV`
+     * devolve um objeto NOVO, sem o texto dentro. Lendo de lá, a primeira
+     * inversão funcionava e a segunda relia uma string vazia — medido: 38
+     * saídas viravam 0. */
+    imp.ofx = lerCSV(imp.texto, imp.despesaPositiva);
+    imp.ofx.formato = "CSV";
+    pintarSinal();
+    atualizarCampoDeFatura();
+  });
+
   function destinoEhCartao() {
     return (document.getElementById("imp-destino").value || "").indexOf("k:") === 0;
   }
+  /** A fatura de destino.
+   *
+   * O OFX traz o fim do período e ele manda. O CSV não traz nada: aí quem
+   * decide é a regra do PRÓPRIO cartão — a compra mais recente, passada pelo
+   * dia de fechamento dele. No arquivo medido, 28/05 com fechamento dia 10 cai
+   * em Junho 2025, que é a fatura certa. Melhor isso do que adivinhar pelo
+   * nome do arquivo, que o usuário pode ter renomeado. */
+  function faturaSugeridaDoArquivo() {
+    if (!imp) return null;
+    if (imp.ofx.fimDoPeriodo) return faturaDoArquivo(imp.ofx);
+    var card = byId(state.cards, (document.getElementById("imp-destino").value || "").slice(2));
+    if (!card || !imp.ofx.lancamentos.length) return null;
+    var maisNova = imp.ofx.lancamentos.map(function (l) { return l.data; }).sort().pop();
+    return resolveInvoicePeriodFromDate(maisNova, card.fechamento);
+  }
+
   function atualizarCampoDeFatura() {
     var ehCartao = destinoEhCartao();
     document.getElementById("imp-fatura-campo").hidden = !ehCartao;
-    if (ehCartao && imp) pintarMes("imp-fatura-label", imp.fatura);
+    if (!ehCartao || !imp) return;
+    // Só sugere enquanto o usuário não escolheu à mão: trocar o cartão não
+    // pode desfazer uma escolha dele.
+    if (!imp.faturaEscolhida) {
+      var sug = faturaSugeridaDoArquivo();
+      if (sug) imp.fatura = sug;
+    }
+    pintarMes("imp-fatura-label", imp.fatura);
   }
   document.getElementById("imp-destino").addEventListener("change", atualizarCampoDeFatura);
   ligarSeletorDeMes("imp-fatura-label",
     function () { return imp ? imp.fatura : { y: HOJE.getFullYear(), m: HOJE.getMonth() }; },
-    function (vm) { if (imp) { imp.fatura = { y: vm.y, m: vm.m }; pintarMes("imp-fatura-label", imp.fatura); } });
+    function (vm) { if (imp) { imp.fatura = { y: vm.y, m: vm.m }; imp.faturaEscolhida = true; pintarMes("imp-fatura-label", imp.fatura); } });
 
   /** Os lotes já importados, montados a partir dos lançamentos que os
    * carregam. Sem registro paralelo: o que foi apagado à mão simplesmente
