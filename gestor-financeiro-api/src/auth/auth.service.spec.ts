@@ -34,6 +34,7 @@ function bancoEmMemoria() {
     user: [], refreshToken: [], passwordResetToken: [],
     // As tabelas que a exclusão de conta precisa apagar NA ORDEM certa.
     invoicePayment: [], transfer: [], goalMovement: [], transaction: [], category: [],
+    expenseShare: [], settlement: [], sharedExpense: [],
   };
   /** O diário das operações: é nele que a ORDEM se prova. */
   const diario: string[] = [];
@@ -181,6 +182,12 @@ describe('AuthService', () => {
         'invoicePayment.deleteMany',  // aponta para conta bancária
         'transfer.deleteMany',        // aponta para duas contas bancárias
         'goalMovement.deleteMany',    // aponta para conta bancária
+        // A parte aponta para a pessoa, o acerto para a pessoa E para a conta,
+        // e a despesa para quem pagou e para a categoria. A pessoa desce pela
+        // cascata do usuário, então nada pode mais apontar para ela.
+        'expenseShare.deleteMany',
+        'settlement.deleteMany',
+        'sharedExpense.deleteMany',
         'transaction.deleteMany',     // aponta para categoria
         'category.deleteMany',        // filha aponta para a mãe
         'user.delete',                // e o resto desce pela cascata

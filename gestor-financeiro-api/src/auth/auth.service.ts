@@ -333,11 +333,20 @@ export class AuthService {
       await tx.transfer.deleteMany({ where: { userId } });
       // 3. Movimento de objetivo aponta para conta bancária (Restrict).
       await tx.goalMovement.deleteMany({ where: { userId } });
-      // 4. Lançamento aponta para categoria (Restrict).
+      // 4. Despesa compartilhada: a parte aponta para a pessoa, o acerto
+      //    aponta para a pessoa E para a conta, e a despesa aponta para quem
+      //    pagou e para a categoria — tudo Restrict. A pessoa desce pela
+      //    cascata do usuário, então ela só pode cair DEPOIS de nada mais
+      //    apontar para ela. Sem isto, quem usou o módulo não conseguia
+      //    apagar a própria conta: a exclusão falhava no banco.
+      await tx.expenseShare.deleteMany({ where: { sharedExpense: { userId } } });
+      await tx.settlement.deleteMany({ where: { userId } });
+      await tx.sharedExpense.deleteMany({ where: { userId } });
+      // 5. Lançamento aponta para categoria (Restrict).
       await tx.transaction.deleteMany({ where: { userId } });
-      // 5. Categoria filha aponta para a mãe (Restrict): as folhas primeiro.
+      // 6. Categoria filha aponta para a mãe (Restrict): as folhas primeiro.
       await tx.category.deleteMany({ where: { userId, parentId: { not: null } } });
-      // 6. O resto desce pela cascata: contas, cartões, faturas, objetivos,
+      // 7. O resto desce pela cascata: contas, cartões, faturas, objetivos,
       //    planejamentos, séries, assinatura e tokens.
       await tx.user.delete({ where: { id: userId } });
     });
