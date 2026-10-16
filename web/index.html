@@ -9755,14 +9755,18 @@
 
     montarOpcoes("l-rep-tipo", [{ id: "FIXA", nome: "Fixa" }, { id: "PARCELADA", nome: "Parcelada" }], "FIXA", atualizarRepetirHelp);
 
-    // Com os dados no servidor, editar não troca o sinal nem o destino: virar
-    // uma despesa em receita, ou mudar de conta, mexe em dois saldos de uma vez
-    // e é mais honesto excluir e lançar de novo. Valor, data, categoria,
-    // descrição, fatura e "já confirmado" continuam editáveis.
-    var travado = MODO_API && !!t;
-    document.querySelectorAll("#l-tipo-pills .pill, #l-destino-pills .pill").forEach(function (p) { p.disabled = travado; });
-    document.getElementById("l-conta").disabled = travado;
-    document.getElementById("l-cartao").disabled = travado;
+    // Sinal e destino SÃO editáveis. Eles ficaram travados desde que o app
+    // passou a falar com a API, com o argumento de que mudar mexe em dois
+    // saldos de uma vez — mas é exatamente isso que o servidor já faz ao
+    // editar o valor: estorna o efeito antigo por inteiro e aplica o novo.
+    // Aceitar o destino foi só deixar de descartar os campos.
+    //
+    // O que ele ainda recusa, e com razão: tirar uma compra de fatura já paga
+    // ou transportada (mudaria o total de uma fatura fechada, o mesmo estrago
+    // que excluir) e virar receita um gasto dividido (receita não se reparte).
+    document.querySelectorAll("#l-tipo-pills .pill, #l-destino-pills .pill").forEach(function (p) { p.disabled = false; });
+    document.getElementById("l-conta").disabled = false;
+    document.getElementById("l-cartao").disabled = false;
 
     // `opcoes` também pré-preenche o formulário: é por aí que o ditado entrega
     // o que entendeu, para o usuário conferir antes de lançar.
@@ -9909,11 +9913,13 @@
 
       var okL = await comServidor(alvoL ? "salvar o lançamento" : "lançar", function () {
         if (alvoL) {
-          // Tipo, conta e cartão não mudam depois de lançado (ver abrirLancamento):
-          // trocar o sinal ou o destino de um lançamento já confirmado mexeria em
-          // dois saldos ao mesmo tempo. Para isso, exclua e lance de novo.
+          // Tipo e destino vão junto: trocar o sinal ou mudar de conta mexe em
+          // dois saldos ao mesmo tempo, e é por isso que o servidor estorna o
+          // efeito antigo antes de aplicar o novo — ele já fazia isso para o
+          // valor. Mandar os dois destinos, ou nenhum, é recusado lá.
           return api("/transactions/" + alvoL, {
-            categoryId: categoriaId, amount: valor, description: desc,
+            categoryId: categoriaId, type: tipo, amount: valor, description: desc,
+            bankAccountId: contaId || null, creditCardId: cartaoId || null,
             transactionDate: data, isConfirmed: confirmada,
             invoiceMonth: cartaoId ? override : null
           }, "PATCH");

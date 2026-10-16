@@ -113,6 +113,22 @@ export class UpdateTransactionDto {
   @IsUUID()
   categoryId?: string;
 
+  // Sinal e destino são editáveis: o update estorna o efeito antigo e aplica
+  // o novo, então trocar de conta, de cartão ou de tipo é só uma versão
+  // diferente do mesmo lançamento. Mandar os dois destinos, ou nenhum, é
+  // recusado pelo `validateAccountXorCard` de sempre.
+  @IsOptional()
+  @IsEnum(TransactionType)
+  type?: TransactionType;
+
+  @IsOptional()
+  @IsUUID()
+  bankAccountId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  creditCardId?: string | null;
+
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive({ message: 'O valor deve ser maior que zero.' })

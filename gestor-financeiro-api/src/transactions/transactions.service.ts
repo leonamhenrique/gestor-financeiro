@@ -69,6 +69,12 @@ interface RepeatInput {
 
 interface UpdateTransactionInput {
   categoryId?: string;
+  // Trocar o sinal e o destino e permitido: o update estorna o efeito antigo
+  // e aplica o novo, entao mudar de conta, de cartao ou de tipo e so uma
+  // versao diferente do mesmo lancamento.
+  type?: TransactionType;
+  bankAccountId?: string | null;
+  creditCardId?: string | null;
   amount?: number;
   description?: string;
   transactionDate?: Date;
@@ -389,13 +395,61 @@ export class TransactionsService {
         await this.conferirCategoria(tx, existing.userId, input.categoryId);
       }
 
+      // ---- destino e tipo ----
+      // Trocar de conta, de cartão ou o sinal é só reverter o efeito antigo e
+      // aplicar o novo — que é exatamente o que este método já faz. O que
+      // muda é QUAL efeito se desfaz: o da versão antiga, com a conta e o
+      // sinal dela. Por isso `reverseEffect` lê `existing` e `applyEffect` lê
+      // o registro já atualizado.
+      const trocouDestino =
+        (input.bankAccountId !== undefined && (input.bankAccountId || null) !== existing.bankAccountId) ||
+        (input.creditCardId !== undefined && (input.creditCardId || null) !== existing.creditCardId);
+      const novaConta =
+        input.bankAccountId === undefined ? existing.bankAccountId : (input.bankAccountId || null);
+      const novoCartao =
+        input.creditCardId === undefined ? existing.creditCardId : (input.creditCardId || null);
+      const novoTipo = input.type ?? existing.type;
+
+      if (trocouDestino || novoTipo !== existing.type) {
+        validateAccountXorCard(novaConta ?? undefined, novoCartao ?? undefined);
+        await this.conferirDestino(tx, existing.userId, novaConta ?? undefined, novoCartao ?? undefined);
+
+        // Sair de uma fatura PAGA ou TRANSPORTADA mexe no total de uma fatura
+        // que já foi fechada — o mesmo estrago que excluir, que o app já
+        // impede. Onde ele impede remover, precisa impedir mover para fora.
+        const presos = await this.protegidos(tx, [existing]);
+        if (presos.has(existing.id)) {
+          throw new BadRequestException(
+            'Esta compra está numa fatura já paga ou transportada. Mudar o destino dela mudaria o total de uma fatura fechada.',
+          );
+        }
+
+        // Um gasto dividido vira receita = uma receita dividida, que não
+        // existe: só despesa se reparte. Desfaça a divisão antes.
+        if (novoTipo !== existing.type) {
+          const dividido = await tx.sharedExpense.findUnique({
+            where: { transactionId },
+            select: { id: true },
+          });
+          if (dividido) {
+            throw new BadRequestException(
+              'Este gasto está dividido com outra pessoa. Receita não se divide — desfaça a divisão antes de mudar o tipo.',
+            );
+          }
+        }
+      }
+
       let newOverride = existing.invoiceMonthOverride ?? null;
       if (input.invoiceMonth !== undefined) {
-        if (input.invoiceMonth !== null && !existing.creditCardId) {
+        if (input.invoiceMonth !== null && !novoCartao) {
           throw new BadRequestException('Só compra no cartão tem fatura para escolher.');
         }
         newOverride = input.invoiceMonth === null ? null : this.mesDaFaturaInformado(input.invoiceMonth);
       }
+      // Saiu do cartão: a fatura escolhida deixa de existir junto. Mantê-la
+      // deixaria um lançamento de conta apontando para uma fatura — lixo que
+      // só aparece quando alguém devolve o lançamento para um cartão.
+      if (!novoCartao) newOverride = null;
 
       // 1. Reverte o efeito da transação atual (se ela era confirmada)
       await this.reverseEffect(tx, this.efeitoDe(existing));
@@ -411,6 +465,9 @@ export class TransactionsService {
         where: { id: transactionId },
         data: {
           categoryId: input.categoryId ?? existing.categoryId,
+          type: novoTipo,
+          bankAccountId: novaConta,
+          creditCardId: novoCartao,
           amount: newAmount,
           description: input.description ?? existing.description,
           transactionDate: newDate,

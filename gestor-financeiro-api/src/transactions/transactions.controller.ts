@@ -86,6 +86,9 @@ export class TransactionsController {
       id,
       {
         categoryId: dto.categoryId,
+        type: dto.type,
+        bankAccountId: dto.bankAccountId,
+        creditCardId: dto.creditCardId,
         amount: dto.amount,
         description: dto.description,
         transactionDate: dto.transactionDate ? new Date(dto.transactionDate) : undefined,

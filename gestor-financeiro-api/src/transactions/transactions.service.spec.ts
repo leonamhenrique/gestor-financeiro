@@ -697,3 +697,112 @@ describe('TransactionsService — categoria e conta oculta', () => {
 // nenhum comportamento, só move o código, e os testes acima passam a
 // rodar sem precisar instanciar a classe inteira nem usar `any`/hacks
 // para acessar métodos privados.
+
+// Trocar o sinal e o destino de um lancamento ja gravado. O app bloqueava
+// isso desde 22/09 e mandava "excluir e lancar de novo" -- mas o update ja
+// estorna o efeito antigo e aplica o novo, que e exatamente o que a troca
+// precisa. O que faltava era aceitar os campos.
+describe('TransactionsService — trocar destino e tipo na edição', () => {
+  let service: TransactionsService;
+  let prismaMock: any;
+  let saldos: Record<string, number>;
+  let faturas: Record<string, number>;
+  let registro: any;
+
+  beforeEach(async () => {
+    saldos = { 'acc-1': 1000, 'acc-2': 500 };
+    faturas = {};
+    registro = {
+      id: 't1', userId: 'user-1', bankAccountId: 'acc-1', creditCardId: null,
+      categoryId: 'cat-1', type: 'EXPENSE', amount: 100, description: 'Teste',
+      transactionDate: new Date('2026-10-16T00:00:00Z'),
+      isConfirmed: true, invoiceMonthOverride: null,
+    };
+
+    prismaMock = {
+      $transaction: jest.fn((cb: any) => cb(prismaMock)),
+      sharedExpense: { findUnique: jest.fn(async () => null) },
+      transaction: {
+        findUnique: jest.fn(async () => ({ ...registro })),
+        update: jest.fn(async ({ data }: any) => { registro = { ...registro, ...data }; return { ...registro }; }),
+      },
+      bankAccount: {
+        findUnique: jest.fn(async ({ where }: any) => ({ id: where.id })),
+        findFirst: jest.fn(async ({ where }: any) => (saldos[where.id] === undefined ? null : { id: where.id })),
+        update: jest.fn(async ({ where, data }: any) => {
+          const d = data.currentBalance;
+          saldos[where.id] += d.increment !== undefined ? d.increment : -d.decrement;
+        }),
+      },
+      creditCard: {
+        findUnique: jest.fn(async () => ({ id: 'card-1', closingDay: 25, dueDay: 5 })),
+        findFirst: jest.fn(async () => ({ id: 'card-1', closingDay: 25, dueDay: 5 })),
+      },
+      creditCardInvoice: {
+        findMany: jest.fn(async () => []),
+        upsert: jest.fn(async ({ where, create, update }: any) => {
+          const k = where.creditCardId_referenceMonth.referenceMonth.toISOString();
+          faturas[k] = faturas[k] === undefined ? Number(create.totalAmount) : faturas[k] + Number(update.totalAmount.increment);
+        }),
+      },
+      category: { findFirst: jest.fn(async () => ({ id: 'cat-1', name: 'C' })), count: jest.fn(async () => 0) },
+    };
+
+    const mod = await Test.createTestingModule({
+      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }],
+    }).compile();
+    service = mod.get(TransactionsService);
+  });
+
+  it('trocar de conta tira da antiga e põe na nova', async () => {
+    await service.update('t1', { bankAccountId: 'acc-2' }, 'user-1');
+    // Devolveu os 100 para a conta velha e tirou da nova.
+    expect(saldos['acc-1']).toBe(1100);
+    expect(saldos['acc-2']).toBe(400);
+  });
+
+  it('virar receita devolve o dobro: desfaz a saída e aplica a entrada', async () => {
+    await service.update('t1', { type: 'INCOME' }, 'user-1');
+    expect(saldos['acc-1']).toBe(1200);
+    expect(registro.type).toBe('INCOME');
+  });
+
+  it('ir da conta para o cartão devolve o saldo e entra na fatura', async () => {
+    await service.update('t1', { bankAccountId: null, creditCardId: 'card-1' }, 'user-1');
+    expect(saldos['acc-1']).toBe(1100);
+    expect(Object.values(faturas)[0]).toBe(100);
+  });
+
+  it('voltar do cartão para a conta limpa a fatura escolhida', async () => {
+    registro = { ...registro, bankAccountId: null, creditCardId: 'card-1', invoiceMonthOverride: new Date('2026-11-01') };
+    await service.update('t1', { creditCardId: null, bankAccountId: 'acc-1' }, 'user-1');
+    // Sem isto, sobraria um lançamento de conta apontando para uma fatura.
+    expect(registro.invoiceMonthOverride).toBeNull();
+  });
+
+  it('recusa ficar sem destino', async () => {
+    await expect(
+      service.update('t1', { bankAccountId: null }, 'user-1'),
+    ).rejects.toThrow(/exatamente uma conta/);
+  });
+
+  it('recusa os dois destinos ao mesmo tempo', async () => {
+    await expect(
+      service.update('t1', { creditCardId: 'card-1' }, 'user-1'),
+    ).rejects.toThrow(/exatamente uma conta/);
+  });
+
+  it('recusa virar receita um gasto dividido', async () => {
+    prismaMock.sharedExpense.findUnique.mockResolvedValue({ id: 'd1' });
+    await expect(
+      service.update('t1', { type: 'INCOME' }, 'user-1'),
+    ).rejects.toThrow(/Receita não se divide/);
+    expect(saldos['acc-1']).toBe(1000); // nada se mexeu
+  });
+
+  it('editar só a descrição não passa pela conferência de destino', async () => {
+    await service.update('t1', { description: 'Outro nome' }, 'user-1');
+    expect(saldos['acc-1']).toBe(1000);
+    expect(registro.description).toBe('Outro nome');
+  });
+});
