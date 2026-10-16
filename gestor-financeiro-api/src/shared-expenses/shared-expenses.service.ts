@@ -234,21 +234,79 @@ export class SharedExpensesService {
     return { id: despesa.id, transactionId: despesa.transactionId };
   }
 
-  /** Refaz o rateio de uma despesa que já existe, sem tocar no lançamento. */
-  async updateSplit(
+  /**
+   * Edita uma despesa dividida: valor, descrição, data e rateio, de uma vez.
+   *
+   * O valor e as partes mudam JUNTOS, na mesma transação de banco, e é essa
+   * a razão de o método existir. Editar o lançamento por fora é recusado
+   * exatamente porque lá o valor mudaria sozinho e a diferença cairia calada
+   * na minha parte — a mensagem daquela recusa aponta para cá.
+   *
+   * Quando o gasto é meu, o lançamento é atualizado pelo caminho normal
+   * (`atualizarEm`), que estorna o efeito antigo e aplica o novo: o saldo da
+   * conta e o total da fatura acompanham sem ninguém fazer conta de
+   * diferença. Quando quem pagou foi a outra pessoa, não há lançamento, e os
+   * campos moram na própria despesa.
+   */
+  async update(
     userId: string,
     id: string,
-    mode: ModoDeDivisao,
-    participants: Participante[],
+    input: {
+      description?: string;
+      amount?: number;
+      date?: string;
+      categoryId?: string;
+      mode: ModoDeDivisao;
+      participants: Participante[];
+    },
   ) {
     const despesa = await this.findOneByUser(userId, id);
-    for (const p of participants) {
+    for (const p of input.participants) {
       await this.people.minha(userId, p.personId);
     }
-    const total = Number(despesa.transaction ? despesa.transaction.amount : despesa.amount);
-    const rateio = dividir(total, mode, participants);
+
+    const totalAtual = Number(despesa.transaction ? despesa.transaction.amount : despesa.amount);
+    const total = input.amount === undefined ? totalAtual : input.amount;
+    // Antes de tocar em qualquer coisa: se a divisão não fecha, nada muda.
+    const rateio = dividir(total, input.mode, input.participants);
+
+    // Refazer SÓ o rateio não pode encostar no lançamento: ele não mudou, e
+    // reescrevê-lo com os mesmos valores estornaria e reaplicaria o efeito
+    // à toa, mexendo em saldo e fatura para chegar no mesmo lugar.
+    const mudouOGasto =
+      (input.amount !== undefined && input.amount !== totalAtual) ||
+      input.description !== undefined ||
+      input.date !== undefined ||
+      input.categoryId !== undefined;
 
     return this.prisma.$transaction(async (tx) => {
+      if (despesa.transactionId && mudouOGasto) {
+        await this.transactions.atualizarEm(
+          tx,
+          despesa.transactionId,
+          {
+            amount: total,
+            ...(input.description === undefined ? {} : { description: input.description }),
+            ...(input.date === undefined ? {} : { transactionDate: new Date(input.date) }),
+            ...(input.categoryId === undefined ? {} : { categoryId: input.categoryId }),
+          },
+          userId,
+        );
+      } else if (!despesa.transactionId && mudouOGasto) {
+        await tx.sharedExpense.update({
+          where: { id },
+          data: {
+            amount: new Prisma.Decimal(total),
+            ...(input.description === undefined ? {} : { description: input.description }),
+            ...(input.date === undefined ? {} : { expenseDate: new Date(input.date) }),
+            ...(input.categoryId === undefined ? {} : { categoryId: input.categoryId }),
+          },
+        });
+      }
+
+      // Apagar e recriar, em vez de casar linha a linha: a lista de pessoas
+      // pode ter mudado, e conciliar dois conjuntos aqui seria mais código
+      // para o mesmo resultado.
       await tx.expenseShare.deleteMany({ where: { sharedExpenseId: id } });
       await tx.expenseShare.createMany({
         data: rateio.partes.map((p) => ({

@@ -3411,7 +3411,7 @@
 
 <dialog id="dlg-compartilhada">
   <form id="form-compartilhada">
-    <div class="layer-head"><h3>Despesa compartilhada</h3><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <div class="layer-head"><h3 id="cpd-titulo">Despesa compartilhada</h3><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
     <div class="layer-body">
       <div class="field"><label class="lbl" for="cpd-desc">Descrição</label><input id="cpd-desc" type="text" maxlength="140" placeholder="Jantar, mercado, aluguel…" required></div>
       <div class="field"><label class="lbl" for="cpd-valor">Valor total</label><input id="cpd-valor" type="number" step="0.01" min="0.01" required>
@@ -3453,6 +3453,7 @@
       <div class="field-error" id="cpd-erro"></div>
     </div>
     <div class="layer-foot">
+      <button type="button" class="ghost esquerda danger" id="cpd-excluir" hidden>Excluir</button>
       <button type="submit" class="primary" id="cpd-submit">Salvar</button>
     </div>
   </form>
@@ -13059,7 +13060,7 @@
       var forma = l.euPaguei ? (l.forma || "conta") : "pago por " + primeiro;
       return {
         data: l.date,
-        html: '<div class="row">' +
+        html: '<div class="row clickable" data-despesa="' + esc(l.id) + '">' +
           '<span class="row-main">' +
           '<span class="row-title"><span class="row-name">' + esc(l.description || "sem descrição") + '</span>' +
           (l.euPaguei ? "" : '<span class="tag">fora da conta</span>') + '</span>' +
@@ -13119,6 +13120,8 @@
 
   var calCompartilhada = null;
   var cpdModo = "IGUAL";
+  /** Id da despesa sendo editada, ou null quando é uma nova. */
+  var editandoDespesa = null;
 
   function cpdPessoaEscolhida() {
     return document.getElementById("cpd-pessoa").value;
@@ -13152,7 +13155,29 @@
       !r ? "" : euPaguei ? "a receber" : "é o que você deve";
   }
 
-  function abrirDialogoCompartilhada(pessoaId) {
+  /**
+   * Abre a despesa que já existe para edição.
+   *
+   * "Quem pagou" e "pago com" ficam de fora: trocar isso vira outra despesa
+   * — de um gasto meu para um gasto dela, ou de um cartão para uma conta —,
+   * e cada caso mexe em saldo e fatura de um jeito diferente. Para trocar,
+   * exclua e lance de novo; é mais honesto que um formulário que aceita a
+   * troca e faz metade dela.
+   */
+  async function abrirEdicaoDaDespesa(id) {
+    if (!cpTemServidor()) return;
+    var despesa;
+    try {
+      despesa = await api("/shared/expenses/" + id);
+    } catch (e) {
+      avisar("Não consegui abrir a despesa", e.message);
+      return;
+    }
+
+    abrirDialogoCompartilhada(null, despesa);
+  }
+
+  function abrirDialogoCompartilhada(pessoaId, despesa) {
     if (!cpTemServidor()) {
       avisar("Precisa do servidor", "Dividir gasto exige estar conectado: é lá que a conta entre vocês é somada.");
       return;
@@ -13162,14 +13187,34 @@
       abrirDialogoPessoa();
       return;
     }
-    cpdModo = "IGUAL";
+    editandoDespesa = despesa ? despesa.id : null;
+    var parte = despesa && despesa.shares && despesa.shares[0];
+    var total = despesa ? Number(despesa.transaction ? despesa.transaction.amount : despesa.amount) : 0;
+
+    // O modo volta do que foi gravado: com percentual guardado, a tela
+    // mostra "50%" de novo em vez de recalcular e exibir 49,99%.
+    cpdModo = parte && parte.percent !== null && parte.percent !== undefined ? "PERCENTUAL"
+      : despesa ? "VALOR" : "IGUAL";
     document.querySelectorAll("#cpd-modos .pill").forEach(function (b) {
-      b.classList.toggle("on", b.dataset.modo === "IGUAL");
+      b.classList.toggle("on", b.dataset.modo === cpdModo);
     });
-    document.getElementById("cpd-desc").value = "";
-    document.getElementById("cpd-valor").value = "";
-    document.getElementById("cpd-parte").value = "";
+
+    document.getElementById("cpd-titulo").textContent =
+      despesa ? "Editar despesa compartilhada" : "Despesa compartilhada";
+    document.getElementById("cpd-submit").textContent = despesa ? "Salvar alterações" : "Salvar";
+    document.getElementById("cpd-excluir").hidden = !despesa;
+
+    document.getElementById("cpd-desc").value = despesa
+      ? (despesa.transaction ? despesa.transaction.description : despesa.description) || ""
+      : "";
+    document.getElementById("cpd-valor").value = despesa ? total : "";
+    document.getElementById("cpd-parte").value = !parte ? ""
+      : cpdModo === "PERCENTUAL" ? Number(parte.percent) : Number(parte.amount);
     document.getElementById("cpd-erro").textContent = "";
+
+    // Quem pagou e por onde não se editam: ver o comentário acima.
+    document.getElementById("cpd-quem").disabled = !!despesa;
+    document.getElementById("cpd-pessoa").disabled = !!despesa;
 
     var pessoas = cpPessoas.map(function (p) {
       return '<option value="' + esc(p.id) + '">' + esc(p.name) + "</option>";
@@ -13182,6 +13227,10 @@
       cpPessoas.map(function (p) {
         return '<option value="' + esc(p.id) + '">' + esc(p.name) + " pagou</option>";
       }).join("");
+    if (despesa) {
+      document.getElementById("cpd-quem").value = despesa.paidByPersonId || "EU";
+      if (parte) document.getElementById("cpd-pessoa").value = parte.personId;
+    }
 
     var contas = state.accounts.filter(function (a) { return a.isActive !== false; });
     var cartoes = (state.cards || []).filter(function (k) { return k.isActive !== false; });
@@ -13194,7 +13243,9 @@
         .map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.nome) + "</option>"; }).join("");
 
     if (!calCompartilhada) calCompartilhada = montarCalendario(document.getElementById("cpd-data-cal"), {});
-    calCompartilhada.definir(isoDate(dataDeHoje()), true);
+    var quando = !despesa ? null
+      : String((despesa.transaction ? despesa.transaction.transactionDate : despesa.expenseDate) || "").slice(0, 10);
+    calCompartilhada.definir(quando || isoDate(dataDeHoje()), true);
     cpdDesenhar();
     abrir("dlg-compartilhada");
   }
@@ -13384,7 +13435,11 @@
       }]
     };
 
-    if (euPaguei) {
+    if (editandoDespesa) {
+      // Na edição não vão conta, cartão nem quem pagou: esses campos estão
+      // desligados no formulário e o servidor não os aceita aqui.
+      corpo.categoryId = document.getElementById("cpd-categoria").value || undefined;
+    } else if (euPaguei) {
       var onde = document.getElementById("cpd-pago-com").value.split(":");
       if (onde[0] === "cartao") corpo.creditCardId = onde[1];
       else corpo.bankAccountId = onde[1];
@@ -13394,10 +13449,33 @@
     }
 
     try {
-      await api("/shared/expenses", corpo);
+      if (editandoDespesa) await api("/shared/expenses/" + editandoDespesa, corpo, "PATCH");
+      else await api("/shared/expenses", corpo);
       fechar("dlg-compartilhada");
       await cpRecarregar();
     } catch (err) { erro.textContent = err.message; }
+  });
+
+  document.getElementById("cpp-lista").addEventListener("click", function (e) {
+    var linha = e.target.closest("[data-despesa]");
+    if (linha) abrirEdicaoDaDespesa(linha.dataset.despesa);
+  });
+
+  document.getElementById("cpd-excluir").addEventListener("click", function () {
+    if (!editandoDespesa) return;
+    var id = editandoDespesa;
+    pedirConfirmacao({
+      titulo: "Excluir esta despesa compartilhada?",
+      detalhe: "A divisão deixa de existir e a dívida é refeita sem ela. Se o gasto foi seu, o lançamento continua no extrato: ele aconteceu, só não é mais dividido.",
+      acao: "Excluir",
+      destrutivo: true
+    }, async function () {
+      try {
+        await api("/shared/expenses/" + id, null, "DELETE");
+        fechar("dlg-compartilhada");
+        await cpRecarregar();
+      } catch (err) { avisar("Não consegui excluir", err.message); }
+    });
   });
 
   // ---- acerto ----

@@ -146,3 +146,33 @@ export class CreateShareLinkDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'A data deve estar no formato AAAA-MM-DD.' })
   expiresAt?: string;
 }
+
+/** Editar uma despesa dividida. O valor e o rateio vêm juntos de propósito:
+ * mudar um sem o outro é exatamente o que o módulo existe para impedir. */
+export class UpdateSharedExpenseDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  description?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  amount?: number;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'A data deve estar no formato AAAA-MM-DD.' })
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @IsEnum(['IGUAL', 'VALOR', 'PERCENTUAL'])
+  mode: 'IGUAL' | 'VALOR' | 'PERCENTUAL';
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @ValidateNested({ each: true })
+  @Type(() => ParticipanteDto)
+  participants: ParticipanteDto[];
+}

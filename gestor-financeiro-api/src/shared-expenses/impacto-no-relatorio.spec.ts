@@ -146,7 +146,7 @@ describe('o que as compartilhadas NÃO fazem com o relatório', () => {
       transaction: { amount: 200 },
     });
 
-    await despesas.updateSplit('u1', 'd1', 'VALOR', [{ personId: 'rafael', amount: 80 }]);
+    await despesas.update('u1', 'd1', { mode: 'VALOR', participants: [{ personId: 'rafael', amount: 80 }] });
 
     expect(prisma.transaction.update).not.toHaveBeenCalled();
   });

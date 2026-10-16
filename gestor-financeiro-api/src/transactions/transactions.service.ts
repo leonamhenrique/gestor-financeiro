@@ -328,6 +328,54 @@ export class TransactionsService {
   // o compilador recusa a chamada antes de ela existir.
   async update(transactionId: string, input: UpdateTransactionInput, requestingUserId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Mudar o valor de um gasto DIVIDIDO mudaria em silêncio o que a outra
+      // pessoa deve — as partes gravadas continuariam as antigas, e a minha
+      // parte (que é o que sobra) absorveria sozinha a diferença: um gasto de
+      // 200 dividido 100/100 virando 300 deixaria o amigo com 100 e eu com
+      // 200. Pior: ele já pode ter visto 100 na página compartilhada.
+      //
+      // A trava fica AQUI, e não em `atualizarEm`: quem edita pelo módulo das
+      // compartilhadas refaz o rateio na mesma transação, e para esse caminho
+      // a trava não faz sentido — ele é justamente a saída que esta mensagem
+      // manda procurar.
+      if (input.amount !== undefined) {
+        const atual = await tx.transaction.findUnique({
+          where: { id: transactionId },
+          select: { amount: true },
+        });
+        if (atual && input.amount !== Number(atual.amount)) {
+          const dividido = await tx.sharedExpense.findUnique({
+            where: { transactionId },
+            select: { id: true },
+          });
+          if (dividido) {
+            throw new BadRequestException(
+              'Este gasto está dividido com outra pessoa. Edite pela tela de Compartilhadas: lá o valor e o rateio mudam juntos.',
+            );
+          }
+        }
+      }
+
+      return this.atualizarEm(tx, transactionId, input, requestingUserId);
+    });
+  }
+
+  /**
+   * O miolo do `update`, numa transação de banco JÁ ABERTA e SEM a trava do
+   * gasto dividido.
+   *
+   * Existe público pelo mesmo motivo de `criarEm`: o módulo das despesas
+   * compartilhadas precisa mudar o valor do lançamento e refazer as partes
+   * de uma vez só. Chamar `update()` de lá abriria transação dentro de
+   * transação e esbarraria na trava que o próprio módulo é a resposta.
+   */
+  async atualizarEm(
+    tx: Prisma.TransactionClient,
+    transactionId: string,
+    input: UpdateTransactionInput,
+    requestingUserId: string,
+  ) {
+    {
       const existing = await tx.transaction.findUnique({ where: { id: transactionId } });
       if (!existing) throw new NotFoundException('Transação não encontrada');
       // Mesma mensagem de "não encontrada" para dono errado: dizer "proibido"
@@ -347,25 +395,6 @@ export class TransactionsService {
           throw new BadRequestException('Só compra no cartão tem fatura para escolher.');
         }
         newOverride = input.invoiceMonth === null ? null : this.mesDaFaturaInformado(input.invoiceMonth);
-      }
-
-      // Mudar o valor de um gasto DIVIDIDO mudaria em silêncio o que a outra
-      // pessoa deve — as partes gravadas continuariam as antigas, e a minha
-      // parte (que é o que sobra) absorveria sozinha a diferença: um gasto de
-      // 200 dividido 100/100 virando 300 deixaria o amigo com 100 e eu com
-      // 200. Pior: ele já pode ter visto 100 na página compartilhada.
-      // Por isso o valor se altera pelo módulo das compartilhadas, que
-      // refaz o rateio inteiro, e não por aqui.
-      if (input.amount !== undefined && input.amount !== Number(existing.amount)) {
-        const dividido = await tx.sharedExpense.findUnique({
-          where: { transactionId },
-          select: { id: true },
-        });
-        if (dividido) {
-          throw new BadRequestException(
-            'Este gasto está dividido com outra pessoa. Altere o valor pela tela de despesas compartilhadas, para o rateio ser refeito junto.',
-          );
-        }
       }
 
       // 1. Reverte o efeito da transação atual (se ela era confirmada)
@@ -394,7 +423,7 @@ export class TransactionsService {
       await this.applyEffect(tx, this.efeitoDe(updated));
 
       return updated;
-    });
+    }
   }
 
   // ----------------------------------------------------------

@@ -14,6 +14,7 @@ import {
   CreateSettlementDto,
   ListSharedQueryDto,
   CreateShareLinkDto,
+  UpdateSharedExpenseDto,
 } from './dto/shared-expense.dto';
 
 @Controller('shared')
@@ -64,9 +65,11 @@ export class SharedExpensesController {
     return this.despesas.findOneByUser(req.user.id, id);
   }
 
-  @Patch('expenses/:id/split')
-  refazerRateio(@Req() req: any, @Param('id') id: string, @Body() dto: CreateSharedExpenseDto) {
-    return this.despesas.updateSplit(req.user.id, id, dto.mode, dto.participants);
+  // Valor e rateio mudam JUNTOS: é esta a porta que a recusa de editar o
+  // valor pelo lançamento comum manda procurar.
+  @Patch('expenses/:id')
+  editarDespesa(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateSharedExpenseDto) {
+    return this.despesas.update(req.user.id, id, dto);
   }
 
   @Delete('expenses/:id')

@@ -334,7 +334,7 @@ describe('SharedExpensesService', () => {
       transaction: { amount: 200 },
     });
 
-    await service.updateSplit('u1', 'd1', 'VALOR', [{ personId: 'rafael', amount: 50 }]);
+    await service.update('u1', 'd1', { mode: 'VALOR', participants: [{ personId: 'rafael', amount: 50 }] });
 
     expect(prisma.expenseShare.deleteMany).toHaveBeenCalledWith({
       where: { sharedExpenseId: 'd1' },
@@ -434,8 +434,123 @@ describe('SharedExpensesService — o prazo da transacao', () => {
     const { service, prisma } = await montar();
     prisma.sharedExpense.findFirst.mockResolvedValue({ id: 'd1', transaction: { amount: 200 } });
 
-    await service.updateSplit('u1', 'd1', 'VALOR', [{ personId: 'p', amount: 50 }]);
+    await service.update('u1', 'd1', { mode: 'VALOR', participants: [{ personId: 'p', amount: 50 }] });
 
     expect(prisma.$transaction.mock.calls[0][1].timeout).toBeGreaterThan(5000);
+  });
+});
+
+// A saida que a recusa de editar o valor pelo lancamento comum manda
+// procurar. Sem ela, a mensagem apontava para uma porta que nao existia: o
+// usuario era mandado para a tela de compartilhadas e nao achava onde mudar.
+describe('SharedExpensesService — editar valor e rateio juntos', () => {
+  async function montar(despesa: any) {
+    const prisma: any = {
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+      sharedExpense: {
+        findFirst: jest.fn().mockResolvedValue(despesa),
+        findUnique: jest.fn().mockResolvedValue(despesa),
+        update: jest.fn(),
+      },
+      expenseShare: { deleteMany: jest.fn(), createMany: jest.fn() },
+    };
+    const transactions: any = {
+      atualizarEm: jest.fn(async (_tx: any, _id: string, _dados: any) => ({ id: 'tx-1' })),
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        SharedExpensesService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: TransactionsService, useValue: transactions },
+        { provide: PeopleService, useValue: { minha: jest.fn(async (_u: any, id: string) => ({ id })) } },
+      ],
+    }).compile();
+    return { service: mod.get(SharedExpensesService), prisma, transactions };
+  }
+
+  const MEU = { id: 'd1', transactionId: 'tx-1', transaction: { amount: 200 }, shares: [] };
+  const DELA = { id: 'd2', transactionId: null, transaction: null, amount: 240, shares: [] };
+
+  it('mudar o valor reescreve o lançamento E as partes, na mesma transação', async () => {
+    const { service, prisma, transactions } = await montar(MEU);
+
+    await service.update('u1', 'd1', {
+      amount: 300,
+      mode: 'IGUAL',
+      participants: [{ personId: 'rafael' }],
+    });
+
+    expect(transactions.atualizarEm).toHaveBeenCalledTimes(1);
+    expect(transactions.atualizarEm.mock.calls[0][2].amount).toBe(300);
+    // E as partes acompanham: 300 meio a meio é 150, não os 100 de antes.
+    expect(Number(prisma.expenseShare.createMany.mock.calls[0][0].data[0].amount)).toBe(150);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('refazer só o rateio não encosta no lançamento', async () => {
+    const { service, transactions } = await montar(MEU);
+
+    await service.update('u1', 'd1', {
+      mode: 'VALOR',
+      participants: [{ personId: 'rafael', amount: 50 }],
+    });
+
+    // Reescrever com os mesmos valores estornaria e reaplicaria o efeito à
+    // toa, mexendo em saldo e fatura para chegar no mesmo lugar.
+    expect(transactions.atualizarEm).not.toHaveBeenCalled();
+  });
+
+  it('repetir o mesmo valor também não é mudança', async () => {
+    const { service, transactions } = await montar(MEU);
+
+    await service.update('u1', 'd1', {
+      amount: 200,
+      mode: 'IGUAL',
+      participants: [{ personId: 'rafael' }],
+    });
+
+    expect(transactions.atualizarEm).not.toHaveBeenCalled();
+  });
+
+  it('divisão que não fecha é recusada ANTES de qualquer gravação', async () => {
+    const { service, prisma, transactions } = await montar(MEU);
+
+    await expect(
+      service.update('u1', 'd1', {
+        amount: 300,
+        mode: 'VALOR',
+        participants: [{ personId: 'rafael', amount: 500 }],
+      }),
+    ).rejects.toThrow(/passou do valor/);
+
+    expect(transactions.atualizarEm).not.toHaveBeenCalled();
+    expect(prisma.expenseShare.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('no gasto que ELA pagou, o valor mora na própria despesa', async () => {
+    const { service, prisma, transactions } = await montar(DELA);
+
+    await service.update('u1', 'd2', {
+      amount: 300,
+      mode: 'IGUAL',
+      participants: [{ personId: 'bruna' }],
+    });
+
+    expect(transactions.atualizarEm).not.toHaveBeenCalled();
+    expect(Number(prisma.sharedExpense.update.mock.calls[0][0].data.amount)).toBe(300);
+    expect(Number(prisma.expenseShare.createMany.mock.calls[0][0].data[0].amount)).toBe(150);
+  });
+
+  it('dá para trocar a pessoa com quem se divide', async () => {
+    const { service, prisma } = await montar(MEU);
+
+    await service.update('u1', 'd1', {
+      mode: 'IGUAL',
+      participants: [{ personId: 'outra-pessoa' }],
+    });
+
+    expect(prisma.expenseShare.deleteMany).toHaveBeenCalledWith({ where: { sharedExpenseId: 'd1' } });
+    expect(prisma.expenseShare.createMany.mock.calls[0][0].data[0].personId).toBe('outra-pessoa');
   });
 });
