@@ -196,6 +196,10 @@ export class SharedSummaryService {
         // nem despesa, e a tela precisa dizer isso em letras.
         valor: a.direction === 'RECEIVED' ? Number(a.amount) : -Number(a.amount),
         contaComoReceita: false,
+        // A tela precisa destes dois para dizer, na confirmacao, o que apagar
+        // vai desfazer: saldo de conta e lancamento no extrato.
+        bankAccountId: a.bankAccountId ?? null,
+        transactionId: a.transactionId ?? null,
         pessoa: { personId: a.personId, name: a.person.name },
       }));
 

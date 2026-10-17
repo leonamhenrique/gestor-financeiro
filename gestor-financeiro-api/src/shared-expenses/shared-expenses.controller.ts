@@ -33,9 +33,9 @@ export class SharedExpensesController {
     return this.resumos.resumo(req.user.id);
   }
 
-  //  e a escolha do usuario entre contar compra de cartao no vencimento
-  // da fatura (padrao) ou na data da compra. A mesma do resto do app: duas
-  // telas com criterios diferentes dariam dois numeros para o mesmo mes.
+  // `por` é a escolha do usuário entre contar compra de cartão no vencimento
+  // da fatura (padrão) ou na data da compra. A mesma do resto do app: duas
+  // telas com critérios diferentes dariam dois números para o mesmo mês.
   @Get('people/:id/statement')
   extrato(
     @Req() req: any,

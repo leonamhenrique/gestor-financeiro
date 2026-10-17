@@ -8363,7 +8363,7 @@
 
     if (l.tipo === "ACERTO") {
       var recebi = l.direction === "RECEIVED";
-      return '<div class="row">' +
+      return '<div class="row clickable" data-acerto-extrato="' + esc(l.id) + '">' +
         '<span class="row-main">' +
         '<span class="row-title"><span class="row-name">' + esc(l.description) + '</span>' +
         '<span class="tag">acerto</span></span>' +
@@ -12321,6 +12321,16 @@
     if ((el = e.target.closest("[data-confirmar]"))) return confirmarLancamento(el.dataset.confirmar);
     if ((el = e.target.closest("[data-desconfirmar]"))) return desconfirmarLancamento(el.dataset.desconfirmar);
     if ((el = e.target.closest("[data-editar-lancamento]"))) return abrirLancamento({ editar: el.dataset.editarLancamento });
+    // Na aba Compartilhadas do extrato o acerto também se apaga: a linha é a
+    // mesma do extrato da pessoa, e o caminho para desfazer não pode depender
+    // de qual tela você estava olhando.
+    if ((el = e.target.closest("[data-acerto-extrato]"))) {
+      var doExtrato = ((cpGeral && cpGeral.linhas) || []).filter(function (x) {
+        return x.tipo === "ACERTO" && x.id === el.dataset.acertoExtrato;
+      })[0];
+      if (doExtrato) apagarAcerto(doExtrato.id, doExtrato);
+      return;
+    }
     if ((el = e.target.closest("[data-excluir-lancamento]"))) return excluirLancamento(el.dataset.excluirLancamento);
     if ((el = e.target.closest("[data-remover-da-fila]"))) {
       var pendente = byId(state.transactions, el.dataset.removerDaFila);
@@ -13233,13 +13243,18 @@
       var recebi = a.direction === "RECEIVED";
       linhas.push({
         data: a.settledAt,
-        html: '<div class="row">' +
+        // Clicável como a despesa: sem isto, um acerto lançado por engano
+        // ficava preso na tela — a API sabia apagá-lo, e a tela não oferecia
+        // o caminho. Onde o app deixa criar, precisa deixar desfazer.
+        html: '<div class="row clickable" data-acerto="' + esc(a.id) + '">' +
           '<span class="row-main">' +
           '<span class="row-title"><span class="row-name">' +
           esc(a.description || (recebi ? "Recebido de " + primeiro : "Pago a " + primeiro)) +
           '</span><span class="tag">acerto</span></span>' +
           '<span class="row-meta">' + fmtDataBR(String(a.settledAt).slice(0, 10)) +
-          ' · não conta como receita nem despesa</span></span>' +
+          (a.transactionId
+            ? " · entra no extrato como " + (recebi ? "reembolso" : "despesa")
+            : " · não conta como receita nem despesa") + '</span></span>' +
           '<span class="row-val num ' + (recebi ? "pos" : "neg") + '">' +
           (recebi ? "−" : "+") + money(Number(a.amount)) + '</span></div>'
       });
@@ -13652,8 +13667,45 @@
 
   document.getElementById("cpp-lista").addEventListener("click", function (e) {
     var linha = e.target.closest("[data-despesa]");
-    if (linha) abrirEdicaoDaDespesa(linha.dataset.despesa);
+    if (linha) { abrirEdicaoDaDespesa(linha.dataset.despesa); return; }
+    var acerto = e.target.closest("[data-acerto]");
+    if (acerto) apagarAcerto(acerto.dataset.acerto);
   });
+
+  /** Apagar um acerto. Não há "editar": um acerto é uma data, um valor e um
+   * sentido — mudar qualquer um deles é outro acerto, e refazer é mais
+   * honesto que um formulário que finge editar e na prática substitui. */
+  function apagarAcerto(id, dados) {
+    // O acerto chega de duas telas: do extrato da pessoa (`cpExtrato.acertos`,
+    // a linha crua do servidor) e da aba Compartilhadas do extrato, que já o
+    // traz na mão. Uma função só apaga nos dois lugares.
+    var a = dados || (cpExtrato && (cpExtrato.acertos || []).filter(function (x) { return x.id === id; })[0]);
+    if (!a) return;
+    var recebi = a.direction === "RECEIVED";
+    // Da aba do extrato vem `valor` com sinal; do extrato da pessoa vem
+    // `amount`, sempre positivo.
+    var valor = brl(Math.abs(Number(a.amount !== undefined ? a.amount : a.valor)));
+    var nome = primeiroNome(
+      (a.pessoa && a.pessoa.name) || (cpPessoa(cpPessoaAberta) || {}).name || "",
+    );
+
+    pedirConfirmacao({
+      titulo: "Apagar este acerto?",
+      ctx: (recebi ? "Recebido de " : "Pago a ") + nome + " · " + valor,
+      detalhe:
+        "A dívida volta ao que era antes dele" +
+        (a.bankAccountId ? ", e o saldo da conta desfaz o movimento" : "") +
+        (a.transactionId ? ". O lançamento que ele criou no extrato sai junto." : ".") +
+        " Para corrigir um valor, apague e registre de novo.",
+      acao: "Apagar",
+      destrutivo: true
+    }, async function () {
+      try {
+        await api("/shared/settlements/" + id, null, "DELETE");
+        await cpRecarregar();
+      } catch (err) { avisar("Não consegui apagar o acerto", err.message); }
+    });
+  }
 
   document.getElementById("cpd-excluir").addEventListener("click", function () {
     if (!editandoDespesa) return;
