@@ -26,6 +26,45 @@ import { contextoDoPedido } from './contexto';
  * propósito: falha fechada. Código de sistema que precisa varrer todo mundo
  * (a rotina noturna) roda de usuário em usuário, com o dono certo em cada um
  * — não existe atalho para ver tudo, nem para mim. */
+/**
+ * Erro de CONEXÃO MORTA, e não de pedido inválido.
+ *
+ * O Neon fecha conexão ociosa, e a instância do Render hiberna depois de 15
+ * minutos. Quando ela acorda, o pool do Prisma ainda guarda sockets que o
+ * banco já descartou — a primeira consulta a pegar um deles falha com
+ * "Server has closed the connection" (P1017) ou "Can't reach database"
+ * (P1001). Medido em produção: serviço no ar às 07:43, erro às 08:40, na
+ * primeira consulta depois de quase uma hora parada.
+ *
+ * Nada disso é culpa do pedido: ele nunca chegou ao banco.
+ */
+export function conexaoMorreu(e: unknown): boolean {
+  const codigo = (e as { code?: string })?.code;
+  if (codigo === 'P1001' || codigo === 'P1017') return true;
+  const msg = String((e as { message?: string })?.message ?? '');
+  return /closed the connection|Connection reset|connection closed|ECONNRESET/i.test(msg);
+}
+
+/**
+ * Tenta de novo UMA vez quando a conexão estava morta.
+ *
+ * Repetir é seguro aqui porque o pedido não chegou a ser executado: o erro
+ * acontece ao escrever num socket que o banco já fechou. E é sempre uma
+ * consulta só ou uma transação inteira — transação que falhou ao começar não
+ * aplicou nada, então não existe meia gravação para duplicar.
+ *
+ * Uma vez, e não em laço: se a segunda também falhar, o banco está fora de
+ * verdade, e insistir só transformaria uma falha rápida numa lenta.
+ */
+export async function comReconexao<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!conexaoMorreu(e)) throw e;
+    return fn();
+  }
+}
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit {
   constructor() {
@@ -38,12 +77,16 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
         $allModels: {
           async $allOperations({ args, query }: any) {
             const ctx = contextoDoPedido.getStore();
-            if (!ctx?.userId || ctx.emTransacao) return query(args);
-            const [, resultado] = await estendido.$transaction([
-              estendido.$executeRaw`SELECT set_config('app.user_id', ${ctx.userId}, true)`,
-              query(args),
-            ]);
-            return resultado;
+            if (!ctx?.userId || ctx.emTransacao) {
+              return comReconexao(() => query(args));
+            }
+            const lote = await comReconexao<any[]>(() =>
+              estendido.$transaction([
+                estendido.$executeRaw`SELECT set_config('app.user_id', ${ctx.userId}, true)`,
+                query(args),
+              ]),
+            );
+            return lote[1];
           },
         },
       },
@@ -75,11 +118,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
     if (typeof fn !== 'function') return super.$transaction(...(args as [any]));
 
     const ctx = contextoDoPedido.getStore();
-    return super.$transaction(async (tx: any) => {
-      if (ctx?.userId) {
-        await tx.$executeRaw`SELECT set_config('app.user_id', ${ctx.userId}, true)`;
-      }
-      return contextoDoPedido.run({ ...ctx, emTransacao: true }, () => fn(tx));
-    }, args[1]);
+    // Mesma reconexão das consultas soltas: a transação que não chegou a
+    // abrir não aplicou nada, então repeti-la não duplica gravação nenhuma.
+    return comReconexao(() =>
+      super.$transaction(async (tx: any) => {
+        if (ctx?.userId) {
+          await tx.$executeRaw`SELECT set_config('app.user_id', ${ctx.userId}, true)`;
+        }
+        return contextoDoPedido.run({ ...ctx, emTransacao: true }, () => fn(tx));
+      }, args[1]),
+    );
   }
 }
