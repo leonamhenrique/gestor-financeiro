@@ -231,7 +231,31 @@ export class TransactionsService {
     override: Date | null | undefined,
     chaveDa: (i: number) => string | undefined,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.criarSerieEm(tx, input, repeat, override, chaveDa));
+  }
+
+  /**
+   * O miolo da série, numa transação de banco JÁ ABERTA.
+   *
+   * Existe pelo mesmo motivo de `criarEm`: o módulo das despesas
+   * compartilhadas precisa criar a série E a divisão de cada ocorrência de
+   * uma vez só. Uma viagem parcelada em 12 e dividida com um amigo são 12
+   * lançamentos e 12 divisões — se metade gravasse e metade não, a dívida
+   * ficaria pela metade e ninguém saberia dizer qual metade.
+   *
+   * `valorDa` existe para a parcela que não fecha redonda: 1.000 em 3x são
+   * 333,34 + 333,33 + 333,33, e quem sabe repartir isso é quem chamou. Sem
+   * ele, toda ocorrência vale `input.amount`, que é o caminho de sempre.
+   */
+  async criarSerieEm(
+    tx: Prisma.TransactionClient,
+    input: CreateTransactionInput,
+    repeat: RepeatInput,
+    override: Date | null | undefined,
+    chaveDa: (i: number) => string | undefined,
+    valorDa?: (i: number) => number,
+  ) {
+    {
       // Reenvio da série inteira: a primeira ocorrência responde por todas.
       const repetida = await this.jaGravado(tx, input.userId, chaveDa(0));
       if (repetida?.seriesId) {
@@ -261,7 +285,9 @@ export class TransactionsService {
         const primeira = i === 0;
         const t = await tx.transaction.create({
           data: {
-            ...this.dadosDoLancamento(input),
+            ...this.dadosDoLancamento(
+              valorDa ? { ...input, amount: valorDa(i) } : input,
+            ),
             transactionDate: dataDaOcorrencia(input.transactionDate, repeat.frequency, i),
             isConfirmed: primeira || parceladoNoCartao ? confirmadaEscolhida : false,
             invoiceMonthOverride: primeira ? override : null,
@@ -275,7 +301,7 @@ export class TransactionsService {
         transactions.push(t);
       }
       return { series, transactions };
-    });
+    }
   }
 
   // ----------------------------------------------------------

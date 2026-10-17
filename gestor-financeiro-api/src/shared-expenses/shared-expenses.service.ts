@@ -19,11 +19,25 @@
 // ============================================================
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, SeriesFrequency, SeriesKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTransactionInput, TransactionsService } from '../transactions/transactions.service';
 import { PeopleService } from './people.service';
-import { dividir, ModoDeDivisao, Participante } from './shared-expense.utils';
+import {
+  dividir,
+  emCentavos,
+  emReais,
+  ModoDeDivisao,
+  parcelarRateio,
+  Participante,
+  repartirEmParcelas,
+} from './shared-expense.utils';
+
+export interface RepetirDespesa {
+  kind: SeriesKind;
+  frequency: SeriesFrequency;
+  count: number;
+}
 
 export interface CriarDespesaCompartilhada {
   userId: string;
@@ -77,6 +91,118 @@ export class SharedExpensesService {
     private readonly transactions: TransactionsService,
     private readonly people: PeopleService,
   ) {}
+
+  /**
+   * Uma despesa dividida que SE REPETE: uma viagem em 12 parcelas rachada
+   * com um amigo, ou um aluguel mensal.
+   *
+   * Cada ocorrência ganha a sua própria divisão, porque cada uma é um gasto
+   * por si: a parcela de agosto dividida meio a meio é uma dívida de agosto,
+   * e quitá-la não quita a de setembro. Uma divisão só, presa à primeira
+   * parcela, diria que o amigo deve a viagem inteira no primeiro mês.
+   *
+   * Só vale para gasto MEU e lançamento novo. Dividir um lançamento que já
+   * existe não repete nada (ele é um só), e gasto que a outra pessoa pagou
+   * não tem série — ela que controla o parcelamento dela, não eu.
+   *
+   * O VALOR muda de significado conforme o tipo, e isto é o centro da
+   * função. Numa despesa FIXA ele é o de cada vez: um aluguel de 2.500 é
+   * 2.500 todo mês. Numa PARCELADA ele é o da compra inteira: 5.000 em 5x
+   * são cinco parcelas de 1.000, e a parte do amigo são 500 por parcela,
+   * 2.500 no total — e não 2.500 em cada uma, que cobraria dele cinco
+   * vezes a conta. É o que a tela pergunta: "valor total" do gasto.
+   */
+  async createSeries(input: CriarDespesaCompartilhada, repeat: RepetirDespesa) {
+    if (input.paidByPersonId || input.transactionId) {
+      throw new BadRequestException(
+        'Só dá para repetir um gasto seu, lançado agora. Para o que a outra pessoa pagou, registre cada vez que acontecer.',
+      );
+    }
+    if (input.amount === undefined || !input.date || !input.categoryId) {
+      throw new BadRequestException('Informe o valor, a data e a categoria do gasto.');
+    }
+
+    for (const p of input.participants) {
+      await this.people.minha(input.userId, p.personId);
+    }
+    // A divisão é conferida ANTES de qualquer gravação: se ela não fecha,
+    // não adianta ter criado doze lançamentos para descobrir depois.
+    const rateio = dividir(input.amount, input.mode, input.participants);
+
+    // Parcelada: o valor digitado é o da compra, e as parcelas são pedaços
+    // dele. Fixa: é o de cada ocorrência, e ele se repete inteiro.
+    const parcelada = repeat.kind === SeriesKind.INSTALLMENT;
+    const valores = parcelada
+      ? repartirEmParcelas(emCentavos(input.amount), repeat.count)
+      : Array.from({ length: repeat.count }, () => emCentavos(input.amount!));
+    const partesDa = parcelada
+      ? parcelarRateio(rateio.partes, valores)
+      : valores.map(() => rateio.partes);
+
+    const chaveDa = (i: number) => (input.clientKey ? `${input.clientKey}#${i}` : undefined);
+
+    return this.prisma.$transaction(async (tx) => {
+      const { series, transactions } = await this.transactions.criarSerieEm(
+        tx,
+        {
+          userId: input.userId,
+          categoryId: input.categoryId!,
+          type: 'EXPENSE',
+          amount: input.amount!,
+          description: input.description,
+          transactionDate: new Date(input.date!),
+          bankAccountId: input.bankAccountId,
+          creditCardId: input.creditCardId,
+          invoiceMonth: input.invoiceMonth,
+          isConfirmed: input.isConfirmed,
+        } as any,
+        { kind: repeat.kind, frequency: repeat.frequency, count: repeat.count },
+        null,
+        (i: number) => (chaveDa(i) ? chaveDa(i) + ':lancamento' : undefined),
+        (i: number) => emReais(valores[i]),
+      );
+
+      const despesas = [];
+      for (let i = 0; i < transactions.length; i++) {
+        // Reenvio da fila offline: `criarSerieEm` devolve os lançamentos que
+        // JÁ existem quando a chave repete, então a divisão também tem de ser
+        // reaproveitada. Sem isto, a segunda tentativa batia no único de
+        // `transaction_id` e virava 500 — justo no caso em que a chave existe
+        // para evitar estrago.
+        const jaTem = await tx.sharedExpense.findFirst({
+          where: { userId: input.userId, transactionId: transactions[i].id },
+          include: COM_TUDO,
+        });
+        if (jaTem) {
+          despesas.push(jaTem);
+          continue;
+        }
+        despesas.push(
+          await tx.sharedExpense.create({
+            data: {
+              userId: input.userId,
+              transactionId: transactions[i].id,
+              paidByPersonId: null,
+              description: null,
+              amount: null,
+              expenseDate: null,
+              categoryId: null,
+              clientKey: chaveDa(i) ?? null,
+              shares: {
+                create: partesDa[i].map((p) => ({
+                  personId: p.personId,
+                  amount: new Prisma.Decimal(p.amount),
+                  percent: p.percent === null ? null : new Prisma.Decimal(p.percent),
+                })),
+              },
+            },
+            include: COM_TUDO,
+          }),
+        );
+      }
+      return { series, despesas };
+    }, PRAZO);
+  }
 
   async create(input: CriarDespesaCompartilhada) {
     const elaPagou = Boolean(input.paidByPersonId);

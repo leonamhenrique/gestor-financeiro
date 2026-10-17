@@ -19,6 +19,7 @@ import {
   Max,
 } from 'class-validator';
 import { SettlementDirection } from '@prisma/client';
+import { RepeatDto } from '../../transactions/dto/transaction.dto';
 
 export class ParticipanteDto {
   @IsString()
@@ -99,6 +100,15 @@ export class CreateSharedExpenseDto {
   @IsOptional()
   @IsString()
   clientKey?: string;
+
+  // Com repeticao, cada ocorrencia ganha a SUA divisao: a parcela de agosto
+  // dividida meio a meio e uma divida de agosto, e quita-la nao quita a de
+  // setembro. Reusa o RepeatDto dos lancamentos -- as regras de frequencia e
+  // de quantidade sao as mesmas, e duas copias divergiriam.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RepeatDto)
+  repeat?: RepeatDto;
 }
 
 export class CreateSettlementDto {

@@ -8,6 +8,8 @@ import {
   saldoDaPessoa,
   normalizarDespesa,
   emCentavos,
+  parcelarRateio,
+  repartirEmParcelas,
 } from './shared-expense.utils';
 
 describe('dividir()', () => {
@@ -114,6 +116,71 @@ describe('dividir()', () => {
 
   it('recusa valor faltando no modo VALOR', () => {
     expect(() => dividir(100, 'VALOR', [{ personId: 'a' }])).toThrow(/valor da parte/);
+  });
+});
+
+describe('repartirEmParcelas()', () => {
+  // O caso que o usuário descreveu: 5.000 em 5x são cinco de 1.000. Antes
+  // disto a tela dizia "total R$ 25.000,00", multiplicando o preço da
+  // compra pelo número de parcelas.
+  it('5.000 em 5x são cinco parcelas de 1.000', () => {
+    expect(repartirEmParcelas(500000, 5)).toEqual([100000, 100000, 100000, 100000, 100000]);
+  });
+
+  it('a soma das parcelas é o total, sempre', () => {
+    for (const [total, n] of [[10000, 3], [99, 2], [123456, 7], [100, 3]] as const) {
+      expect(repartirEmParcelas(total, n).reduce((s, x) => s + x, 0)).toBe(total);
+    }
+  });
+
+  it('o resto vai para a PRIMEIRA, como a fatura do cartão faz', () => {
+    expect(repartirEmParcelas(10000, 3)).toEqual([3334, 3333, 3333]);
+  });
+
+  it('recusa o que não dá parcela nenhuma: 2 centavos em 3x', () => {
+    expect(() => repartirEmParcelas(2, 3)).toThrow(BadRequestException);
+  });
+});
+
+describe('parcelarRateio()', () => {
+  const metade = (total: number) => dividir(total, 'IGUAL', [{ personId: 'rafael' }]).partes;
+
+  it('5.000 meio a meio em 5x: 500 dele por parcela, 2.500 no total', () => {
+    const porParcela = parcelarRateio(metade(5000), repartirEmParcelas(500000, 5));
+    expect(porParcela).toHaveLength(5);
+    expect(porParcela.map((p) => p[0].amount)).toEqual([500, 500, 500, 500, 500]);
+    expect(porParcela.reduce((s, p) => s + emCentavos(p[0].amount), 0)).toBe(250000);
+  });
+
+  // O que não pode acontecer de jeito nenhum: a soma das partes mensais
+  // dele diferir da parte dele no total. Um centavo a mais, repetido, é o
+  // tipo de diferença que ninguém consegue explicar olhando a tela.
+  it('a soma das partes por parcela é exatamente a parte no total', () => {
+    const partes = dividir(100, 'IGUAL', [{ personId: 'a' }, { personId: 'b' }]).partes;
+    const porParcela = parcelarRateio(partes, repartirEmParcelas(10000, 3));
+    for (const quem of ['a', 'b']) {
+      const noTotal = emCentavos(partes.find((p) => p.personId === quem)!.amount);
+      const somado = porParcela.reduce(
+        (s, p) => s + emCentavos(p.find((x) => x.personId === quem)!.amount),
+        0,
+      );
+      expect(somado).toBe(noTotal);
+    }
+  });
+
+  it('a parte dos outros nunca passa da parcela: a minha ficaria negativa', () => {
+    const porParcela = parcelarRateio(metade(100), repartirEmParcelas(10000, 3));
+    porParcela.forEach((p, i) => {
+      const dosOutros = p.reduce((s, x) => s + emCentavos(x.amount), 0);
+      expect(dosOutros).toBeLessThanOrEqual(repartirEmParcelas(10000, 3)[i]);
+    });
+  });
+
+  it('o percentual não vira valor: é a mesma fatia em toda parcela', () => {
+    const partes = dividir(1000, 'PERCENTUAL', [{ personId: 'a', percent: 30 }]).partes;
+    const porParcela = parcelarRateio(partes, repartirEmParcelas(100000, 4));
+    expect(porParcela.map((p) => p[0].percent)).toEqual([30, 30, 30, 30]);
+    expect(porParcela.map((p) => p[0].amount)).toEqual([75, 75, 75, 75]);
   });
 });
 

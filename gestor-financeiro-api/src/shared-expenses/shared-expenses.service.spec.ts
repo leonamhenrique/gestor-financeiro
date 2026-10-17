@@ -554,3 +554,173 @@ describe('SharedExpensesService — editar valor e rateio juntos', () => {
     expect(prisma.expenseShare.createMany.mock.calls[0][0].data[0].personId).toBe('outra-pessoa');
   });
 });
+
+// Uma viagem em 12 parcelas rachada com um amigo. Cada parcela precisa da
+// SUA divisao: a de agosto dividida meio a meio e uma divida de agosto, e
+// quita-la nao quita a de setembro.
+describe('SharedExpensesService — despesa dividida que se repete', () => {
+  let service: SharedExpensesService;
+  let prisma: any;
+  let transactions: any;
+  let criadas: any[];
+
+  beforeEach(async () => {
+    criadas = [];
+    prisma = {
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+      sharedExpense: {
+        create: jest.fn(async ({ data }: any) => { criadas.push(data); return { id: 'd' + criadas.length, ...data }; }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+    };
+    transactions = {
+      criarSerieEm: jest.fn(async (_tx: any, _i: any, repeat: any) => ({
+        series: { id: 'serie-1', count: repeat.count },
+        transactions: Array.from({ length: repeat.count }, (_, i) => ({ id: 'tx-' + i })),
+      })),
+      criarEm: jest.fn(),
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        SharedExpensesService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: TransactionsService, useValue: transactions },
+        { provide: PeopleService, useValue: { minha: jest.fn(async (_u: any, id: string) => ({ id })) } },
+      ],
+    }).compile();
+    service = mod.get(SharedExpensesService);
+  });
+
+  // 14.400 é o preço da VIAGEM INTEIRA: em 12x dá 1.200 por parcela, e 600
+  // de parte do Rafael em cada uma. Numa parcelada o valor digitado é o da
+  // compra, não o da parcela — ver `createSeries`.
+  const VIAGEM = {
+    userId: 'u1', description: 'Viagem', amount: 14400, date: '2026-10-16',
+    categoryId: 'cat-1', creditCardId: 'card-1',
+    mode: 'IGUAL' as const, participants: [{ personId: 'rafael' }],
+  };
+  const EM_12 = { kind: 'INSTALLMENT' as any, frequency: 'MONTHLY' as any, count: 12 };
+
+  it('doze parcelas geram doze divisões, uma por ocorrência', async () => {
+    const r: any = await service.createSeries(VIAGEM, EM_12);
+
+    expect(transactions.criarSerieEm).toHaveBeenCalledTimes(1);
+    expect(r.despesas).toHaveLength(12);
+    expect(criadas).toHaveLength(12);
+    // Uma divisão por lançamento, e cada uma no SEU.
+    expect(criadas.map((c) => c.transactionId)).toEqual(
+      Array.from({ length: 12 }, (_, i) => 'tx-' + i),
+    );
+  });
+
+  // O caso que o usuário trouxe: digitou 5.000 no "valor total", parcelou
+  // em 5 e a tela respondeu "total R$ 25.000,00". O valor da compra não
+  // muda porque ela foi parcelada — são 5 de 1.000, e 500 dele por vez.
+  it('PARCELADA: o valor digitado é o da compra, e as parcelas são pedaços dele', async () => {
+    const r: any = await service.createSeries(
+      { ...VIAGEM, amount: 5000 },
+      { kind: 'INSTALLMENT' as any, frequency: 'MONTHLY' as any, count: 5 },
+    );
+
+    // Os lançamentos valem 1.000 cada, não 5.000.
+    const valores = transactions.criarSerieEm.mock.calls[0][5];
+    expect(Array.from({ length: 5 }, (_, i) => valores(i))).toEqual([1000, 1000, 1000, 1000, 1000]);
+    // E a parte dele é 500 por parcela — 2.500 no total, não 12.500.
+    expect(criadas.map((c) => Number(c.shares.create[0].amount))).toEqual([500, 500, 500, 500, 500]);
+    expect(r.despesas).toHaveLength(5);
+  });
+
+  it('FIXA: o valor é o de cada vez, e se repete inteiro', async () => {
+    // Um aluguel de 2.500 por mês é 2.500 todo mês — não um total a
+    // repartir pelos doze. É a diferença que o "tipo de repetição" pergunta.
+    await service.createSeries(
+      { ...VIAGEM, amount: 2500 },
+      { kind: 'FIXED' as any, frequency: 'MONTHLY' as any, count: 12 },
+    );
+    const valores = transactions.criarSerieEm.mock.calls[0][5];
+    expect(valores(0)).toBe(2500);
+    expect(valores(11)).toBe(2500);
+    criadas.forEach((c) => expect(Number(c.shares.create[0].amount)).toBe(1250));
+  });
+
+  it('parcela que não fecha redonda: o centavo vai para a primeira', async () => {
+    await service.createSeries(
+      { ...VIAGEM, amount: 100 },
+      { kind: 'INSTALLMENT' as any, frequency: 'MONTHLY' as any, count: 3 },
+    );
+    const valores = transactions.criarSerieEm.mock.calls[0][5];
+    expect([valores(0), valores(1), valores(2)]).toEqual([33.34, 33.33, 33.33]);
+    // E a soma das partes dele é exatamente a metade de 100.
+    const dele = criadas.reduce((s, c) => s + Math.round(Number(c.shares.create[0].amount) * 100), 0);
+    expect(dele).toBe(5000);
+  });
+
+  it('cada parcela carrega a parte do amigo, não a viagem inteira', async () => {
+    await service.createSeries(VIAGEM, EM_12);
+
+    criadas.forEach((c) => {
+      expect(Number(c.shares.create[0].amount)).toBe(600);
+      expect(c.shares.create[0].personId).toBe('rafael');
+    });
+  });
+
+  it('tudo numa transação de banco só', async () => {
+    await service.createSeries(VIAGEM, EM_12);
+    // Doze lançamentos e doze divisões: se metade gravasse, a dívida ficaria
+    // pela metade e ninguém saberia dizer qual metade.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('a divisão é conferida ANTES de criar lançamento nenhum', async () => {
+    await expect(
+      service.createSeries(
+        // 20.000 de parte numa viagem de 14.400: não fecha.
+        { ...VIAGEM, mode: 'VALOR', participants: [{ personId: 'rafael', amount: 20000 }] },
+        EM_12,
+      ),
+    ).rejects.toThrow(/passou do valor/);
+
+    expect(transactions.criarSerieEm).not.toHaveBeenCalled();
+    expect(prisma.sharedExpense.create).not.toHaveBeenCalled();
+  });
+
+  it('cada ocorrência tem a sua chave: a mesma nas doze colidiria consigo', async () => {
+    await service.createSeries({ ...VIAGEM, clientKey: 'k1' }, EM_12);
+    expect(criadas.map((c) => c.clientKey)).toEqual(
+      Array.from({ length: 12 }, (_, i) => 'k1#' + i),
+    );
+  });
+
+  // A fila offline reenvia quando a resposta se perde no caminho. Aí
+  // `criarSerieEm` devolve os lançamentos que já existem, e se a divisão
+  // tentasse nascer de novo batia no único de `transaction_id`: 500 na cara
+  // do usuário, justo no caso em que a chave existe para proteger.
+  it('reenviar a mesma chave devolve as divisões que já existem, sem duplicar', async () => {
+    const jaGravadas = Array.from({ length: 12 }, (_, i) => ({
+      id: 'd-velha-' + i,
+      transactionId: 'tx-' + i,
+      shares: [{ personId: 'rafael', amount: 600 }],
+    }));
+    prisma.sharedExpense.findFirst = jest.fn(async ({ where }: any) =>
+      jaGravadas.find((d) => d.transactionId === where.transactionId) ?? null,
+    );
+
+    const r: any = await service.createSeries({ ...VIAGEM, clientKey: 'k1' }, EM_12);
+
+    expect(prisma.sharedExpense.create).not.toHaveBeenCalled();
+    expect(r.despesas.map((d: any) => d.id)).toEqual(jaGravadas.map((d) => d.id));
+  });
+
+  it('gasto que a OUTRA pessoa pagou não repete: a série é dela', async () => {
+    await expect(
+      service.createSeries({ ...VIAGEM, paidByPersonId: 'rafael', creditCardId: undefined }, EM_12),
+    ).rejects.toThrow(/Só dá para repetir um gasto seu/);
+  });
+
+  it('dividir um lançamento que já existe também não repete', async () => {
+    await expect(
+      service.createSeries({ ...VIAGEM, transactionId: 'tx-9' }, EM_12),
+    ).rejects.toThrow(/Só dá para repetir um gasto seu/);
+  });
+});

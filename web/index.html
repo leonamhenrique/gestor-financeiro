@@ -3450,6 +3450,23 @@
         </div>
       </div>
 
+      <label class="check" id="cpd-repetir-campo"><input type="checkbox" id="cpd-repetir"> Repetir esta despesa</label>
+      <div id="cpd-repetir-wrap" style="display:none;flex-direction:column;gap:16px">
+        <div class="field"><label class="lbl">Tipo de repetição</label><div class="pills" id="cpd-rep-tipo"></div></div>
+        <div class="field-row">
+          <div class="field"><label class="lbl" for="cpd-rep-freq">Frequência</label>
+            <select id="cpd-rep-freq">
+              <option value="QUINZENAL">Quinzenal</option>
+              <option value="MENSAL" selected>Mensal</option>
+              <option value="TRIMESTRAL">Trimestral</option>
+              <option value="ANUAL">Anual</option>
+            </select>
+          </div>
+          <div class="field"><label class="lbl" for="cpd-rep-qtd">Ocorrências</label><input id="cpd-rep-qtd" type="number" min="2" max="60" value="12"></div>
+        </div>
+        <div class="field-help" id="cpd-rep-help"></div>
+      </div>
+
       <div class="field-error" id="cpd-erro"></div>
     </div>
     <div class="layer-foot">
@@ -13320,6 +13337,18 @@
     document.getElementById("cpd-categoria-campo").hidden = !euPaguei;
     document.getElementById("cpd-fora-ajuda").hidden = euPaguei;
 
+    // Repetir só existe para gasto MEU e lançamento novo: dividir um que já
+    // existe não repete nada, e o que a outra pessoa pagou tem a série dela.
+    // `editandoDespesa` e não `despesa`: isto roda dentro de `cpdDesenhar`,
+    // que é chamado a cada mudança do formulário — e é justamente isso que
+    // faz o bloco sumir na hora em que "quem pagou" vira a outra pessoa.
+    var podeRepetir = !editandoDespesa && cpdEuPaguei();
+    document.getElementById("cpd-repetir-campo").hidden = !podeRepetir;
+    if (!podeRepetir) document.getElementById("cpd-repetir").checked = false;
+    document.getElementById("cpd-repetir-wrap").style.display =
+      podeRepetir && document.getElementById("cpd-repetir").checked ? "flex" : "none";
+    if (podeRepetir && document.getElementById("cpd-repetir").checked) cpdRepetirHelp();
+
     document.getElementById("cpd-parte-campo").hidden = cpdModo === "IGUAL";
     document.getElementById("cpd-parte-lbl").textContent =
       cpdModo === "VALOR" ? "Quanto é de " + nome : "Percentual de " + nome;
@@ -13369,6 +13398,9 @@
       return;
     }
     editandoDespesa = despesa ? despesa.id : null;
+    if (!despesa) document.getElementById("cpd-repetir").checked = false;
+    montarOpcoes("cpd-rep-tipo", [{ id: "FIXA", nome: "Fixa" }, { id: "PARCELADA", nome: "Parcelada" }],
+      "FIXA", cpdRepetirHelp);
     var parte = despesa && despesa.shares && despesa.shares[0];
     var total = despesa ? Number(despesa.transaction ? despesa.transaction.amount : despesa.amount) : 0;
 
@@ -13437,6 +13469,45 @@
   var aceDirecao = "RECEIVED";
   /** Id do acerto sendo editado, ou null quando é um novo. */
   var editandoAcerto = null;
+
+  /** A ajuda precisa dizer o que ISTO significa para a divisão, que é o
+   * ponto: cada ocorrência tem a sua, e quitar uma não quita as outras. */
+  /** O primeiro pedaço de um valor repartido em `qtd` parcelas, em reais.
+   * O resto da divisão cai na primeira, igual ao que o servidor faz — se os
+   * dois arredondassem para lados diferentes, a tela prometeria um número e
+   * o extrato mostraria outro. */
+  function cpdPrimeiraParcela(reais, qtd) {
+    var C = cpCent(reais);
+    if (!(C > 0) || !(qtd > 0)) return 0;
+    var base = Math.floor(C / qtd);
+    return (base + (C - base * qtd > 0 ? 1 : 0)) / 100;
+  }
+
+  function cpdRepetirHelp() {
+    var qtd = parseInt(document.getElementById("cpd-rep-qtd").value, 10) || 0;
+    var valor = parseFloat(document.getElementById("cpd-valor").value) || 0;
+    var tipoRep = opcaoEscolhida("cpd-rep-tipo") || "FIXA";
+    var r = cpRatear(valor, cpdModo, document.getElementById("cpd-parte").value);
+    var nome = primeiroNome((cpPessoa(cpdPessoaEscolhida()) || {}).name || "ela");
+
+    // PARCELADA: o campo "valor total" é o da compra inteira, e as parcelas
+    // são pedaços dele — 5.000 em 5x são cinco de 1.000. FIXA: é o de cada
+    // vez, e se repete inteiro — um aluguel de 2.500 é 2.500 todo mês. Por
+    // isso um divide e o outro multiplica.
+    var daVez = tipoRep === "PARCELADA" ? cpdPrimeiraParcela(valor, qtd) : valor;
+    var deleDaVez = r ? (tipoRep === "PARCELADA" ? cpdPrimeiraParcela(r.dele, qtd) : r.dele) : 0;
+    var deleNoTotal = r ? (tipoRep === "PARCELADA" ? r.dele : r.dele * qtd) : 0;
+
+    document.getElementById("cpd-rep-help").textContent =
+      (tipoRep === "PARCELADA"
+        ? qtd + " parcelas de " + brl(daVez) + " — total " + brl(valor) + ". "
+        : qtd + " ocorrências de " + brl(valor) + ". ") +
+      (r
+        ? "Cada uma é dividida do mesmo jeito: " + brl(deleDaVez) + " de " + nome +
+          " por vez, " + brl(deleNoTotal) + " no total. Quitar uma não quita as outras."
+        : "") +
+      " Dia 31 cai no último dia válido do mês.";
+  }
 
   function nomeDaCategoria(id) {
     var c = id ? byId(state.categories, id) : null;
@@ -13648,6 +13719,15 @@
     document.getElementById(id).addEventListener("input", cpdDesenhar);
     document.getElementById(id).addEventListener("change", cpdDesenhar);
   });
+
+  document.getElementById("cpd-repetir").addEventListener("change", function () {
+    document.getElementById("cpd-repetir-wrap").style.display = this.checked ? "flex" : "none";
+    if (this.checked) cpdRepetirHelp();
+  });
+  ["cpd-rep-qtd", "cpd-rep-freq"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", cpdRepetirHelp);
+    document.getElementById(id).addEventListener("change", cpdRepetirHelp);
+  });
   document.getElementById("cpd-hoje").addEventListener("click", function () {
     calCompartilhada.definir(isoDate(dataDeHoje()), true);
   });
@@ -13691,6 +13771,17 @@
       corpo.categoryId = document.getElementById("cpd-categoria").value;
     } else {
       corpo.paidByPersonId = document.getElementById("cpd-quem").value;
+    }
+
+    var repetindo = !editandoDespesa && euPaguei && document.getElementById("cpd-repetir").checked;
+    if (repetindo) {
+      var qtdRep = parseInt(document.getElementById("cpd-rep-qtd").value, 10) || 0;
+      if (qtdRep < 2 || qtdRep > 60) { erro.textContent = "Informe de 2 a 60 ocorrências."; return; }
+      corpo.repeat = {
+        kind: (opcaoEscolhida("cpd-rep-tipo") || "FIXA") === "PARCELADA" ? "INSTALLMENT" : "FIXED",
+        frequency: FREQ_API[document.getElementById("cpd-rep-freq").value] || "MONTHLY",
+        count: qtdRep
+      };
     }
 
     try {

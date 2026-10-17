@@ -146,6 +146,75 @@ function porPercentual(T: number, participantes: Participante[]) {
 }
 
 // ------------------------------------------------------------
+// Parcelamento
+// ------------------------------------------------------------
+
+/**
+ * O preço de uma compra parcelada, repartido entre as parcelas.
+ *
+ * Numa compra PARCELADA o valor digitado é o da compra inteira — 5.000 em
+ * 5x são cinco parcelas de 1.000, e não cinco de 5.000. (Numa despesa FIXA
+ * é o contrário: um aluguel de 2.500 por mês é 2.500 todo mês, e não um
+ * total a repartir. São duas perguntas diferentes, e por isso a tela
+ * pergunta "tipo de repetição" antes de qualquer conta.)
+ *
+ * O resto da divisão vai para a PRIMEIRA parcela, que é como a fatura do
+ * cartão faz: 100 em 3x são 33,34 + 33,33 + 33,33. Espalhar o centavo pelo
+ * fim deixaria a última parcela diferente das outras sem motivo visível.
+ */
+export function repartirEmParcelas(totalCentavos: number, parcelas: number): number[] {
+  if (!Number.isInteger(parcelas) || parcelas < 1) {
+    throw new BadRequestException('O número de parcelas deve ser pelo menos 1.');
+  }
+  const base = Math.floor(totalCentavos / parcelas);
+  if (base <= 0) {
+    throw new BadRequestException(
+      `${(totalCentavos / 100).toFixed(2).replace('.', ',')} não dá para dividir em ${parcelas} parcelas.`,
+    );
+  }
+  const resto = totalCentavos - base * parcelas;
+  return Array.from({ length: parcelas }, (_, i) => base + (i < resto ? 1 : 0));
+}
+
+/**
+ * O rateio da compra inteira, espalhado parcela a parcela.
+ *
+ * A divisão acontece UMA vez, sobre o total — é o que o usuário vê na tela
+ * ("sua parte 2.500, parte dela 2.500") — e só depois vira parcela. Dividir
+ * parcela por parcela daria outro número quando o total não fecha redondo,
+ * e aí a soma das partes mensais não bateria com a parte do total.
+ *
+ * Cada pessoa tem o SEU resto, pela mesma regra das parcelas: o centavo a
+ * mais cai na primeira. Assim a soma das doze partes dela é exatamente a
+ * parte dela no total, sem centavo sobrando nem faltando.
+ */
+export function parcelarRateio(
+  partes: Rateio['partes'],
+  valoresDasParcelas: number[],
+): Rateio['partes'][] {
+  const n = valoresDasParcelas.length;
+  const porPessoa = partes.map((p) => repartirEmParcelas(emCentavos(p.amount), n));
+
+  return valoresDasParcelas.map((valorDaParcela, i) => {
+    const daParcela = partes.map((p, j) => ({
+      personId: p.personId,
+      amount: emReais(porPessoa[j][i]),
+      // O percentual é o mesmo em toda parcela: é uma fatia, não um valor.
+      percent: p.percent,
+    }));
+    const dosOutros = daParcela.reduce((s, p) => s + emCentavos(p.amount), 0);
+    // Em centavos muito pequenos a parte dos outros pode passar da parcela,
+    // e aí a minha ficaria negativa. Melhor recusar do que gravar isso.
+    if (dosOutros > valorDaParcela) {
+      throw new BadRequestException(
+        `${(valorDaParcela / 100).toFixed(2).replace('.', ',')} por parcela não dá para dividir assim.`,
+      );
+    }
+    return daParcela;
+  });
+}
+
+// ------------------------------------------------------------
 // Saldo
 // ------------------------------------------------------------
 

@@ -59,9 +59,13 @@ export class SharedExpensesController {
 
   // ---------- despesas ----------
 
+  // Com repeticao, cria a serie inteira e responde { series, despesas }.
   @Post('expenses')
   criarDespesa(@Req() req: any, @Body() dto: CreateSharedExpenseDto) {
-    return this.despesas.create({ userId: req.user.id, ...dto });
+    const entrada = { userId: req.user.id, ...dto };
+    return dto.repeat
+      ? this.despesas.createSeries(entrada, dto.repeat)
+      : this.despesas.create(entrada);
   }
 
   @Get('expenses')
