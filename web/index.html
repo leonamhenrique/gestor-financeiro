@@ -2879,6 +2879,13 @@
             <div class="lbl-row"><div class="lbl">Pessoas</div><div class="lbl-total"><button class="ghost" type="button" data-novo="pessoa">Nova pessoa</button></div></div>
             <div class="list" id="cp-pessoas"></div>
           </div>
+
+          <!-- Só aparece quando há alguma: arquivar é raro, e um bloco vazio
+               permanente seria ruído numa tela que já tem muito número. -->
+          <div class="blk" id="cp-arquivadas-blk" style="--i:4" hidden>
+            <div class="lbl">Arquivadas</div>
+            <div class="list" id="cp-arquivadas"></div>
+          </div>
         </div>
 
         <aside class="rail">
@@ -13129,9 +13136,40 @@
 
   async function cpCarregar() {
     if (!cpTemServidor()) { cpResumo = null; cpPessoas = []; return; }
-    var partes = await Promise.all([api("/shared/summary"), api("/shared/people")]);
+    // Com as arquivadas: elas precisam aparecer na lista de arquivadas, e
+    // `cpPessoa()` ainda precisa saber o nome de quem foi arquivada para a
+    // tela não escrever "Pessoa" no lugar dela. Quem NÃO pode vê-las é o
+    // formulário de despesa nova — por isso `cpAtivas()`.
+    var partes = await Promise.all([
+      api("/shared/summary"),
+      api("/shared/people?includeArchived=true"),
+    ]);
     cpResumo = partes[0];
     cpPessoas = partes[1];
+  }
+
+  function cpAtivas() {
+    return cpPessoas.filter(function (p) { return p.isActive !== false; });
+  }
+  function cpArquivadas() {
+    return cpPessoas.filter(function (p) { return p.isActive === false; });
+  }
+  /** O que o resumo sabe dela: saldo e quantos lançamentos e acertos. É por
+   * esta contagem que a tela decide se o botão diz "arquivar" ou "excluir". */
+  function cpResumoDa(id) {
+    return ((cpResumo && cpResumo.pessoas) || []).filter(function (p) { return p.personId === id; })[0] || null;
+  }
+  /** Quem já participou de gasto ou de acerto é ARQUIVADA, nunca apagada: o
+   * passado dela continua somando no saldo de quem dividiu. É a regra do
+   * servidor, e a tela precisa dela para não prometer "excluir" e arquivar.
+   *
+   * Pessoa que o resumo não conhece conta como sem histórico — é o caso de
+   * quem acabou de ser criada, que de fato pode ser apagada. */
+  function pessoaSeraArquivada(resumoDaPessoa) {
+    return !!resumoDaPessoa && (resumoDaPessoa.lancamentos > 0 || resumoDaPessoa.acertos > 0);
+  }
+  function cpTemHistorico(id) {
+    return pessoaSeraArquivada(cpResumoDa(id));
   }
 
   /** Recarrega e redesenha. Todo caminho que muda dado compartilhado termina
@@ -13211,8 +13249,29 @@
         '<span class="row-title"><span class="row-name">' + esc(p.name) + '</span></span>' +
         '<span class="row-meta">' + meta + " · " + conta + '</span></span>' +
         '<span class="row-val num' + (saldo > 0 ? " pos" : saldo < 0 ? " neg" : "") + '">' +
-        money(Math.abs(saldo)) + '</span></div>';
+        money(Math.abs(saldo)) + '</span>' +
+        // Editar na própria linha: o nome e a chave Pix se corrigem sem
+        // precisar abrir o extrato só para isso.
+        '<span class="row-acoes">' +
+        botaoIcone("edit", "editar-pessoa", p.personId, "Editar") +
+        '</span></div>';
     }).join("") || '<div class="empty">Nenhuma pessoa ainda. Crie uma para começar a dividir.</div>';
+
+    var fora = cpArquivadas();
+    document.getElementById("cp-arquivadas-blk").hidden = fora.length === 0;
+    document.getElementById("cp-arquivadas").innerHTML = fora.map(function (p) {
+      // Sem `.oculta` aqui. Ela é `opacity: .45`, e medido sobre este fundo
+      // o nome caía para 3,99:1 e o metadado para 1,95:1 — abaixo do piso de
+      // 4,5:1. O título "Arquivadas" em cima já diz o que estas linhas são;
+      // apagá-las de novo só custava legibilidade.
+      return '<div class="row">' +
+        '<span class="row-main"><span class="row-title">' +
+        '<span class="row-name">' + esc(p.name) + '</span></span>' +
+        '<span class="row-meta">fora das listas ativas · o histórico continua</span></span>' +
+        '<span class="row-acoes">' +
+        botaoIcone("undo", "reativar-pessoa", p.id, "Reativar") +
+        '</span></div>';
+    }).join("");
   }
 
   // ---------- tela 2: o extrato de uma pessoa ----------
@@ -13225,6 +13284,11 @@
     var pessoa = cpPessoa(cpPessoaAberta);
     var nome = (cpExtrato && cpExtrato.person && cpExtrato.person.name) || (pessoa && pessoa.name) || "Pessoa";
     document.getElementById("cpp-nome").textContent = nome;
+
+    // "Arquivar" e não "Excluir" quando ela tem histórico: é o que o
+    // servidor faz, e o botão não pode prometer outra coisa.
+    document.getElementById("cpp-excluir").textContent =
+      cpTemHistorico(cpPessoaAberta) ? "Arquivar pessoa" : "Excluir pessoa";
 
     if (!cpExtrato) { lista.innerHTML = '<div class="empty">Carregando…</div>'; return; }
 
@@ -13423,7 +13487,7 @@
       avisar("Precisa do servidor", "Dividir gasto exige estar conectado: é lá que a conta entre vocês é somada.");
       return;
     }
-    if (!cpPessoas.length) {
+    if (!cpAtivas().length) {
       avisar("Nenhuma pessoa ainda", "Crie a pessoa com quem você divide antes de lançar a despesa.");
       abrirDialogoPessoa();
       return;
@@ -13460,7 +13524,9 @@
     document.getElementById("cpd-quem").disabled = !!despesa;
     document.getElementById("cpd-pessoa").disabled = !!despesa;
 
-    var pessoas = cpPessoas.map(function (p) {
+    // Só as ativas: dividir gasto novo com quem foi arquivada é justamente
+    // o que arquivar impede. O histórico dela continua, intocado.
+    var pessoas = cpAtivas().map(function (p) {
       return '<option value="' + esc(p.id) + '">' + esc(p.name) + "</option>";
     }).join("");
     document.getElementById("cpd-pessoa").innerHTML = pessoas;
@@ -13468,7 +13534,7 @@
 
     document.getElementById("cpd-quem").innerHTML =
       '<option value="EU">Eu paguei</option>' +
-      cpPessoas.map(function (p) {
+      cpAtivas().map(function (p) {
         return '<option value="' + esc(p.id) + '">' + esc(p.name) + " pagou</option>";
       }).join("");
     if (despesa) {
@@ -13679,8 +13745,24 @@
   /* ---------- compartilhadas: ligações ---------- */
 
   document.getElementById("cp-pessoas").addEventListener("click", function (e) {
+    // A ação vem ANTES da linha: o botão está dentro dela, e sem isto um
+    // clique em "editar" também abriria o extrato por baixo do diálogo.
+    var editar = e.target.closest("[data-editar-pessoa]");
+    if (editar) { abrirDialogoPessoa(editar.dataset.editarPessoa); return; }
     var linha = e.target.closest("[data-pessoa]");
     if (linha) abrirPessoa(linha.dataset.pessoa);
+  });
+
+  document.getElementById("cp-arquivadas").addEventListener("click", async function (e) {
+    var b = e.target.closest("[data-reativar-pessoa]");
+    if (!b) return;
+    // `cpRecarregar` e não `comServidor`: o segundo recarrega o estado geral
+    // do app, que não inclui as pessoas nem o resumo delas — a chamada ia,
+    // o servidor obedecia, e a lista continuava igual na tela.
+    try {
+      await api("/shared/people/" + b.dataset.reativarPessoa + "/reactivate", {}, "PATCH");
+      await cpRecarregar();
+    } catch (err) { avisar("Não consegui reativar", err.message); }
   });
 
   // mês do extrato da pessoa
@@ -13721,18 +13803,40 @@
   document.getElementById("cpp-excluir").addEventListener("click", function () {
     if (!cpPessoaAberta) return;
     var p = cpPessoa(cpPessoaAberta);
+    var nome = (p && p.name) || "pessoa";
+    // O botão e a pergunta dizem o que vai ACONTECER, e não o que se pediu:
+    // com histórico, o servidor arquiva — perguntar "excluir?" e arquivar
+    // seria prometer uma coisa e fazer outra.
+    var arquiva = cpTemHistorico(cpPessoaAberta);
+    // Arquivar quem ainda deve tira o valor do "a receber" do topo — o
+    // dinheiro não some do histórico, mas some da soma. Quem decide isso
+    // precisa saber ANTES, não descobrir pelo total que mudou sozinho.
+    var saldoDela = Number((cpResumoDa(cpPessoaAberta) || {}).saldo || 0);
+    var aviso = arquiva && saldoDela !== 0
+      ? " Atenção: " + (saldoDela > 0 ? "ainda te deve " : "você ainda deve ") +
+        brl(Math.abs(saldoDela)) + ", e esse valor sai da soma do topo enquanto ela estiver arquivada."
+      : "";
     pedirConfirmacao({
-      titulo: "Excluir " + ((p && p.name) || "pessoa") + "?",
-      detalhe: "Quem já participou de algum gasto é arquivado, não apagado: o histórico continua somando. Quem nunca participou de nada some de vez.",
-      acao: "Excluir",
+      titulo: (arquiva ? "Arquivar " : "Excluir ") + nome + "?",
+      detalhe: arquiva
+        ? "Sai das listas ativas e deixa de aparecer para dividir gasto novo, mas o histórico continua: os lançamentos, os acertos e o saldo entre vocês ficam como estão. Dá para reativar depois, na lista de arquivadas." + aviso
+        : "Essa pessoa nunca participou de gasto nenhum, então some de vez. Se um dia participar, aí passa a ser arquivada em vez de apagada.",
+      acao: arquiva ? "Arquivar" : "Excluir",
       destrutivo: true
     }, async function () {
       try {
-        await api("/shared/people/" + cpPessoaAberta, null, "DELETE");
+        var r = await api("/shared/people/" + cpPessoaAberta, null, "DELETE");
         cpPessoaAberta = null;
         irPara("compartilhadas");
         await cpRecarregar();
-      } catch (err) { avisar("Não consegui excluir", err.message); }
+        // O servidor também conta link ativo, que a tela não vê. Se ele
+        // arquivou onde a tela esperava apagar, quem precisa saber é quem
+        // clicou — a pessoa não sumiu, mudou de lista.
+        if (r && r.archived && !arquiva) {
+          avisar("Arquivada em vez de apagada",
+            nome + " tem link de compartilhamento ativo, então o histórico foi mantido. Agora está na lista de arquivadas.");
+        }
+      } catch (err) { avisar("Não consegui " + (arquiva ? "arquivar" : "excluir"), err.message); }
     });
   });
 
