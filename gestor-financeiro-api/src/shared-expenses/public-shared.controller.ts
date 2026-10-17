@@ -86,6 +86,11 @@ export class PublicSharedController {
         // não é da conta de quem me deve.
         forma: l.euPaguei ? (l.formaEhCartao ? 'Cartão' : 'Conta') : 'Pago por ela',
         pagoPorMim: l.euPaguei,
+        // "2/5" sai porque é dela também: numa viagem parcelada ela vê cinco
+        // linhas de mesmo nome, uma por mês, e sem o número não sabe qual já
+        // pagou. Não conta nada sobre mim — nem banco, nem cartão, nem as
+        // outras pessoas: é um fato do gasto que ela própria deve.
+        parcela: l.parcela ?? null,
       })),
       acertos: e.acertos.map((a: any) => ({
         date: a.settledAt,

@@ -38,6 +38,7 @@ const EXTRATO_PRIVADO = {
       euPaguei: true,
       formaEhCartao: true,
       forma: 'Cartão Nubank Roxinho',
+      parcela: '2/5',
       categoryId: 'cat-interna-9',
       paidByPersonId: null,
       partes: [{ personId: 'outra-pessoa-666', amount: 100, percent: null }],
@@ -53,6 +54,7 @@ const EXTRATO_PRIVADO = {
       euPaguei: true,
       formaEhCartao: false,
       forma: 'Itaú',
+      parcela: null,
       categoryId: 'cat-interna-3',
       partes: [],
     },
@@ -113,6 +115,15 @@ describe('PublicSharedController', () => {
     expect(r.lancamentos).toHaveLength(2);
     expect(r.lancamentos[0].parteDela).toBe(100);
     expect(r.lancamentos[0].description).toBe('Jantar');
+  });
+
+  // A outra pessoa vê cinco linhas de mesmo nome numa viagem em 5x, uma por
+  // mês. Sem o número ela não sabe qual já pagou — e o número não conta nada
+  // sobre mim: nem banco, nem cartão, nem as outras pessoas.
+  it('a parcela sai: é um fato do gasto que ela própria deve', async () => {
+    const r: any = await controller.ver('tok');
+    expect(r.lancamentos[0].parcela).toBe('2/5');
+    expect(r.lancamentos[1].parcela).toBeNull();
   });
 
   // ----------------------------------------------------------

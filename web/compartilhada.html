@@ -206,7 +206,11 @@
         html:
           '<div class="linha"><div class="linha-corpo">' +
           '<div class="linha-nome">' + esc(l.description || "sem descrição") + "</div>" +
+          // "Parcela 2/5" na mesma ordem da tela privada: data, forma,
+          // parcela, total. Numa viagem parcelada são cinco linhas de mesmo
+          // nome, uma por mês, e é o número que diz qual é qual.
           '<div class="linha-meta">' + dataBR(l.date) + " · " + esc(l.forma) +
+          (l.parcela ? " · Parcela " + esc(l.parcela) : "") +
           " · total " + money(Number(l.total)) + "</div></div>" +
           '<div class="linha-val num">' + money(Number(l.parteDela)) +
           (pct ? '<span class="pct">' + pct + "</span>" : "") + "</div></div>"
