@@ -97,7 +97,14 @@ export class SharedSummaryService {
         where: { userId, shares: { some: { personId } } },
         include: COM_TUDO,
       }),
-      this.prisma.settlement.findMany({ where: { userId, personId } }),
+      // O lançamento vem junto porque a categoria e o "já aconteceu" moram
+      // NELE, não no acerto — e a tela de edição precisa dos dois para abrir
+      // preenchida. Sem isso, editar um acerto perderia a categoria por
+      // omissão, e com ela o lançamento.
+      this.prisma.settlement.findMany({
+        where: { userId, personId },
+        include: { transaction: { select: { categoryId: true, isConfirmed: true } } },
+      }),
     ]);
 
     const antes = mes ? this.ate(despesas, acertos, personId, mes, por) : vazio();

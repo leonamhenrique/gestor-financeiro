@@ -298,3 +298,152 @@ describe('SettlementsService — o acerto que vira lançamento', () => {
     expect(prisma.bankAccount.update).not.toHaveBeenCalled();
   });
 });
+
+// Editar um acerto pode mudar SE ele tem lancamento, e quem mexe no saldo
+// depende disso. Sao quatro caminhos; misturar dois deles -- mexer direto E
+// pelo lancamento -- faria o dinheiro andar duas vezes.
+describe('SettlementsService — editar', () => {
+  let service: SettlementsService;
+  let prisma: any;
+  let transactions: any;
+  let saldo: number;
+  let linha: any;
+
+  function montarPrisma() {
+    return {
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+      settlement: {
+        findFirst: jest.fn(async () => ({ ...linha })),
+        update: jest.fn(async ({ data }: any) => { linha = { ...linha, ...data }; return { ...linha }; }),
+        create: jest.fn(),
+        delete: jest.fn(),
+      },
+      transaction: { findUnique: jest.fn(async () => ({ categoryId: 'cat-1' })) },
+      bankAccount: {
+        findFirst: jest.fn(async ({ where }: any) => ({ id: where.id })),
+        update: jest.fn(async ({ data }: any) => {
+          saldo += data.currentBalance.increment !== undefined
+            ? Number(data.currentBalance.increment)
+            : -Number(data.currentBalance.decrement);
+        }),
+      },
+    };
+  }
+
+  async function montar(inicial: any) {
+    saldo = 1000;
+    linha = { id: 's1', userId: 'u1', personId: 'p1', ...inicial };
+    prisma = montarPrisma();
+    transactions = {
+      criarEm: jest.fn(async (_tx: any, i: any) => {
+        if (i.isConfirmed !== false) saldo += i.type === 'INCOME' ? i.amount : -i.amount;
+        return { id: 'tx-novo', ...i };
+      }),
+      atualizarEm: jest.fn(async () => ({ id: 'tx-1' })),
+      apagarEm: jest.fn(async () => ({ success: true })),
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        SettlementsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: PeopleService, useValue: { minha: jest.fn(async () => ({ id: 'p1' })) } },
+        { provide: TransactionsService, useValue: transactions },
+      ],
+    }).compile();
+    service = mod.get(SettlementsService);
+  }
+
+  const COM_LANCAMENTO = {
+    direction: SettlementDirection.PAID, amount: 500,
+    settledAt: new Date('2026-10-16'), bankAccountId: 'acc-1',
+    description: null, transactionId: 'tx-1',
+  };
+  const SEM_LANCAMENTO = { ...COM_LANCAMENTO, transactionId: null };
+
+  it('tinha lançamento e continua: quem se atualiza é o lançamento', async () => {
+    await montar(COM_LANCAMENTO);
+    await service.update('u1', 's1', { amount: 700 });
+
+    expect(transactions.atualizarEm).toHaveBeenCalledTimes(1);
+    expect(transactions.atualizarEm.mock.calls[0][2].amount).toBe(700);
+    // O acerto NAO mexe no saldo: isso andaria o dinheiro duas vezes.
+    expect(prisma.bankAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('só a data muda, e o lançamento continua existindo', async () => {
+    await montar(COM_LANCAMENTO);
+    await service.update('u1', 's1', { settledAt: '2026-10-20' });
+
+    // A categoria veio do proprio lancamento: quem so corrige a data nao
+    // pode perder o lancamento por omissao.
+    expect(transactions.atualizarEm).toHaveBeenCalledTimes(1);
+    expect(transactions.atualizarEm.mock.calls[0][2].categoryId).toBe('cat-1');
+    expect(linha.transactionId).toBe('tx-1');
+  });
+
+  it('tirar a categoria apaga o lançamento, e o acerto volta a mexer direto', async () => {
+    await montar(COM_LANCAMENTO);
+    await service.update('u1', 's1', { categoryId: null });
+
+    expect(transactions.apagarEm).toHaveBeenCalledTimes(1);
+    expect(linha.transactionId).toBeNull();
+    // Agora quem move o saldo é o acerto.
+    expect(saldo).toBe(500);
+  });
+
+  it('tirar a conta também tira o lançamento: dinheiro vivo não tem destino', async () => {
+    await montar(COM_LANCAMENTO);
+    await service.update('u1', 's1', { bankAccountId: null });
+
+    expect(transactions.apagarEm).toHaveBeenCalledTimes(1);
+    expect(linha.bankAccountId).toBeNull();
+    expect(saldo).toBe(1000); // sem conta, nenhum saldo do app muda
+  });
+
+  it('ganhar categoria cria o lançamento, desfazendo o movimento direto', async () => {
+    await montar(SEM_LANCAMENTO);
+    await service.update('u1', 's1', { categoryId: 'cat-2' });
+
+    expect(transactions.criarEm).toHaveBeenCalledTimes(1);
+    expect(linha.transactionId).toBe('tx-novo');
+    // O saldo fica IGUAL, e e esse o ponto: os mesmos 500 passam a ser
+    // movidos pelo lancamento em vez de pelo acerto. O movimento antigo e
+    // desfeito (+500) e o novo aplicado (−500). Se ele tivesse caido para
+    // 500, o dinheiro teria saido duas vezes.
+    expect(saldo).toBe(1000);
+    expect(prisma.bankAccount.update).toHaveBeenCalledTimes(1); // só o desfazer
+  });
+
+  it('sem lançamento dos dois lados: desfaz o antigo e aplica o novo', async () => {
+    await montar(SEM_LANCAMENTO);
+    await service.update('u1', 's1', { amount: 200 });
+
+    expect(transactions.criarEm).not.toHaveBeenCalled();
+    expect(transactions.atualizarEm).not.toHaveBeenCalled();
+    // +500 de volta, −200 do novo.
+    expect(saldo).toBe(1300);
+  });
+
+  it('inverter o sentido inverte o lançamento junto', async () => {
+    await montar(COM_LANCAMENTO);
+    await service.update('u1', 's1', { direction: SettlementDirection.RECEIVED });
+
+    const dados = transactions.atualizarEm.mock.calls[0][2];
+    expect(dados.type).toBe('INCOME');
+    // Receber de volta e reembolso, nao renda.
+    expect(dados.isRefund).toBe(true);
+  });
+
+  it('recusa valor zero sem ter mexido em nada', async () => {
+    await montar(COM_LANCAMENTO);
+    await expect(service.update('u1', 's1', { amount: 0 })).rejects.toThrow(/maior que zero/);
+    expect(transactions.atualizarEm).not.toHaveBeenCalled();
+    expect(saldo).toBe(1000);
+  });
+
+  it('acerto de outro dono não existe para mim', async () => {
+    await montar(COM_LANCAMENTO);
+    prisma.settlement.findFirst.mockResolvedValue(null);
+    await expect(service.update('u1', 'de-outro', { amount: 10 })).rejects.toThrow(NotFoundException);
+  });
+});

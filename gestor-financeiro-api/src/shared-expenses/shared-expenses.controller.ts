@@ -15,6 +15,7 @@ import {
   ListSharedQueryDto,
   CreateShareLinkDto,
   UpdateSharedExpenseDto,
+  UpdateSettlementDto,
 } from './dto/shared-expense.dto';
 
 @Controller('shared')
@@ -116,6 +117,11 @@ export class SharedExpensesController {
     @Query('personId') personId?: string,
   ) {
     return this.acertos.findAllByUser(req.user.id, { ...query, personId });
+  }
+
+  @Patch('settlements/:id')
+  editarAcerto(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateSettlementDto) {
+    return this.acertos.update(req.user.id, id, dto);
   }
 
   @Delete('settlements/:id')

@@ -78,6 +78,10 @@ interface UpdateTransactionInput {
   type?: TransactionType;
   bankAccountId?: string | null;
   creditCardId?: string | null;
+  // Acompanha o tipo quando um acerto troca de sentido: "recebi" é reembolso
+  // (abate despesa), "paguei" é despesa comum. Sem isto, inverter a direção
+  // deixaria o lançamento com o sinal novo e a marca velha.
+  isRefund?: boolean;
   amount?: number;
   description?: string;
   transactionDate?: Date;
@@ -469,6 +473,9 @@ export class TransactionsService {
         data: {
           categoryId: input.categoryId ?? existing.categoryId,
           type: novoTipo,
+          // Reembolso so existe em entrada: uma despesa marcada assim seria
+          // uma despesa que abate despesa, e nao existe isso.
+          isRefund: (input.isRefund ?? existing.isRefund) && novoTipo === TransactionType.INCOME,
           bankAccountId: novaConta,
           creditCardId: novoCartao,
           amount: newAmount,

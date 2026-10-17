@@ -3461,7 +3461,7 @@
 
 <dialog id="dlg-acerto">
   <form id="form-acerto">
-    <div class="layer-head"><h3>Registrar acerto</h3><div class="ctx" id="ace-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <div class="layer-head"><h3 id="ace-titulo">Registrar acerto</h3><div class="ctx" id="ace-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
     <div class="layer-body">
       <div class="field">
         <div class="lbl">O quê</div>
@@ -3494,6 +3494,7 @@
       <div class="field-error" id="ace-erro"></div>
     </div>
     <div class="layer-foot">
+      <button type="button" class="ghost esquerda danger" id="ace-excluir" hidden>Excluir</button>
       <button type="submit" class="primary" id="ace-submit">Registrar</button>
     </div>
   </form>
@@ -13427,6 +13428,8 @@
 
   var calAcerto = null;
   var aceDirecao = "RECEIVED";
+  /** Id do acerto sendo editado, ou null quando é um novo. */
+  var editandoAcerto = null;
 
   function nomeDaCategoria(id) {
     var c = id ? byId(state.categories, id) : null;
@@ -13466,17 +13469,23 @@
           : "Abate a <b>despesa</b> de " + esc(nomeDaCategoria(categoria)) + " em vez de virar receita — você está recebendo de volta o que adiantou.");
   }
 
-  function abrirDialogoAcerto() {
+  function abrirDialogoAcerto(acerto) {
     if (!cpPessoaAberta) return;
+    editandoAcerto = acerto ? acerto.id : null;
     var nome = (cpPessoa(cpPessoaAberta) || {}).name || "";
     var saldo = cpExtrato ? Number(cpExtrato.saldoFinal || 0) : 0;
-    aceDirecao = saldo < 0 ? "PAID" : "RECEIVED";
+    // Num acerto novo, o sentido vem do saldo: quem deve, paga. Editando,
+    // vem do próprio acerto.
+    aceDirecao = acerto ? acerto.direction : (saldo < 0 ? "PAID" : "RECEIVED");
     document.querySelectorAll("#ace-direcoes .pill").forEach(function (b) {
       b.classList.toggle("on", b.dataset.direcao === aceDirecao);
     });
+    document.getElementById("ace-titulo").textContent = acerto ? "Editar acerto" : "Registrar acerto";
+    document.getElementById("ace-submit").textContent = acerto ? "Salvar alterações" : "Registrar";
+    document.getElementById("ace-excluir").hidden = !acerto;
     document.getElementById("ace-ctx").textContent = nome;
-    document.getElementById("ace-valor").value = "";
-    document.getElementById("ace-desc").value = "";
+    document.getElementById("ace-valor").value = acerto ? Number(acerto.amount) : "";
+    document.getElementById("ace-desc").value = (acerto && acerto.description) || "";
     document.getElementById("ace-erro").textContent = "";
     document.getElementById("ace-conta").innerHTML =
       '<option value="">Nenhuma (dinheiro)</option>' +
@@ -13491,8 +13500,22 @@
         .map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.nome) + "</option>"; }).join("");
     document.getElementById("ace-confirmado").checked = true;
 
+    if (acerto) document.getElementById("ace-conta").value = acerto.bankAccountId || "";
+
     if (!calAcerto) calAcerto = montarCalendario(document.getElementById("ace-data-cal"), {});
-    calAcerto.definir(isoDate(dataDeHoje()), true);
+    calAcerto.definir(
+      acerto ? String(acerto.settledAt).slice(0, 10) : isoDate(dataDeHoje()),
+      true,
+    );
+    // A categoria do acerto editado mora no lançamento que ele criou — o
+    // extrato a entrega junto, para a tela não ter de buscá-la de novo.
+    var lanc = acerto && acerto.transaction;
+    if (lanc && lanc.categoryId) {
+      document.getElementById("ace-categoria").value = lanc.categoryId;
+    }
+    if (acerto) {
+      document.getElementById("ace-confirmado").checked = !lanc || lanc.isConfirmed !== false;
+    }
     aceDesenhar();
     abrir("dlg-acerto");
   }
@@ -13669,7 +13692,12 @@
     var linha = e.target.closest("[data-despesa]");
     if (linha) { abrirEdicaoDaDespesa(linha.dataset.despesa); return; }
     var acerto = e.target.closest("[data-acerto]");
-    if (acerto) apagarAcerto(acerto.dataset.acerto);
+    if (acerto) {
+      var a = ((cpExtrato && cpExtrato.acertos) || []).filter(function (x) {
+        return x.id === acerto.dataset.acerto;
+      })[0];
+      if (a) abrirDialogoAcerto(a);
+    }
   });
 
   /** Apagar um acerto. Não há "editar": um acerto é uma data, um valor e um
@@ -13725,7 +13753,13 @@
   });
 
   // ---- acerto ----
-  document.getElementById("cpp-acerto").addEventListener("click", abrirDialogoAcerto);
+  document.getElementById("cpp-acerto").addEventListener("click", function () { abrirDialogoAcerto(null); });
+  document.getElementById("ace-excluir").addEventListener("click", function () {
+    if (!editandoAcerto) return;
+    var id = editandoAcerto;
+    fechar("dlg-acerto");
+    apagarAcerto(id);
+  });
   document.getElementById("ace-direcoes").addEventListener("click", function (e) {
     var b = e.target.closest("[data-direcao]");
     if (!b) return;
@@ -13763,18 +13797,29 @@
     var conta = document.getElementById("ace-conta").value;
     try {
       var categoria = document.getElementById("ace-categoria").value;
-      await api("/shared/settlements", {
-        personId: cpPessoaAberta,
+      var corpo = {
         direction: aceDirecao,
         amount: Number(document.getElementById("ace-valor").value),
         settledAt: data,
-        bankAccountId: conta || undefined,
         description: document.getElementById("ace-desc").value.trim() || undefined,
+        isConfirmed: conta && categoria ? document.getElementById("ace-confirmado").checked : undefined
+      };
+
+      if (editandoAcerto) {
+        // Na edição, vazio quer dizer TIRAR — e não "manter o que havia".
+        // Omitir deixaria a pessoa sem como voltar a dinheiro vivo ou tirar
+        // a categoria depois de tê-las posto.
+        corpo.bankAccountId = conta || null;
+        corpo.categoryId = (conta && categoria) || null;
+        await api("/shared/settlements/" + editandoAcerto, corpo, "PATCH");
+      } else {
+        corpo.personId = cpPessoaAberta;
+        corpo.bankAccountId = conta || undefined;
         // Sem conta não há lançamento: o servidor ignora a categoria nesse
         // caso, mas mandar só o que faz sentido deixa o pedido honesto.
-        categoryId: (conta && categoria) || undefined,
-        isConfirmed: conta && categoria ? document.getElementById("ace-confirmado").checked : undefined
-      });
+        corpo.categoryId = (conta && categoria) || undefined;
+        await api("/shared/settlements", corpo);
+      }
       fechar("dlg-acerto");
       await cpRecarregar();
     } catch (err) { erro.textContent = err.message; }

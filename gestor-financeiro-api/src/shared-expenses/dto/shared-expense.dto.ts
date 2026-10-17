@@ -188,3 +188,42 @@ export class UpdateSharedExpenseDto {
   @Type(() => ParticipanteDto)
   participants: ParticipanteDto[];
 }
+
+/** Editar um acerto. Tudo opcional: quem só corrige a data não precisa
+ * reenviar o resto, e o que não vier fica como estava. */
+export class UpdateSettlementDto {
+  @IsOptional()
+  @IsString()
+  personId?: string;
+
+  @IsOptional()
+  @IsEnum(SettlementDirection)
+  direction?: SettlementDirection;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  amount?: number;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'A data deve estar no formato AAAA-MM-DD.' })
+  settledAt?: string;
+
+  // Nulo tira a conta: o acerto vira dinheiro vivo e perde o lancamento.
+  @IsOptional()
+  @IsString()
+  bankAccountId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  description?: string | null;
+
+  // Nulo tira a categoria, e com ela o lancamento.
+  @IsOptional()
+  @IsString()
+  categoryId?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isConfirmed?: boolean;
+}

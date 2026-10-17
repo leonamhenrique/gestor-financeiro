@@ -41,6 +41,20 @@ export interface CriarAcerto {
   isConfirmed?: boolean;
 }
 
+export interface AlterarAcerto {
+  personId?: string;
+  direction?: SettlementDirection;
+  amount?: number;
+  settledAt?: string;
+  /** `null` tira a conta: o acerto vira dinheiro vivo e perde o lançamento. */
+  bankAccountId?: string | null;
+  description?: string | null;
+  /** `null` tira a categoria, e com ela o lançamento. Omitido mantém o que
+   * já estava — assim quem só corrige a data não perde o lançamento. */
+  categoryId?: string | null;
+  isConfirmed?: boolean;
+}
+
 @Injectable()
 export class SettlementsService {
   constructor(
@@ -110,6 +124,122 @@ export class SettlementsService {
       include: { person: true, bankAccount: true },
       orderBy: [{ settledAt: 'desc' }, { createdAt: 'desc' }],
     });
+  }
+
+  /**
+   * Editar um acerto: valor, data, conta, sentido, descrição e categoria.
+   *
+   * O ponto delicado não é mudar os campos — é que a edição pode mudar **se**
+   * o acerto tem lançamento, e quem mexe no saldo depende disso. São quatro
+   * caminhos, e cada um precisa desfazer o efeito antigo pelo mesmo caminho
+   * que o aplicou:
+   *
+   *   tinha e continua   o lançamento se atualiza (ele estorna e reaplica)
+   *   tinha e perdeu     apaga o lançamento, e o acerto passa a mexer direto
+   *   não tinha e ganhou desfaz o movimento direto, e cria o lançamento
+   *   não tinha, segue   desfaz o movimento antigo e aplica o novo
+   *
+   * Misturar dois desses — mexer no saldo direto E pelo lançamento — é o que
+   * faria o dinheiro andar duas vezes.
+   */
+  async update(userId: string, id: string, input: AlterarAcerto) {
+    const pessoaNova = input.personId;
+    if (pessoaNova) await this.people.minha(userId, pessoaNova);
+
+    return this.prisma.$transaction(async (tx) => {
+      const atual = await tx.settlement.findFirst({ where: { id, userId } });
+      if (!atual) throw new NotFoundException('Acerto não encontrado');
+
+      const novo = {
+        personId: pessoaNova ?? atual.personId,
+        direction: input.direction ?? atual.direction,
+        amount: input.amount === undefined ? Number(atual.amount) : input.amount,
+        settledAt: input.settledAt ? new Date(input.settledAt) : atual.settledAt,
+        bankAccountId:
+          input.bankAccountId === undefined ? atual.bankAccountId : (input.bankAccountId || null),
+        description: input.description === undefined ? atual.description : (input.description || null),
+      };
+      if (emCentavos(novo.amount) <= 0) {
+        throw new BadRequestException('O valor do acerto deve ser maior que zero.');
+      }
+      if (novo.bankAccountId) await this.conferirConta(tx, userId, novo.bankAccountId);
+
+      // Categoria omitida mantém o que havia; `null` tira o lançamento.
+      const categoria =
+        input.categoryId === undefined
+          ? atual.transactionId
+            ? await this.categoriaDoLancamento(tx, atual.transactionId)
+            : null
+          : input.categoryId || null;
+      const devePossuirLancamento = Boolean(categoria && novo.bankAccountId);
+      const recebi = novo.direction === SettlementDirection.RECEIVED;
+
+      let transactionId = atual.transactionId;
+
+      if (atual.transactionId && devePossuirLancamento) {
+        await this.transactions.atualizarEm(
+          tx,
+          atual.transactionId,
+          {
+            categoryId: categoria!,
+            type: recebi ? TransactionType.INCOME : TransactionType.EXPENSE,
+            isRefund: recebi,
+            bankAccountId: novo.bankAccountId,
+            creditCardId: null,
+            amount: novo.amount,
+            description: novo.description ?? undefined,
+            transactionDate: novo.settledAt,
+            ...(input.isConfirmed === undefined ? {} : { isConfirmed: input.isConfirmed }),
+          },
+          userId,
+        );
+      } else if (atual.transactionId && !devePossuirLancamento) {
+        // Solta o vínculo antes de apagar: o Cascade levaria o acerto junto.
+        await tx.settlement.update({ where: { id }, data: { transactionId: null } });
+        await this.transactions.apagarEm(tx, atual.transactionId, userId);
+        transactionId = null;
+        await this.mexerNoSaldo(tx, novo.bankAccountId, novo.direction, new Prisma.Decimal(novo.amount), 1);
+      } else if (!atual.transactionId && devePossuirLancamento) {
+        await this.mexerNoSaldo(tx, atual.bankAccountId, atual.direction, atual.amount, -1);
+        const criado = await this.transactions.criarEm(tx, {
+          userId,
+          categoryId: categoria!,
+          type: recebi ? TransactionType.INCOME : TransactionType.EXPENSE,
+          isRefund: recebi,
+          amount: novo.amount,
+          description: novo.description ?? undefined,
+          transactionDate: novo.settledAt,
+          bankAccountId: novo.bankAccountId!,
+          isConfirmed: input.isConfirmed,
+        } as any);
+        transactionId = criado.id;
+      } else {
+        await this.mexerNoSaldo(tx, atual.bankAccountId, atual.direction, atual.amount, -1);
+        await this.mexerNoSaldo(tx, novo.bankAccountId, novo.direction, new Prisma.Decimal(novo.amount), 1);
+      }
+
+      return tx.settlement.update({
+        where: { id },
+        data: {
+          personId: novo.personId,
+          direction: novo.direction,
+          amount: new Prisma.Decimal(novo.amount),
+          settledAt: novo.settledAt,
+          bankAccountId: novo.bankAccountId,
+          description: novo.description,
+          transactionId,
+        },
+        include: { person: true, bankAccount: true },
+      });
+    }, PRAZO);
+  }
+
+  private async categoriaDoLancamento(tx: Prisma.TransactionClient, transactionId: string) {
+    const t = await tx.transaction.findUnique({
+      where: { id: transactionId },
+      select: { categoryId: true },
+    });
+    return t?.categoryId ?? null;
   }
 
   /** Apagar devolve o dinheiro para onde ele estava, se o acerto chegou a
