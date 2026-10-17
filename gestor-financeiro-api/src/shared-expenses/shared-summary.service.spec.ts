@@ -185,6 +185,52 @@ describe('SharedSummaryService', () => {
       expect(e.lancamentos[0].euPaguei).toBe(false);
     });
 
+    // Uma viagem em 5x são cinco linhas de mesmo nome, uma por mês. Sem o
+    // número, nada distingue a de outubro da de novembro — e é por ele que
+    // o usuário confere se já quitou aquela parcela.
+    it('a parcela traz o "2/5" junto da linha', async () => {
+      prisma.sharedExpense.findMany.mockResolvedValue([
+        {
+          ...meu('dp', 1000, 500, '2026-10-17', 'viagem'),
+          transaction: {
+            amount: 1000,
+            description: 'viagem',
+            transactionDate: new Date('2026-10-17T00:00:00Z'),
+            categoryId: 'cat',
+            seriesIndex: 1,
+            series: { kind: 'INSTALLMENT', count: 5 },
+          },
+        },
+      ]);
+
+      const e = await service.extratoDaPessoa('u1', 'rafael');
+      expect((e.lancamentos[0] as any).parcela).toBe('2/5');
+    });
+
+    it('série FIXA não numera: aluguel não é "uma de N"', async () => {
+      prisma.sharedExpense.findMany.mockResolvedValue([
+        {
+          ...meu('df', 2500, 1250, '2026-10-05', 'Aluguel'),
+          transaction: {
+            amount: 2500,
+            description: 'Aluguel',
+            transactionDate: new Date('2026-10-05T00:00:00Z'),
+            categoryId: 'cat',
+            seriesIndex: 3,
+            series: { kind: 'FIXED', count: 12 },
+          },
+        },
+      ]);
+
+      const e = await service.extratoDaPessoa('u1', 'rafael');
+      expect((e.lancamentos[0] as any).parcela).toBeNull();
+    });
+
+    it('gasto avulso não tem parcela nenhuma', async () => {
+      const e = await service.extratoDaPessoa('u1', 'rafael');
+      expect((e.lancamentos[0] as any).parcela).toBeNull();
+    });
+
     it('o acerto do mês aparece no extrato', async () => {
       const e = await service.extratoDaPessoa('u1', 'rafael', '2026-10');
       expect(e.acertos).toHaveLength(1);
@@ -294,6 +340,25 @@ describe('SharedSummaryService', () => {
       const e = await service.extratoGeral('u1');
       const despesa: any = e.linhas.find((l: any) => l.tipo === 'DESPESA');
       expect(despesa.forma).toBe('Cartão Nubank');
+    });
+
+    it('a aba do extrato mostra a parcela pelo mesmo caminho', async () => {
+      prisma.sharedExpense.findMany.mockResolvedValue([
+        {
+          ...meu('dp', 1000, 500, '2026-10-17', 'viagem'),
+          transaction: {
+            amount: 1000,
+            description: 'viagem',
+            transactionDate: new Date('2026-10-17T00:00:00Z'),
+            categoryId: 'cat',
+            seriesIndex: 4,
+            series: { kind: 'INSTALLMENT', count: 5 },
+          },
+        },
+      ]);
+
+      const e = await service.extratoGeral('u1');
+      expect((e.linhas.find((l: any) => l.tipo === 'DESPESA') as any).parcela).toBe('5/5');
     });
 
     // Este número vem do saldo ACUMULADO, e por isso pode passar do total

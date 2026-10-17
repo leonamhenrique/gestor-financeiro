@@ -8415,7 +8415,8 @@
     }
 
     var nomes = (l.pessoas || []).map(function (p) { return p.name; }).filter(Boolean).join(", ");
-    var meta = [data, l.forma, nomes ? "÷ " + nomes : null].filter(Boolean).join(" · ");
+    var meta = [data, l.forma, l.parcela ? "Parcela " + l.parcela : null,
+      nomes ? "÷ " + nomes : null].filter(Boolean).join(" · ");
 
     if (l.foraDaConta) {
       return '<div class="row">' +
@@ -13282,7 +13283,12 @@
           '<span class="row-main">' +
           '<span class="row-title"><span class="row-name">' + esc(l.description || "sem descrição") + '</span>' +
           (l.euPaguei ? "" : '<span class="tag">fora da conta</span>') + '</span>' +
+          // "Parcela 2/5" no metadado, e não colado no nome: aqui a viagem
+          // em 5x são cinco linhas de mesmo nome, uma por mês, e o número é
+          // o que diz qual é qual. O metadado tem a linha inteira, então ele
+          // nunca é cortado — diferente do nome, que trunca.
           '<span class="row-meta">' + fmtDataBR(String(l.date).slice(0, 10)) + " · " + esc(forma) +
+          (l.parcela ? " · Parcela " + esc(l.parcela) : "") +
           " · total " + money(Number(l.total)) + '</span></span>' +
           '<span class="row-val num">' + money(Number(l.parteDela)) +
           (pct ? '<br><span class="row-meta">' + pct + "</span>" : "") + '</span></div>'

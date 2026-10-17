@@ -34,10 +34,23 @@ import {
 export type ModoDeData = 'fatura' | 'compra';
 
 const COM_TUDO = {
-  transaction: { include: { category: true, bankAccount: true, creditCard: true } },
+  // `series` entra por causa do "2/5": o lançamento guarda só o índice, e
+  // quantas parcelas são está na série. Sem ela a linha diria "parcela 2" e
+  // o usuário não saberia de quantas.
+  transaction: {
+    include: { category: true, bankAccount: true, creditCard: true, series: true },
+  },
   shares: { include: { person: true } },
   paidBy: true,
 } as const;
+
+/** O "2/5" de uma parcela, ou `null`. Série FIXA não numera: ela se repete,
+ * mas não é "uma de N" — um aluguel não tem fim para contar. */
+function parcelaDa(transaction: any): string | null {
+  const s = transaction?.series;
+  if (!s || s.kind !== 'INSTALLMENT' || !s.count) return null;
+  return `${(transaction.seriesIndex ?? 0) + 1}/${s.count}`;
+}
 
 @Injectable()
 export class SharedSummaryService {
@@ -174,6 +187,7 @@ export class SharedSummaryService {
           formaEhCartao: Boolean(d.transaction?.creditCard),
           creditCard: d.transaction?.creditCard ?? null,
           invoiceMonthOverride: d.transaction?.invoiceMonthOverride ?? null,
+          parcela: parcelaDa(d.transaction),
           // Quando eu paguei, o valor cheio saiu de mim: entra negativo. Quando
           // ela pagou, nada saiu daqui — o valor fica fora do meu mês.
           valor: n.euPaguei ? -n.total : 0,
@@ -297,6 +311,9 @@ export class SharedSummaryService {
         forma: d.transaction?.creditCard
           ? 'Cartão ' + d.transaction.creditCard.name
           : (d.transaction?.bankAccount?.institutionName ?? null),
+        // Numa viagem em 5x são cinco linhas iguais, uma por mês: sem o
+        // número, nada distingue a de outubro da de novembro.
+        parcela: parcelaDa(d.transaction),
         // O que `mesDaLinha` precisa para saber em que mês isto entra. Sem o
         // cartão aqui, a conta do vencimento não teria como ser feita e a
         // linha cairia no mês da compra.
