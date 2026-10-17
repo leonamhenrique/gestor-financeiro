@@ -1288,6 +1288,14 @@
    * ações para uma segunda linha, que encompridaria a lista toda. O alvo de
    * toque dos ícones sobe para os 44px da regra 4 por um ::after. */
   .tag-previsto-meta { display: none; }
+  /* O número da parcela acompanha a etiqueta de estado: no celular desce para
+   * o metadado, que tem a linha inteira, e ali cabe a palavra por extenso. No
+   * desktop fica no título, onde é o DADO que distingue uma linha da outra —
+   * como a etiqueta de status da fatura, que também fica. */
+  .tag-parcela-meta { display: none; }
+  /* Dígito não é sigla: sem caixa alta nem o espaçamento de etiqueta, que em
+   * "1/5" afasta a barra dos números e faz parecer três coisas soltas. */
+  .tag.tag-parcela { text-transform: none; letter-spacing: 0; font-size: 11px; }
   /* No desktop a linha tem coluna de CATEGORIA, e ela já diz "Transferência".
    * A etiqueta no título existe para o celular, onde essa coluna não aparece;
    * mantê-la nos dois lugares era dizer a mesma palavra duas vezes na mesma
@@ -1296,8 +1304,9 @@
   @media (max-width: 767px) {
     /* Etiqueta no título rouba a largura do nome: em 320px sobra menos da
      * metade dele. Elas descem para o metadado, que tem a linha inteira. */
-    .row-title .tag-previsto, .row-title .tag-pendente { display: none; }
+    .row-title .tag-previsto, .row-title .tag-pendente, .row-title .tag-parcela { display: none; }
     .tag-previsto-meta { display: inline; color: var(--fg-subtle); }
+    .tag-parcela-meta { display: inline; color: var(--fg-subtle); }
     .icon-btn { width: 36px; height: 36px; position: relative; }
     /* -5 e não -4. O `.icon-btn` é `display: grid` com borda de 1px, e o bloco
      * de contenção de um filho absoluto é a caixa de PADDING — 34px, não os 36
@@ -4771,12 +4780,23 @@
         botaoIcone("edit", "editar-cartao", card.id, "Editar cartão") + '</div>' : '') +
       '</div>';
   }
-  /** O que o usuário lê na linha. Parcela ganha o "2/6" na hora de mostrar. */
+  /** O "2/6" de uma parcela, sozinho. Vazio quando o lançamento não é uma.
+   *
+   * Existe separado do nome porque na LINHA ele não pode ser cortado: o nome
+   * trunca com reticências, e o número vem no fim — some justamente a única
+   * coisa que distingue uma parcela da outra. "viagem (Parcela 1/5)" e
+   * "viagem (Parcela 2/5)" viravam a mesma linha, "viagem (Parcela …". */
+  function parcelaDoLancamento(t) {
+    return t.serieTipo === "INSTALLMENT" && t.serieTotal
+      ? ((t.serieIndex || 0) + 1) + "/" + t.serieTotal
+      : "";
+  }
+  /** O que o usuário lê por extenso — diálogo de confirmação, busca, lista de
+   * antecipação. Onde o texto tem a linha inteira, "(Parcela 2/6)" colado no
+   * nome lê melhor do que um número solto. */
   function rotuloLancamento(t) {
-    if (t.serieTipo === "INSTALLMENT" && t.serieTotal) {
-      return (t.desc || "Compra") + " (Parcela " + ((t.serieIndex || 0) + 1) + "/" + t.serieTotal + ")";
-    }
-    return t.desc;
+    var p = parcelaDoLancamento(t);
+    return p ? (t.desc || "Compra") + " (Parcela " + p + ")" : t.desc;
   }
   function linhaLancamentoHTML(t, comAcoes) {
     var cat = t.categoriaId ? byId(state.categories, t.categoriaId) : null;
@@ -4784,14 +4804,19 @@
     var origem = t.contaId ? (byId(state.accounts, t.contaId) || {}).nome : (byId(state.cards, t.cartaoId) || {}).nome;
     var cor = cat ? cat.cor : "var(--fg-subtle)";
     var nomeCat = cat ? cat.nome : (t.categoriaId ? "Categoria removida" : "Pagamento de fatura");
+    // O número da parcela sai do nome e vira etiqueta: o nome trunca, ela não.
+    var parcela = parcelaDoLancamento(t);
+    var nome = parcela ? (t.desc || "Compra") : (t.desc || nomeCat);
     return '<div class="row">' +
       '<span class="cell-data num">' + fmtDia(t.data) + '</span>' +
       '<span class="row-main"><span class="row-title">' +
       '<span class="dot" style="background:' + cor + '"></span>' +
-      '<span class="row-name">' + esc(rotuloLancamento(t) || nomeCat) + '</span>' +
+      '<span class="row-name">' + esc(nome) + '</span>' +
+      (parcela ? '<span class="tag tag-parcela num">' + esc(parcela) + '</span>' : "") +
       (t.pendente ? '<span class="tag tag-pendente ' + (t.erroSync ? "danger" : "warn") + '">' + (t.erroSync ? "recusado" : "pendente") + '</span>' : "") +
       (t.confirmada ? "" : '<span class="tag tag-previsto">prevista</span>') + '</span>' +
       '<span class="row-meta">' + fmtDia(t.data) + ' · ' + esc(nomeCat) + ' · ' + esc(origem || "—") +
+      (parcela ? '<span class="tag-parcela-meta"> · Parcela ' + esc(parcela) + '</span>' : "") +
       (t.pendente ? ' · ' + esc(t.erroSync || "pendente, aguardando conexão") : "") +
       (t.confirmada ? "" : '<span class="tag-previsto-meta"> · prevista</span>') + '</span></span>' +
       '<span class="cell-cat">' + esc(nomeCat) + '</span>' +
