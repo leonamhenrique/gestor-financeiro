@@ -9680,9 +9680,15 @@
   function tipoAtual() { return opcaoEscolhida("l-tipo-pills") || "EXPENSE"; }
   function destinoAtual() { return opcaoEscolhida("l-destino-pills") || "conta"; }
 
+  /** Reembolso é entrada de dinheiro que carrega categoria de DESPESA: é
+   * assim que ele abate o gasto original em vez de virar receita. Se a lista
+   * seguisse o tipo do lançamento, a categoria dele não estaria lá e salvar
+   * a trocaria em silêncio — o abatimento mudaria de categoria sozinho. */
   function atualizarCategorias(valor) {
-    preencherSelectCategorias(document.getElementById("l-categoria"), tipoAtual(), valor);
+    var tipo = lancamentoEhReembolso ? "EXPENSE" : tipoAtual();
+    preencherSelectCategorias(document.getElementById("l-categoria"), tipo, valor);
   }
+  var lancamentoEhReembolso = false;
   /** Marcado à mão nesta abertura do formulário? Enquanto não for, o padrão
    * acompanha o destino; depois de ser, a escolha da pessoa manda. */
   var confirmadoTocado = false;
@@ -9779,6 +9785,7 @@
     document.getElementById("l-lancar-novo").style.display = t ? "none" : "";
     document.getElementById("l-erro").textContent = "";
 
+    lancamentoEhReembolso = !!(t && t.reembolso);
     montarOpcoes("l-tipo-pills", [{ id: "EXPENSE", nome: "Despesa" }, { id: "INCOME", nome: "Receita" }],
       t ? t.tipo : (opcoes.tipo || "EXPENSE"), function () { atualizarCategorias(); });
     montarOpcoes("l-destino-pills", [{ id: "conta", nome: "Conta" }, { id: "cartao", nome: "Cartão" }],
@@ -13453,7 +13460,7 @@
     document.getElementById("ace-confirmado-campo").hidden = !vira;
     document.getElementById("ace-categoria-ajuda").textContent = aceDirecao === "PAID"
       ? "Com categoria, este acerto vira uma despesa no seu extrato — e é isso que ele é: você está pagando a sua parte de um gasto que outra pessoa adiantou. Sem categoria, ele só abate a dívida."
-      : "Com categoria, este dinheiro ABATE a despesa original em vez de virar receita: você está recebendo de volta o que adiantou, não ganhando. Sem categoria, ele só abate a dívida.";
+      : "Escolha a MESMA categoria do gasto que está sendo devolvido. Este dinheiro não vira receita: ele abate aquela despesa, e é assim que um gasto de 380 que era meio seu passa a pesar 190 no relatório. Sem categoria, ele só abate a dívida.";
 
     document.getElementById("ace-previa").innerHTML = !valor ? "" :
       "<b>Depois de salvar:</b> a dívida vai de " + brl(saldo) + " para " + brl(depois) + ". " +
@@ -13466,7 +13473,7 @@
         ? "Entra em algum relatório? <b>Não</b> — só abate a dívida com " + nome + "."
         : aceDirecao === "PAID"
           ? "Entra como <b>despesa</b> de " + esc(nomeDaCategoria(categoria)) + ": o consumo foi seu, e é agora que o dinheiro sai."
-          : "Abate a <b>despesa</b> de " + esc(nomeDaCategoria(categoria)) + " em vez de virar receita — você está recebendo de volta o que adiantou.");
+          : "Abate a <b>despesa</b> de " + esc(nomeDaCategoria(categoria)) + " em " + brl(valor) + " no relatório, em vez de virar receita — você está recebendo de volta o que adiantou.");
   }
 
   function abrirDialogoAcerto(acerto) {
@@ -13493,7 +13500,13 @@
         .map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.nome) + "</option>"; }).join("");
     // Despesa quando eu pago, receita quando recebo: a lista segue o lado da
     // conta em que o dinheiro entra.
-    var tipoCat = aceDirecao === "PAID" ? "EXPENSE" : "INCOME";
+    // DESPESA nos dois sentidos, e esse e o ponto do modulo:
+    //   paguei  -> e despesa minha, do que a outra pessoa adiantou;
+    //   recebi  -> ABATE a despesa original, entao precisa da categoria DELA.
+    // Com categoria de receita, o dinheiro de volta criaria uma linha solta
+    // em vez de descontar do gasto que ele devolve -- a despesa de 380
+    // continuaria inteira, e apareceria um "Reembolso" negativo ao lado.
+    var tipoCat = "EXPENSE";
     document.getElementById("ace-categoria").innerHTML =
       '<option value="">Sem categoria — só abater a dívida</option>' +
       state.categories.filter(function (c) { return c.tipo === tipoCat; })
@@ -13768,7 +13781,13 @@
       p.classList.toggle("on", p.dataset.direcao === aceDirecao);
     });
     // Pagar é despesa, receber é entrada: a lista de categorias troca junto.
-    var tipoCat = aceDirecao === "PAID" ? "EXPENSE" : "INCOME";
+    // DESPESA nos dois sentidos, e esse e o ponto do modulo:
+    //   paguei  -> e despesa minha, do que a outra pessoa adiantou;
+    //   recebi  -> ABATE a despesa original, entao precisa da categoria DELA.
+    // Com categoria de receita, o dinheiro de volta criaria uma linha solta
+    // em vez de descontar do gasto que ele devolve -- a despesa de 380
+    // continuaria inteira, e apareceria um "Reembolso" negativo ao lado.
+    var tipoCat = "EXPENSE";
     document.getElementById("ace-categoria").innerHTML =
       '<option value="">Sem categoria — só abater a dívida</option>' +
       state.categories.filter(function (c) { return c.tipo === tipoCat; })

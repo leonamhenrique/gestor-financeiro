@@ -431,3 +431,45 @@ describe('reembolso: dinheiro que volta abate a despesa', () => {
     expect(Number(comoReceita.income)).toBe(500);   // e renda que nao existiu
   });
 });
+
+// O caso concreto que motivou tudo isto: 380 de impostos, metade de outra
+// pessoa, 190 devolvidos. A pergunta e "como digo ao relatorio que essa
+// despesa nao e toda minha" -- e a resposta e o reembolso NA MESMA CATEGORIA.
+describe('reembolso: a categoria e que faz o abatimento cair no lugar', () => {
+  const mes = '2026-10';
+  function lanc(tipo: 'INCOME' | 'EXPENSE', valor: number, categoriaId: string) {
+    return {
+      mes, tipo, valor: dec(valor), categoriaId,
+      descricao: null, confirmado: true, recorrente: false,
+    };
+  }
+  const nomes = new Map([
+    ['impostos', 'Impostos e Taxas'],
+    ['reembolso', 'Reembolso'],
+  ]);
+
+  it('na mesma categoria, 380 viram 190 ali mesmo', () => {
+    const cats = despesasPorCategoria(
+      [lanc('EXPENSE', 380, 'impostos'), lanc('EXPENSE', -190, 'impostos')],
+      nomes,
+      mes,
+    );
+    const impostos = cats.find((c) => c.name === 'Impostos e Taxas')!;
+    expect(Number(impostos.amount)).toBe(190);
+    // E nao sobra uma segunda linha ao lado.
+    expect(cats).toHaveLength(1);
+  });
+
+  // O erro que a tela agora impede: com categoria de receita, o total do mes
+  // ate fecha, mas os impostos continuam inflados e aparece um "Reembolso"
+  // negativo do lado -- duas linhas erradas que se cancelam.
+  it('em categoria diferente, o total fecha mas as categorias mentem', () => {
+    const cats = despesasPorCategoria(
+      [lanc('EXPENSE', 380, 'impostos'), lanc('EXPENSE', -190, 'reembolso')],
+      nomes,
+      mes,
+    );
+    expect(Number(cats.find((c) => c.name === 'Impostos e Taxas')!.amount)).toBe(380);
+    expect(Number(cats.find((c) => c.name === 'Reembolso')!.amount)).toBe(-190);
+  });
+});
