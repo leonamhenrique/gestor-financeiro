@@ -16,7 +16,21 @@
      hairline. */
   .num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 
-  .heroi { margin: 28px 0 24px; }
+  /* Seletor de mês: o mesmo desenho do app — seta, mês, seta. A seta é um
+     desenho pequeno num alvo grande (44px da regra 4), e não um botão de
+     48px com a borda do `pagina.css`, que ao lado do nome do mês viraria
+     dois blocos competindo com ele. */
+  .month-nav { display: flex; align-items: center; gap: 4px; margin: 6px 0 0 -10px; }
+  .month-label { font-size: 14px; color: var(--fg-muted); min-width: 132px; text-align: center; }
+  .seta {
+    min-height: 0; width: 44px; height: 44px; padding: 0; border: none;
+    border-radius: 999px; display: grid; place-items: center; color: var(--fg-subtle);
+  }
+  .seta svg { width: 18px; height: 18px; }
+  .seta:hover:not(:disabled) { color: var(--fg); border: none; }
+  .seta:disabled { opacity: 0.3; }
+
+  .heroi { margin: 20px 0 24px; }
   .heroi .rotulo { margin-bottom: 10px; }
   .heroi-num { font-size: 42px; font-weight: 500; line-height: 1; }
   .heroi-num .cur { font-size: 17px; color: var(--fg-subtle); margin-right: 6px; }
@@ -80,7 +94,15 @@
 
   <div id="conteudo" hidden>
     <h1 id="titulo"></h1>
-    <p class="data" id="periodo"></p>
+    <div class="month-nav">
+      <button type="button" class="seta" id="mes-ant" aria-label="Mês anterior">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="month-label num" id="periodo"></span>
+      <button type="button" class="seta" id="mes-prox" aria-label="Próximo mês">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
 
     <div class="heroi" id="heroi">
       <div class="rotulo" id="heroi-lbl"></div>
@@ -149,6 +171,30 @@
   }
   function primeiroNome(n) { return String(n || "").trim().split(/\s+/)[0] || ""; }
 
+  var MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+  /** 'AAAA-MM' de hoje, pela data LOCAL: `toISOString` é UTC, e no fuso do
+   * Brasil o dia 1 às 00h vira o último dia do mês anterior. */
+  function mesDeHoje() {
+    var h = new Date();
+    return h.getFullYear() + "-" + String(h.getMonth() + 1).padStart(2, "0");
+  }
+  function somarMeses(mes, n) {
+    var p = mes.split("-");
+    var d = new Date(Number(p[0]), Number(p[1]) - 1 + n, 1);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+  }
+  function rotuloDoMes(mes) {
+    var p = mes.split("-");
+    return MESES[Number(p[1]) - 1] + " " + p[0];
+  }
+  /** O mesmo mês dentro de uma frase: "até dezembro de 2026". */
+  function mesPorExtenso(mes) {
+    var p = mes.split("-");
+    return MESES[Number(p[1]) - 1].toLowerCase() + " de " + p[0];
+  }
+
   function mostrarErro() {
     document.getElementById("carregando").hidden = true;
     document.getElementById("erro").hidden = false;
@@ -165,11 +211,20 @@
     var heroi = document.getElementById("heroi");
     // Positivo no servidor = a pessoa deve a quem compartilhou. Desta lado da
     // tela a frase se inverte: quem lê é ela.
+    // O que veio de trás, dito em letras. Sem isto, "você deve 1.000" com
+    // uma linha de 500 na tela parece erro — e a pessoa ou paga a mais ou
+    // desconfia da conta. É a mesma frase da tela de quem compartilhou.
+    var anterior = Number(d.saldoAnterior || 0);
+    var deAntes = anterior > 0
+      ? " Desse total, " + brl(anterior) + " vêm de meses anteriores."
+      : "";
+
     if (saldo > 0) {
       heroi.className = "heroi devo";
       document.getElementById("heroi-lbl").textContent = "Você deve";
       document.getElementById("heroi-ctx").textContent =
-        "É o que falta acertar. Combine o pagamento direto com quem te enviou este link.";
+        "É o que falta acertar até " + mesPorExtenso(mesVisto) + "." + deAntes +
+        " Combine o pagamento direto com quem te enviou este link.";
     } else if (saldo < 0) {
       heroi.className = "heroi recebo";
       document.getElementById("heroi-lbl").textContent = "Você tem a receber";
@@ -189,9 +244,7 @@
       document.getElementById("pix-chave").textContent = d.person.pixKey;
     }
 
-    document.getElementById("periodo").textContent = d.mes
-      ? "Mês de referência: " + d.mes.split("-").reverse().join("/")
-      : "Todos os lançamentos";
+    document.getElementById("periodo").textContent = rotuloDoMes(mesVisto);
 
     var minhaParte = (d.lancamentos || []).reduce(function (s, l) { return s + Number(l.parteDela || 0); }, 0);
     document.getElementById("c-parte").textContent = brl(minhaParte);
@@ -250,6 +303,12 @@
     });
   });
 
+  // A página abre no mês corrente, e não em "tudo". Mostrando tudo, uma
+  // viagem em 5x punha as cinco parcelas na tela e somava todas no "você
+  // deve" — inclusive as que ainda nem venceram. Quem lê é quem vai pagar:
+  // ver uma conta maior do que a devida vira cobrança indevida.
+  var mesVisto = mesDeHoje();
+
   function carregar() {
     // Lido a cada carga, e não uma vez só: trocar o que vem depois do `#` é
     // navegação DENTRO da página, e o navegador não recarrega nada. Sem isto,
@@ -263,13 +322,28 @@
 
     if (!token || !API) { mostrarErro(); return; }
 
-    fetch(API + "/public/shared/" + encodeURIComponent(token), { headers: { Accept: "application/json" } })
+    fetch(API + "/public/shared/" + encodeURIComponent(token) + "?month=" + mesVisto,
+      { headers: { Accept: "application/json" } })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(desenhar)
       .catch(mostrarErro);
   }
 
-  window.addEventListener("hashchange", carregar);
+  // As setas andam livres, para a frente e para trás, como na tela de quem
+  // compartilhou: o mês em que estou olhando está escrito em cima e repetido
+  // na frase do saldo ("falta acertar até dezembro de 2026"). Travar o
+  // futuro esconderia a parcela que vence no mês que vem — compra de cartão
+  // conta no vencimento da fatura, então uma compra de hoje só aparece lá.
+  function irParaOMes(n) {
+    mesVisto = somarMeses(mesVisto, n);
+    carregar();
+  }
+  document.getElementById("mes-ant").addEventListener("click", function () { irParaOMes(-1); });
+  document.getElementById("mes-prox").addEventListener("click", function () { irParaOMes(1); });
+
+  // Link novo na mesma aba volta para o mês corrente: o mês em que eu estava
+  // olhando não tem nada a ver com a conta de outra pessoa.
+  window.addEventListener("hashchange", function () { mesVisto = mesDeHoje(); carregar(); });
   carregar();
 })();
 </script>
