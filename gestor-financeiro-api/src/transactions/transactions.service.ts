@@ -41,7 +41,14 @@ import {
 import { resolveInvoicePeriod, validateAmount, validateAccountXorCard } from './transaction.utils';
 import { datasDoMesChave } from '../credit-cards/billing-cycle';
 import { FaturaCalculada, faturaAtual, hojeNoFuso, montarFaturas } from '../credit-cards/invoice-statement';
-import { MAX_OCORRENCIAS, MIN_OCORRENCIAS, dataDaOcorrencia, dataParaMes, mesParaData } from './series.utils';
+import {
+  MAX_OCORRENCIAS,
+  MIN_OCORRENCIAS,
+  dataDaOcorrencia,
+  dataParaMes,
+  mesParaData,
+  moverParaOMes,
+} from './series.utils';
 
 const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -581,23 +588,35 @@ export class TransactionsService {
     });
   }
 
-  /** Antecipa parcelas de uma série no cartão para a fatura `destino`.
+  /** Antecipa parcelas de uma série para o mês `destino`.
    *
-   * Antecipar não muda a data da compra — é fato histórico —, só a fatura em
-   * que ela entra (`invoiceMonthOverride`). Entram as primeiras `quantity`
-   * parcelas que hoje caem DEPOIS do destino e cuja fatura não foi paga nem
-   * transportada. O destino não pode ser anterior à fatura atual, nem uma
-   * fatura paga/transportada. `confirm` lança as antecipadas como
-   * confirmadas (padrão no app: "Lançar como confirmadas nessa fatura"). */
+   * São duas operações diferentes, porque "antecipar" quer dizer coisas
+   * diferentes nos dois destinos:
+   *
+   *   CARTÃO   a data da compra não muda — é fato histórico —, muda só a
+   *            fatura em que ela entra (`invoiceMonthOverride`). O dinheiro
+   *            sai quando a fatura vence, e é esse vencimento que se adianta.
+   *   CONTA    não há fatura entre a compra e o dinheiro: a data É o dia do
+   *            débito. Antecipar, aqui, move a própria data da parcela.
+   *
+   * Em ambos entram as primeiras `quantity` parcelas que hoje caem DEPOIS do
+   * destino, e `confirm` lança as movidas como confirmadas. */
   async anticipate(
     userId: string,
     seriesId: string,
     dados: { destinationMonth: string; quantity: number; confirm?: boolean },
   ) {
-    if (!MES_VALIDO.test(dados.destinationMonth)) throw new BadRequestException('Mês da fatura inválido. Use AAAA-MM.');
+    if (!MES_VALIDO.test(dados.destinationMonth)) throw new BadRequestException('Mês inválido. Use AAAA-MM.');
     if (!Number.isInteger(dados.quantity) || dados.quantity < 1) {
       throw new BadRequestException('Informe quantas parcelas antecipar (1 ou mais).');
     }
+
+    const daSerie = await this.prisma.transaction.findFirst({
+      where: { seriesId, userId },
+      orderBy: { seriesIndex: 'asc' },
+    });
+    if (!daSerie) throw new NotFoundException('Série não encontrada');
+    if (!daSerie.creditCardId) return this.anteciparNaConta(userId, seriesId, dados);
 
     return this.prisma.$transaction(async (tx) => {
       const parcelas = await tx.transaction.findMany({
@@ -641,6 +660,64 @@ export class TransactionsService {
           where: { id: p.id },
           data: {
             invoiceMonthOverride: mesParaData(destino),
+            isConfirmed: dados.confirm ? true : p.isConfirmed,
+          },
+        });
+        await this.applyEffect(tx, this.efeitoDe(movida));
+      }
+      return { anticipated: escolhidas.length, remaining: antecipaveis.length - escolhidas.length };
+    });
+  }
+
+  /**
+   * Antecipar parcela de CONTA: aqui a data é o dia do débito, então é ela
+   * que se move. O dia do mês é mantido — uma parcela de 17/12 antecipada
+   * para outubro vira 17/10, e não dia 1.
+   *
+   * Só entra parcela ainda PREVISTA. A que já foi confirmada aconteceu: o
+   * dinheiro saiu naquele dia, e mudar a data seria reescrever o passado
+   * para um débito que já está no extrato.
+   *
+   * O destino não pode ser anterior ao mês de hoje, pela mesma razão: não se
+   * antecipa um pagamento para um mês que já acabou.
+   */
+  private async anteciparNaConta(
+    userId: string,
+    seriesId: string,
+    dados: { destinationMonth: string; quantity: number; confirm?: boolean },
+  ) {
+    const destino = dados.destinationMonth;
+    const hoje = dataParaMes(new Date());
+    if (destino < hoje) {
+      throw new BadRequestException(`O destino não pode ser anterior ao mês atual (${hoje}).`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const parcelas = await tx.transaction.findMany({
+        where: { seriesId, userId, bankAccountId: { not: null } },
+        orderBy: { seriesIndex: 'asc' },
+      });
+      if (!parcelas.length) throw new NotFoundException('Série de conta não encontrada');
+
+      const antecipaveis = parcelas.filter(
+        (p) => !p.isConfirmed && dataParaMes(p.transactionDate) > destino,
+      );
+      if (!antecipaveis.length) {
+        throw new BadRequestException(
+          'Nenhuma parcela prevista desta série cai depois desse mês para ser antecipada.',
+        );
+      }
+
+      const escolhidas = antecipaveis.slice(0, dados.quantity);
+      for (const p of escolhidas) {
+        // O par reverter/aplicar é o mesmo do cartão: a parcela prevista não
+        // tem efeito a reverter, e confirmá-la passa a ter. Fazer os dois
+        // lados sempre evita que uma das metades seja esquecida.
+        await this.reverseEffect(tx, this.efeitoDe(p));
+        const movida = await tx.transaction.update({
+          where: { id: p.id },
+          data: {
+            transactionDate: moverParaOMes(p.transactionDate, destino),
             isConfirmed: dados.confirm ? true : p.isConfirmed,
           },
         });

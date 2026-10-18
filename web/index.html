@@ -3645,7 +3645,7 @@
     <div class="layer-head"><h3>Antecipar parcelas</h3><div class="ctx" id="ant-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
     <div class="layer-body">
       <div class="field">
-        <label class="lbl" for="ant-destino">Antecipar para a fatura de</label>
+        <label class="lbl" for="ant-destino" id="ant-destino-lbl">Antecipar para a fatura de</label>
         <select id="ant-destino"></select>
         <div class="field-help" id="ant-destino-help"></div>
       </div>
@@ -3659,7 +3659,7 @@
       </div>
       <!-- A caixa e a segunda frase da ajuda somem quando todas as parcelas
            que vão se mover já estão confirmadas: ver `atualizarAntecipar`. -->
-      <label class="check" id="ant-confirmar-linha"><input type="checkbox" id="ant-confirmar" checked> Lançar como confirmadas nessa fatura</label>
+      <label class="check" id="ant-confirmar-linha"><input type="checkbox" id="ant-confirmar" checked><span id="ant-confirmar-texto"> Lançar como confirmadas nessa fatura</span></label>
       <div class="field-help" id="ant-ajuda"></div>
       <div class="field-error" id="ant-erro"></div>
     </div>
@@ -4259,6 +4259,16 @@
    * tirar parcela de dentro dela descasaria o pago do que sobrou. */
   function parcelasAntecipaveis(serieId, card, destino) {
     var chaveDestino = monthKey(destino);
+    // Sem cartão é parcela de CONTA, e lá a regra é outra: não há fatura
+    // entre a compra e o dinheiro, então a data É o dia do débito. Só anda o
+    // que ainda não aconteceu — confirmada é dinheiro que já saiu naquele
+    // dia, e mudar a data seria reescrever o extrato.
+    if (!card) {
+      return state.transactions
+        .filter(function (x) { return x.serieId === serieId && x.contaId; })
+        .filter(function (x) { return !x.confirmada && String(x.data).slice(0, 7) > chaveDestino; })
+        .sort(function (a, b) { return (a.serieIndex || 0) - (b.serieIndex || 0); });
+    }
     return state.transactions
       .filter(function (x) { return x.serieId === serieId && x.cartaoId === card.id; })
       .filter(function (x) {
@@ -4269,13 +4279,23 @@
       .sort(function (a, b) { return (a.serieIndex || 0) - (b.serieIndex || 0); });
   }
 
-  /** Antecipar não mexe na data da compra — isso é fato histórico. Muda só a
-   * fatura em que ela cai, que é exatamente para o que serve faturaMesOverride. */
+  /** A mesma data, no mês `destino`. O DIA é mantido — é o que faz a parcela
+   * antecipada cair no mesmo dia do mês das outras, em vez de no dia 1. Dia
+   * que não existe no destino cai no último válido, como no resto da série. */
+  function dataNoMes(iso, destino) {
+    var dia = parseInt(String(iso).slice(8, 10), 10);
+    return isoDate(new Date(destino.y, destino.m, diaValido(destino.y, destino.m, dia)));
+  }
+
+  /** No CARTÃO antecipar não mexe na data da compra — isso é fato histórico —,
+   * muda só a fatura em que ela cai (faturaMesOverride). Na CONTA é o
+   * contrário: não há fatura, e o que se antecipa é a própria data. */
   function anteciparParcelas(serieId, card, destino, quantidade, confirmar) {
     var lista = parcelasAntecipaveis(serieId, card, destino).slice(0, quantidade);
     lista.forEach(function (t) {
-      t.faturaMesOverride = monthKey(destino);
-      if (confirmar) t.confirmada = true;
+      if (card) t.faturaMesOverride = monthKey(destino);
+      else t.data = dataNoMes(t.data, destino);
+      if (confirmar && !t.confirmada) { aplicarEfeito(t, 1); t.confirmada = true; }
     });
     return lista.length;
   }
@@ -4819,11 +4839,20 @@
       '<span class="row-main"><span class="row-title">' +
       '<span class="dot" style="background:' + cor + '"></span>' +
       '<span class="row-name">' + esc(nome) + '</span>' +
-      (parcela ? '<span class="tag tag-parcela num">' + esc(parcela) + '</span>' : "") +
+      // "Parcela 1/5" por extenso: "1/5" sozinho ao lado do nome podia ser
+      // lido como data, fração ou qualquer outra coisa. A palavra custa
+      // largura do nome, e é uma troca deliberada — o número é o que
+      // distingue uma linha da outra numa compra parcelada.
+      (parcela ? '<span class="tag tag-parcela">Parcela <span class="num">' + esc(parcela) + '</span></span>' : "") +
       (t.pendente ? '<span class="tag tag-pendente ' + (t.erroSync ? "danger" : "warn") + '">' + (t.erroSync ? "recusado" : "pendente") + '</span>' : "") +
       (t.confirmada ? "" : '<span class="tag tag-previsto">prevista</span>') + '</span>' +
-      '<span class="row-meta">' + fmtDia(t.data) + ' · ' + esc(nomeCat) + ' · ' + esc(origem || "—") +
+      // A parcela vem logo depois da data, e não no fim: o metadado também
+      // trunca nesta largura, e no fim ela era a primeira coisa a sumir —
+      // justo o dado que distingue uma linha da outra. Categoria e conta
+      // perdem o lugar primeiro porque se repetem na lista inteira.
+      '<span class="row-meta">' + fmtDia(t.data) +
       (parcela ? '<span class="tag-parcela-meta"> · Parcela ' + esc(parcela) + '</span>' : "") +
+      ' · ' + esc(nomeCat) + ' · ' + esc(origem || "—") +
       (t.pendente ? ' · ' + esc(t.erroSync || "pendente, aguardando conexão") : "") +
       (t.confirmada ? "" : '<span class="tag-previsto-meta"> · prevista</span>') + '</span></span>' +
       '<span class="cell-cat">' + esc(nomeCat) + '</span>' +
@@ -4836,7 +4865,9 @@
         botaoIcone("trash", "remover-da-fila", t.id, "Remover da fila", "danger") +
         '</span>' : "") +
       (comAcoes && !t.pendente ? '<span class="row-acoes">' +
-        (t.serieId && t.cartaoId ? botaoIcone("antecipar", "antecipar", t.serieId, "Antecipar parcelas") : "") +
+        // Vale para conta também: lá antecipar muda a DATA da parcela, que é
+        // o dia do débito, em vez da fatura. Ver `anteciparParcelas`.
+        (t.serieId ? botaoIcone("antecipar", "antecipar", t.serieId, "Antecipar parcelas") : "") +
         botaoIcone(t.confirmada ? "undo" : "check", t.confirmada ? "desconfirmar" : "confirmar", t.id, t.confirmada ? "Desfazer confirmação" : "Confirmar") +
         botaoIcone("edit", "editar-lancamento", t.id, "Editar") +
         botaoIcone("trash", "excluir-lancamento", t.id, "Excluir", "danger") +
@@ -10416,28 +10447,51 @@
   function abrirAntecipar(serieId) {
     var parcelas = state.transactions.filter(function (x) { return x.serieId === serieId; });
     if (!parcelas.length) return;
-    var card = byId(state.cards, parcelas[0].cartaoId);
-    if (!card) return;
+    // Série de conta não tem cartão, e é justamente isso que muda o sentido
+    // de antecipar: ver `anteciparParcelas`.
+    var card = parcelas[0].cartaoId ? byId(state.cards, parcelas[0].cartaoId) : null;
+    if (parcelas[0].cartaoId && !card) return;
     anteciparSerie = serieId;
     anteciparCard = card;
 
     var base = (parcelas[0].desc || "Parcelamento").replace(/\s*\(Parcela .*\)$/, "");
-    document.getElementById("ant-ctx").textContent = card.nome + " · " + base + " · " + parcelas.length + " parcelas";
+    var origem = card ? card.nome : ((byId(state.accounts, parcelas[0].contaId) || {}).nome || "Conta");
+    document.getElementById("ant-ctx").textContent = origem + " · " + base + " · " + parcelas.length + " parcelas";
 
-    // Destinos possíveis: da fatura atual até a véspera da última parcela.
-    // Fatura paga fica fora: ela já foi quitada por um valor fechado.
-    var atual = periodoAtualCartao(card);
-    var chaves = parcelas.map(function (p) { return monthKey(periodoDaTransacao(p, card)); }).sort();
-    var ultima = chaves[chaves.length - 1];
+    document.getElementById("ant-destino-lbl").textContent =
+      card ? "Antecipar para a fatura de" : "Antecipar para o mês de";
+
     var opcoes = [];
-    var d = new Date(atual.y, atual.m, 1);
-    while (monthKey({ y: d.getFullYear(), m: d.getMonth() }) < ultima) {
-      var vm = { y: d.getFullYear(), m: d.getMonth() };
-      var st = statusFatura(card, vm.y, vm.m);
-      if (st !== "PAID" && st !== "CARRIED") {
-        opcoes.push({ id: monthKey(vm), nome: rotuloMes(vm) });
+    if (card) {
+      // Destinos possíveis: da fatura atual até a véspera da última parcela.
+      // Fatura paga fica fora: ela já foi quitada por um valor fechado.
+      var atual = periodoAtualCartao(card);
+      var chaves = parcelas.map(function (p) { return monthKey(periodoDaTransacao(p, card)); }).sort();
+      var ultima = chaves[chaves.length - 1];
+      var d = new Date(atual.y, atual.m, 1);
+      while (monthKey({ y: d.getFullYear(), m: d.getMonth() }) < ultima) {
+        var vm = { y: d.getFullYear(), m: d.getMonth() };
+        var st = statusFatura(card, vm.y, vm.m);
+        if (st !== "PAID" && st !== "CARRIED") {
+          opcoes.push({ id: monthKey(vm), nome: rotuloMes(vm) });
+        }
+        d = adicionarMeses(d, 1);
       }
-      d = adicionarMeses(d, 1);
+    } else {
+      // Na conta: do mês de hoje até a véspera da última parcela prevista.
+      // Para trás não vale — não se antecipa pagamento para um mês que já
+      // acabou. Confirmada fica fora: ela já aconteceu.
+      var previstas = parcelas.filter(function (p) { return !p.confirmada; });
+      var mesesP = previstas.map(function (p) { return String(p.data).slice(0, 7); }).sort();
+      var ultimaC = mesesP[mesesP.length - 1];
+      var h = new Date(HOJE.getFullYear(), HOJE.getMonth(), 1);
+      while (ultimaC && monthKey({ y: h.getFullYear(), m: h.getMonth() }) < ultimaC) {
+        opcoes.push({
+          id: monthKey({ y: h.getFullYear(), m: h.getMonth() }),
+          nome: rotuloMes({ y: h.getFullYear(), m: h.getMonth() })
+        });
+        h = adicionarMeses(h, 1);
+      }
     }
 
     var erro = document.getElementById("ant-erro");
@@ -10447,7 +10501,9 @@
       document.getElementById("ant-qtd").innerHTML = "";
       document.getElementById("ant-previa").innerHTML = '<div class="empty">Não há parcela futura para antecipar.</div>';
       document.getElementById("ant-destino-help").textContent = "";
-      erro.textContent = "Todas as parcelas já estão na fatura mais atual ou em faturas pagas.";
+      erro.textContent = card
+        ? "Todas as parcelas já estão na fatura mais atual ou em faturas pagas."
+        : "Não sobrou parcela prevista em mês futuro: as que faltam já aconteceram ou já são deste mês.";
       submit.disabled = true;
       abrir("dlg-antecipar");
       return;
@@ -10465,10 +10521,11 @@
     var selQtd = document.getElementById("ant-qtd");
     var anterior = parseInt(selQtd.value, 10);
 
+    var onde = anteciparCard ? "essa fatura" : "esse mês";
     document.getElementById("ant-destino-help").textContent = lista.length === 1
-      ? "1 parcela pode ser antecipada para essa fatura."
-      : (lista.length ? lista.length + " parcelas podem ser antecipadas para essa fatura."
-                      : "Nenhuma parcela cai depois dessa fatura.");
+      ? "1 parcela pode ser antecipada para " + onde + "."
+      : (lista.length ? lista.length + " parcelas podem ser antecipadas para " + onde + "."
+                      : "Nenhuma parcela cai depois d" + (anteciparCard ? "essa fatura." : "esse mês."));
 
     selQtd.innerHTML = lista.map(function (x, i) {
       var n = i + 1;
@@ -10483,10 +10540,13 @@
     var total = movidas.reduce(function (s, x) { return s + x.valor; }, 0);
     document.getElementById("ant-previa").innerHTML = movidas.length
       ? movidas.map(function (x) {
-          var p = periodoDaTransacao(x, anteciparCard);
+          // No cartão o que muda é o mês da FATURA; na conta, o da data.
+          var de = anteciparCard
+            ? rotuloMes(periodoDaTransacao(x, anteciparCard))
+            : rotuloMes(parseMonthKey(String(x.data).slice(0, 7)));
           return '<div class="row"><span class="row-main"><span class="row-title">' +
             '<span class="row-name">' + esc(rotuloLancamento(x) || "Parcela") + '</span></span>' +
-            '<span class="row-meta">' + rotuloMes(p) + ' → ' + rotuloMes(destino) + '</span></span>' +
+            '<span class="row-meta">' + de + ' → ' + rotuloMes(destino) + '</span></span>' +
             '<span class="row-val num">' + money(x.valor) + '</span></div>';
         }).join("") +
         '<div class="row"><span class="row-main"><span class="row-title">' +
@@ -10503,9 +10563,15 @@
     // Escondida, ela vai marcada: confirmar o que já está confirmado não muda
     // nada, e deixá-la desmarcada por baixo desconfirmaria sem ninguém pedir.
     if (todasConfirmadas) document.getElementById("ant-confirmar").checked = true;
-    document.getElementById("ant-ajuda").textContent = todasConfirmadas
-      ? "Antecipar não muda a data da compra, só a fatura em que ela entra — o valor já conta no total a pagar."
-      : "Antecipar não muda a data da compra, só a fatura em que ela entra. Confirmando, o valor passa a contar no total a pagar dessa fatura.";
+    document.getElementById("ant-confirmar-texto").textContent =
+      anteciparCard ? " Lançar como confirmadas nessa fatura" : " Lançar como confirmadas, debitando a conta agora";
+    document.getElementById("ant-ajuda").textContent = anteciparCard
+      ? (todasConfirmadas
+        ? "Antecipar não muda a data da compra, só a fatura em que ela entra — o valor já conta no total a pagar."
+        : "Antecipar não muda a data da compra, só a fatura em que ela entra. Confirmando, o valor passa a contar no total a pagar dessa fatura.")
+      // Na conta é o contrário, e a diferença precisa estar escrita: aqui não
+      // há fatura entre a compra e o dinheiro, então a data É o dia do débito.
+      : "Na conta não há fatura: a data da parcela é o dia em que o dinheiro sai, e é ela que muda. Só anda parcela ainda prevista — a que já foi confirmada aconteceu. Confirmando, o valor sai do saldo agora.";
 
     document.getElementById("ant-submit").disabled = !movidas.length;
   }
@@ -10527,24 +10593,32 @@
         movidasApi = r ? r.anticipated : 0;
       });
       if (!okAnt) return;
-      cartaoSel = cardAlvo.id; faturaMes = destino;
+      if (cardAlvo) { cartaoSel = cardAlvo.id; faturaMes = destino; }
       anteciparSerie = null; anteciparCard = null;
       renderAll(); fechar("dlg-antecipar");
       avisar(movidasApi === 1 ? "1 parcela antecipada" : movidasApi + " parcelas antecipadas",
-        "Elas agora entram na fatura de " + rotuloMes(destino) + ". A data da compra não mudou.");
+        recadoDaAntecipacao(cardAlvo, destino));
       return;
     }
+    var cardLocal = anteciparCard;
     var movidas = anteciparParcelas(anteciparSerie, anteciparCard, destino,
       qtd, document.getElementById("ant-confirmar").checked);
     // A fatura vista passa a ser a de destino, senão o usuário fica olhando
-    // para a fatura de onde as parcelas saíram.
-    cartaoSel = anteciparCard.id;
-    faturaMes = destino;
+    // para a fatura de onde as parcelas saíram. Na conta não há fatura para
+    // trocar: o extrato do mês já mostra as parcelas onde elas caíram.
+    if (cardLocal) { cartaoSel = cardLocal.id; faturaMes = destino; }
     anteciparSerie = null; anteciparCard = null;
     persist(); renderAll(); fechar("dlg-antecipar");
     avisar(movidas === 1 ? "1 parcela antecipada" : movidas + " parcelas antecipadas",
-      "Elas agora entram na fatura de " + rotuloMes(destino) + ". A data da compra não mudou.");
+      recadoDaAntecipacao(cardLocal, destino));
   });
+
+  /** O que mudou, em uma frase — e são coisas diferentes nos dois destinos. */
+  function recadoDaAntecipacao(card, destino) {
+    return card
+      ? "Elas agora entram na fatura de " + rotuloMes(destino) + ". A data da compra não mudou."
+      : "A data delas passou para " + rotuloMes(destino) + ", que é quando o dinheiro sai da conta.";
+  }
 
   /* ================= camada: cartão ================= */
   var editandoCartao = null;

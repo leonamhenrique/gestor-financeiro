@@ -37,6 +37,18 @@ export function dataDaOcorrencia(inicio: Date, frequencia: SeriesFrequency, i: n
   }
 }
 
+/**
+ * A mesma data, no mês `mes` ('AAAA-MM'). O DIA é mantido — é o que faz a
+ * parcela antecipada cair no mesmo dia do mês das outras, em vez de no dia 1.
+ *
+ * Dia que não existe no mês de destino cai no último válido, pela mesma
+ * regra do resto da série: 31/03 antecipada para fevereiro vira 28/02.
+ */
+export function moverParaOMes(data: Date, mes: string): Date {
+  const [ano, m] = mes.split('-').map(Number);
+  return new Date(Date.UTC(ano, m - 1, Math.min(data.getUTCDate(), diasNoMes(ano, m - 1))));
+}
+
 /** 'AAAA-MM' → dia 1 desse mês em UTC (como fica gravado o mês da fatura). */
 export function mesParaData(mes: string): Date {
   const [a, m] = mes.split('-').map(Number);

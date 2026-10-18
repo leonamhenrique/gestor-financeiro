@@ -33,6 +33,7 @@ describe('TransactionsService — séries e fatura escolhida', () => {
     if (where.seriesId && t.seriesId !== where.seriesId) return false;
     if (where.seriesIndex?.gte !== undefined && t.seriesIndex < where.seriesIndex.gte) return false;
     if (where.creditCardId?.not === null && !t.creditCardId) return false;
+    if (where.bankAccountId?.not === null && !t.bankAccountId) return false;
     return true;
   }
 
@@ -332,6 +333,81 @@ describe('TransactionsService — séries e fatura escolhida', () => {
       const r = await service.anticipate('user-1', id, { destinationMonth: '2026-09', quantity: 1, confirm: true });
       expect(r.anticipated).toBe(1);
       expect(totalDe('2026-09')).toBe(200);
+    });
+  });
+
+  // Na CONTA não há fatura entre a compra e o dinheiro: a data é o dia do
+  // débito, e é ela que se move. No cartão a data não muda — ver `anticipate`.
+  describe('antecipar parcelas na conta', () => {
+    const naConta = (extra: any = {}) =>
+      base({ creditCardId: undefined, bankAccountId: 'acc-1', ...extra });
+
+    /** 4x mensais a partir de 20/09: 20/09 (confirmada) e três previstas. */
+    async function serieNaConta(dia = '2026-09-20') {
+      const r = await service.createSeries(naConta({ transactionDate: utc(dia) }), parcelado(4));
+      return r.series.id;
+    }
+    const datas = (id: string) =>
+      [...transacoes.values()]
+        .filter((t) => t.seriesId === id)
+        .sort((a, b) => a.seriesIndex - b.seriesIndex)
+        .map((t) => t.transactionDate.toISOString().slice(0, 10));
+
+    it('move a DATA das parcelas, e o dia do mês é mantido', async () => {
+      const id = await serieNaConta();
+      const r = await service.anticipate('user-1', id, { destinationMonth: '2026-09', quantity: 2 });
+
+      expect(r).toEqual({ anticipated: 2, remaining: 1 });
+      // 20/10 e 20/11 viram 20/09; a de dezembro fica onde estava.
+      expect(datas(id)).toEqual(['2026-09-20', '2026-09-20', '2026-09-20', '2026-12-20']);
+    });
+
+    it('com `confirm`, o dinheiro sai da conta na hora', async () => {
+      const id = await serieNaConta();
+      const antes = saldo;
+      await service.anticipate('user-1', id, { destinationMonth: '2026-09', quantity: 2, confirm: true });
+      expect(saldo).toBe(antes - 200);
+    });
+
+    it('sem `confirm`, a parcela anda de data mas continua prevista', async () => {
+      const id = await serieNaConta();
+      const antes = saldo;
+      await service.anticipate('user-1', id, { destinationMonth: '2026-09', quantity: 1 });
+      expect(saldo).toBe(antes);
+      const segunda = [...transacoes.values()].find((t) => t.seriesId === id && t.seriesIndex === 1);
+      expect(segunda.isConfirmed).toBe(false);
+    });
+
+    // Confirmada é dinheiro que já saiu, naquele dia. Antecipar reescreveria
+    // o passado de um débito que já está no extrato.
+    it('parcela já confirmada não é antecipada', async () => {
+      const id = await serieNaConta();
+      const terceira = [...transacoes.values()].find((t) => t.seriesId === id && t.seriesIndex === 2);
+      await service.update(terceira.id, { isConfirmed: true }, 'user-1');
+
+      const r = await service.anticipate('user-1', id, { destinationMonth: '2026-09', quantity: 9 });
+      expect(r.anticipated).toBe(2); // a 1 e a 3, não a 2 (confirmada)
+      expect(datas(id)).toEqual(['2026-09-20', '2026-09-20', '2026-11-20', '2026-09-20']);
+    });
+
+    it('dia que não existe no mês de destino cai no último válido', async () => {
+      // 31/10, 31/12... antecipadas para novembro: 30/11.
+      const r = await service.createSeries(
+        naConta({ transactionDate: utc('2026-10-31') }),
+        { kind: SeriesKind.INSTALLMENT, frequency: SeriesFrequency.QUARTERLY, count: 2 },
+      );
+      await service.anticipate('user-1', r.series.id, { destinationMonth: '2026-11', quantity: 1 });
+      expect(datas(r.series.id)).toEqual(['2026-10-31', '2026-11-30']);
+    });
+
+    it('recusa destino no passado e destino sem parcela depois dele', async () => {
+      const id = await serieNaConta();
+      await expect(
+        service.anticipate('user-1', id, { destinationMonth: '2026-08', quantity: 1 }),
+      ).rejects.toThrow(/anterior ao mês atual/);
+      await expect(
+        service.anticipate('user-1', id, { destinationMonth: '2026-12', quantity: 1 }),
+      ).rejects.toThrow(/Nenhuma parcela prevista/);
     });
   });
 });
