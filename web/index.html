@@ -1939,21 +1939,47 @@
      * coluna deixa de significar o que o rótulo diz.
      *
      * E ela só vale a partir de 880px de janela, não de 768. As colunas fixas
-     * somam 512px e os cinco vãos somam 80: são 592px antes de o NOME receber
+     * somam 510px e os cinco vãos somam 80: são 590px antes de o NOME receber
      * um pixel. Abaixo disso a linha não encolhe — ela transborda. Medido em
      * 768: o nome ficava com largura ZERO e as ações eram desenhadas em
      * x=628, fora da coluna de 294px, por baixo do painel lateral. Não era
      * feio: era inalcançável — confirmar, editar e excluir não respondiam ao
      * toque em nenhuma linha da lista. Abaixo de 880 vale o formato empilhado
-     * do celular, que cabe em 320. */
+     * do celular, que cabe em 320.
+     *
+     * CADA LARGURA É MEDIDA, não estimada — texto real nesta fonte, e o
+     * cabeçalho com a seta de ordenação, que é quem manda em "Conta / cartão":
+     *
+     *   48  data        "17 out" mede 35; o cabeçalho, 45 com a seta.
+     *  1fr  descrição   o que sobra: 130px em 720. Era 128.
+     *  100  categoria   "Impostos e Taxas" mede 92; o cabeçalho, 82.
+     *  120  conta       "XP Investimentos" mede 92; o cabeçalho, 115.
+     *   96  valor       "−1.234.567,89" mede 88; o cabeçalho, 54.
+     *  146  ações       QUATRO botões de 32 com vão de 6 = 146, exato.
+     *
+     * A coluna de ações era 76px e nunca coube: três botões já pedem 108, e
+     * o quarto — antecipar parcelas, que agora existe também na conta — levou
+     * a 146. O que passava do fim da linha era desenhado por cima do trilho
+     * da direita, em cima do bloco de saldo. Os 70px vieram das outras
+     * colunas, que tinham folga medida; o nome não só não perdeu como ganhou
+     * dois pixels. */
     @media (min-width: 880px) {
       .list--extrato .row, .list-head {
-        display: grid; grid-template-columns: 64px minmax(0, 1fr) 128px 132px 112px 76px;
+        display: grid; grid-template-columns: 48px minmax(0, 1fr) 100px 120px 96px 146px;
         align-items: center; gap: 16px;
       }
+      /* A aba COMPARTILHADAS desenha outra linha: só nome, metadado e valor,
+       * sem as células de data, categoria e conta. Na grade de seis colunas
+       * ela caía nas DUAS primeiras — o nome espremido em 48px e o valor em
+       * 130, com 442px de colunas vazias à direita. Fora da grade ela volta a
+       * ser a linha flex do resto do app, que é o que ela é. */
+      .list--extrato .row--livre { display: flex; gap: 12px; }
       .list--extrato .cell-data,
       .list--extrato .cell-cat,
       .list--extrato .cell-org { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* E nela o metadado continua valendo: é onde moram a data, a forma de
+       * pagamento e a parcela, que nas outras linhas têm coluna própria. */
+      .list--extrato .row--livre .row-meta { display: block; }
     }
     .list-head {
       position: sticky; top: 0; z-index: 3;
@@ -8444,7 +8470,7 @@
 
     if (l.tipo === "ACERTO") {
       var recebi = l.direction === "RECEIVED";
-      return '<div class="row clickable" data-acerto-extrato="' + esc(l.id) + '">' +
+      return '<div class="row row--livre clickable" data-acerto-extrato="' + esc(l.id) + '">' +
         '<span class="row-main">' +
         '<span class="row-title"><span class="row-name">' + esc(l.description) + '</span>' +
         '<span class="tag">acerto</span></span>' +
@@ -8457,7 +8483,7 @@
       nomes ? "÷ " + nomes : null].filter(Boolean).join(" · ");
 
     if (l.foraDaConta) {
-      return '<div class="row">' +
+      return '<div class="row row--livre">' +
         '<span class="row-main">' +
         '<span class="row-title"><span class="row-name">' + esc(l.description || "sem descrição") + '</span>' +
         '<span class="tag">fora da conta</span></span>' +
@@ -8466,7 +8492,7 @@
         '<span class="row-val num neg">você deve ' + money(l.minhaParte) + '</span></div>';
     }
 
-    return '<div class="row">' +
+    return '<div class="row row--livre">' +
       '<span class="row-main">' +
       '<span class="row-title"><span class="row-name">' + esc(l.description || "sem descrição") + '</span></span>' +
       '<span class="row-meta">' + esc(meta) + '</span></span>' +
