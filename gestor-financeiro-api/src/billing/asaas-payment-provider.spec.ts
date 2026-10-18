@@ -10,7 +10,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { AsaasPaymentProvider, EVENTO_DO_ASAAS } from './asaas-payment-provider';
 
 const TOKEN = 'token-de-webhook-com-32-caracteres-ok';
-const CHAVE = 'chave-de-api';
+const CHAVE = '$aact_hmlg_chave-de-sandbox';
 
 /** Um `fetch` de mentira que grava o que foi chamado e devolve o combinado. */
 function fetchFalso(resposta: unknown, ok = true, status = 200) {
@@ -60,7 +60,7 @@ describe('AsaasPaymentProvider — webhook', () => {
   });
 
   it('sem ASAAS_WEBHOOK_TOKEN configurado, recusa tudo', () => {
-    const sem = new AsaasPaymentProvider(CHAVE, '', 'https://x', fetch as any);
+    const sem = new AsaasPaymentProvider(CHAVE, '', 'https://api-sandbox.asaas.com/v3', fetch as any);
     expect(() => sem.lerWebhook(corpo({ event: 'PAYMENT_RECEIVED' }), 'qualquer')).toThrow(
       /não configurado/,
     );
@@ -110,6 +110,51 @@ describe('AsaasPaymentProvider — webhook', () => {
   });
 });
 
+// Este corpo foi CAPTURADO do sandbox, não inventado: é o que o Asaas mandou
+// de verdade quando o pagamento foi confirmado. O campo que importa é o
+// `checkoutSession` -- sem ele, um pagamento confirmado não teria dono.
+describe('AsaasPaymentProvider — o corpo real do sandbox', () => {
+  const REAL = {
+    id: 'evt_15e444ff9b9ab9ec29294aa1abe68025&22608140',
+    event: 'PAYMENT_CONFIRMED',
+    payment: {
+      id: 'pay_sko5lepb9lp0diap', value: 29.9, status: 'CONFIRMED',
+      customer: 'cus_000009559085', subscription: 'sub_uybena3fkql8mjxa',
+      checkoutSession: '88a7718b-037a-4294-ba38-e77081393ac0',
+      billingType: 'CREDIT_CARD', externalReference: null,
+    },
+  };
+
+  it('extrai os três ids que ligam o pagamento à conta', () => {
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', fetch as any);
+    const e = g.lerWebhook(corpo(REAL), TOKEN);
+    expect(e.type).toBe('invoice.paid');
+    expect(e.providerInvoiceId).toBe('pay_sko5lepb9lp0diap');
+    expect(e.providerSubscriptionId).toBe('sub_uybena3fkql8mjxa');
+    expect(e.providerCheckoutId).toBe('88a7718b-037a-4294-ba38-e77081393ac0');
+  });
+
+  // O id do evento do Asaas traz um `&` no meio. Serve de chave de
+  // idempotência do mesmo jeito, mas não pode ser mexido no caminho.
+  it('o id do evento passa inteiro, com o "&" e tudo', () => {
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', fetch as any);
+    expect(g.lerWebhook(corpo(REAL), TOKEN).providerEventId).toBe(REAL.id);
+  });
+
+  // O CHECKOUT_PAID chegou no MESMO milissegundo do pagamento e não cita
+  // cobrança nenhuma: sem id de cobrança não há o que conferir contra a API.
+  // Por isso quem libera acesso é o evento de pagamento, não o de checkout.
+  it('o evento de checkout não traz cobrança — e por isso não libera nada', () => {
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', fetch as any);
+    const e = g.lerWebhook(
+      corpo({ id: 'evt_2', event: 'CHECKOUT_PAID', checkout: { id: 'chk_1', status: 'PAID' } }),
+      TOKEN,
+    );
+    expect(e.type).toBe('checkout.paid');
+    expect(e.providerInvoiceId).toBeUndefined();
+  });
+});
+
 describe('AsaasPaymentProvider — tradução de eventos', () => {
   // Pagar é pagar: o Asaas separa "confirmado" (pagou) de "recebido" (o
   // dinheiro caiu na conta dele), e esperar o repasse para liberar seria
@@ -147,7 +192,7 @@ describe('AsaasPaymentProvider — tradução de eventos', () => {
 describe('AsaasPaymentProvider — checkout hospedado', () => {
   it('não manda dado de cliente: quem pede o CPF é a tela do Asaas', async () => {
     const { f, chamadas } = fetchFalso({ id: 'chk_1', link: 'https://asaas/x' });
-    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api/v3', f);
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
 
     const r = await g.criarCheckout({
       userId: 'u1', nome: 'Henrique', email: 'h@x.com',
@@ -167,7 +212,7 @@ describe('AsaasPaymentProvider — checkout hospedado', () => {
 
   it('o valor cobrado é o do nosso catálogo, não um plano do gateway', async () => {
     const { f, chamadas } = fetchFalso({ id: 'chk_1', link: 'https://asaas/x' });
-    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api/v3', f);
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
     await g.criarCheckout({
       userId: 'u1', nome: 'H', email: 'h@x.com', planoCode: 'pro-anual', planoNome: 'Pro anual',
       valor: 299, intervalo: 'YEARLY', urlSucesso: 'https://a', urlCancelamento: 'https://b',
@@ -179,7 +224,7 @@ describe('AsaasPaymentProvider — checkout hospedado', () => {
 
   it('a chave de API vai no cabeçalho, nunca na URL', async () => {
     const { f, chamadas } = fetchFalso({ id: 'chk_1', link: 'https://asaas/x' });
-    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api/v3', f);
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
     await g.criarCheckout({
       userId: 'u1', nome: 'H', email: 'h@x.com', planoCode: 'p', planoNome: 'P',
       valor: 10, intervalo: 'MONTHLY', urlSucesso: 'https://a', urlCancelamento: 'https://b',
@@ -190,7 +235,7 @@ describe('AsaasPaymentProvider — checkout hospedado', () => {
 
   it('resposta sem link é erro, e não um checkout mudo', async () => {
     const { f } = fetchFalso({ id: 'chk_1' });
-    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api/v3', f);
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
     await expect(
       g.criarCheckout({
         userId: 'u1', nome: 'H', email: 'h@x.com', planoCode: 'p', planoNome: 'P',
@@ -201,7 +246,7 @@ describe('AsaasPaymentProvider — checkout hospedado', () => {
 
   it('erro do Asaas chega com a descrição dele, não só o código', async () => {
     const { f } = fetchFalso({ errors: [{ code: 'invalid_value', description: 'Valor inválido' }] }, false, 400);
-    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api/v3', f);
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
     await expect(
       g.criarCheckout({
         userId: 'u1', nome: 'H', email: 'h@x.com', planoCode: 'p', planoNome: 'P',
@@ -210,18 +255,73 @@ describe('AsaasPaymentProvider — checkout hospedado', () => {
     ).rejects.toThrow(/Valor inválido/);
   });
 
-  it('consulta o estado no Asaas, que é de onde vem a verdade', async () => {
-    const { f, chamadas } = fetchFalso({ status: 'PAID', customer: 'cus_1', subscription: 'sub_2' });
-    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api/v3', f);
-    const r = await g.consultarCheckout('chk_1');
+  // Não existe leitura de checkout no Asaas — `GET /checkouts/{id}` responde
+  // 404, medido no sandbox. Quem dá a verdade é a COBRANÇA, e ela traz o
+  // `checkoutSession`, que é o elo com a tela que o usuário abriu aqui.
+  it('a verdade vem da COBRANÇA, e ela traz o checkout que a originou', async () => {
+    const { f, chamadas } = fetchFalso({
+      status: 'CONFIRMED', value: 29.9, subscription: 'sub_2', customer: 'cus_1',
+      checkoutSession: 'chk_1',
+    });
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
+    const r = await g.consultarCobranca('pay_9');
+
     expect(chamadas[0].init.method).toBe('GET');
-    expect(chamadas[0].url).toContain('/checkouts/chk_1');
-    expect(r).toEqual({ status: 'PAID', providerCustomerId: 'cus_1', providerSubscriptionId: 'sub_2' });
+    expect(chamadas[0].url).toContain('/payments/pay_9');
+    expect(r).toEqual({
+      pago: true, valor: 29.9,
+      providerSubscriptionId: 'sub_2', providerCustomerId: 'cus_1', providerCheckoutId: 'chk_1',
+    });
+  });
+
+  it.each([
+    ['CONFIRMED', true],
+    ['RECEIVED', true],
+    ['PENDING', false],
+    ['OVERDUE', false],
+    ['REFUNDED', false],
+  ])('cobrança %s conta como paga: %s', async (status, pago) => {
+    const { f } = fetchFalso({ status, value: 29.9 });
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
+    await expect(g.consultarCobranca('pay_9')).resolves.toEqual(expect.objectContaining({ pago }));
+  });
+});
+
+// Testar contra a conta de verdade cobra gente de verdade. O erro e barato
+// de evitar e caro de descobrir depois.
+describe('AsaasPaymentProvider — sandbox e produção não se misturam', () => {
+  const { f } = fetchFalso({ id: 'chk_1', link: 'https://x' });
+  const abrir = (g: AsaasPaymentProvider) =>
+    g.criarCheckout({
+      userId: 'u1', nome: 'H', email: 'h@x.com', planoCode: 'p', planoNome: 'P',
+      valor: 10, intervalo: 'MONTHLY', urlSucesso: 'https://a', urlCancelamento: 'https://b',
+    });
+
+  it('recusa chave de PRODUÇÃO apontada para o sandbox', async () => {
+    const g = new AsaasPaymentProvider('$aact_prod_xxx', TOKEN, 'https://api-sandbox.asaas.com/v3', f);
+    await expect(abrir(g)).rejects.toThrow(/não é de sandbox/);
+  });
+
+  it('recusa chave de SANDBOX apontada para produção — o erro caro', async () => {
+    const g = new AsaasPaymentProvider('$aact_hmlg_xxx', TOKEN, 'https://api.asaas.com/v3', f);
+    await expect(abrir(g)).rejects.toThrow(/aponta para produção/);
+  });
+
+  it('deixa passar quando os dois combinam', async () => {
+    const g = new AsaasPaymentProvider('$aact_hmlg_xxx', TOKEN, 'https://api-sandbox.asaas.com/v3', f);
+    await expect(abrir(g)).resolves.toEqual(expect.objectContaining({ providerCheckoutId: 'chk_1' }));
+  });
+
+  it('a aplicação se identifica, como o Asaas pede', async () => {
+    const { f: f2, chamadas } = fetchFalso({ id: 'chk_1', link: 'https://x' });
+    const g = new AsaasPaymentProvider('$aact_hmlg_xxx', TOKEN, 'https://api-sandbox.asaas.com/v3', f2);
+    await abrir(g);
+    expect(chamadas[0].init.headers['User-Agent']).toBe('saldonline');
   });
 });
 
 describe('AsaasPaymentProvider — o que ele se recusa a fazer', () => {
-  const g = () => new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api/v3', fetch as any);
+  const g = () => new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', fetch as any);
 
   // O app não coleta CPF: quem pede é a tela do Asaas. Chegar aqui sem ele
   // significa estar no caminho errado, e a mensagem diz qual é o certo.
@@ -236,7 +336,7 @@ describe('AsaasPaymentProvider — o que ele se recusa a fazer', () => {
   });
 
   it('sem chave de API, não tenta chamar o Asaas', async () => {
-    const sem = new AsaasPaymentProvider('', TOKEN, 'https://api/v3', fetch as any);
-    await expect(sem.consultarCheckout('chk_1')).rejects.toThrow(/ASAAS_API_KEY/);
+    const sem = new AsaasPaymentProvider('', TOKEN, 'https://api-sandbox.asaas.com/v3', fetch as any);
+    await expect(sem.consultarCobranca('pay_1')).rejects.toThrow(/ASAAS_API_KEY/);
   });
 });

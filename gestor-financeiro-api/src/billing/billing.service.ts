@@ -276,25 +276,14 @@ export class BillingService {
   }
 
   private async processar(evento: EventoWebhook) {
-    if (evento.providerCheckoutId) return this.processarCheckout(evento);
-    if (!evento.providerSubscriptionId) return;
+    // Pago é o único caminho que LIBERA, e por isso é o único que confere
+    // contra o gateway antes de agir. Os outros só restringem.
+    if (evento.type === 'invoice.paid') return this.processarPagamento(evento);
 
-    const assinatura = await this.prisma.subscription.findUnique({
-      where: { providerSubscriptionId: evento.providerSubscriptionId },
-    });
-    if (!assinatura) return; // evento de assinatura que não é nossa
+    const assinatura = await this.daAssinatura(evento);
+    if (!assinatura) return; // evento que não é nosso
 
     switch (evento.type) {
-      case 'invoice.paid':
-        await this.registrarCobranca(assinatura.id, evento, SubscriptionInvoiceStatus.PAID);
-        await this.prisma.subscription.update({
-          where: { id: assinatura.id },
-          data: {
-            status: SubscriptionStatus.ACTIVE,
-            currentPeriodEnd: this.lerData(evento, 'currentPeriodEnd'),
-          },
-        });
-        break;
 
       case 'invoice.payment_failed':
         await this.registrarCobranca(assinatura.id, evento, SubscriptionInvoiceStatus.FAILED);
@@ -319,37 +308,74 @@ export class BillingService {
   }
 
   /**
-   * O retorno da tela de pagamento hospedada.
+   * Acha a assinatura de quem o evento fala.
    *
-   * O corpo do webhook NÃO decide nada aqui. A credencial do Asaas é um token
-   * fixo: ela prova quem mandou, não que o conteúdo chegou intacto. Então o
-   * evento serve de gatilho e o estado vem de uma consulta ao gateway. Sem
-   * isso, um POST com o token vazado liberaria assinatura de graça.
+   * Dois caminhos, porque nas duas pontas da vida de uma assinatura o que
+   * existe é diferente. Na PRIMEIRA cobrança só há a tela de pagamento que
+   * nós abrimos, e o vínculo é o id dela. Dali em diante o id da assinatura
+   * do gateway já está gravado, e é por ele que as renovações chegam.
    */
-  private async processarCheckout(evento: EventoWebhook) {
-    const assinatura = await this.prisma.subscription.findUnique({
-      where: { providerCheckoutId: evento.providerCheckoutId! },
+  private async daAssinatura(evento: EventoWebhook) {
+    if (evento.providerSubscriptionId) {
+      const porAssinatura = await this.prisma.subscription.findUnique({
+        where: { providerSubscriptionId: evento.providerSubscriptionId },
+      });
+      if (porAssinatura) return porAssinatura;
+    }
+    if (evento.providerCheckoutId) {
+      return this.prisma.subscription.findUnique({
+        where: { providerCheckoutId: evento.providerCheckoutId },
+      });
+    }
+    return null;
+  }
+
+  /**
+   * Pagamento confirmado — o único evento que LIBERA acesso, e por isso o
+   * único que não acredita no que leu.
+   *
+   * A credencial do webhook do Asaas é um token FIXO: prova quem mandou, não
+   * que o conteúdo chegou intacto. Então do corpo sai apenas o id da
+   * cobrança, e todo o resto — se foi paga, por quanto, de qual assinatura —
+   * vem de uma consulta ao gateway. Com o token vazado, o máximo que alguém
+   * consegue é mandar o sistema reconferir uma cobrança que existe.
+   *
+   * O valor é conferido contra o plano. Sem isso, uma cobrança de um real
+   * pagaria um plano de trinta.
+   */
+  private async processarPagamento(evento: EventoWebhook) {
+    if (!evento.providerInvoiceId) return;
+    if (!this.gateway.consultarCobranca) {
+      throw new Error('Gateway sem `consultarCobranca`: não dá para confirmar o pagamento com segurança.');
+    }
+
+    const real = await this.gateway.consultarCobranca(evento.providerInvoiceId);
+    if (!real.pago) return; // o gateway desmentiu o evento
+
+    const assinatura = await this.daAssinatura({
+      ...evento,
+      providerSubscriptionId: real.providerSubscriptionId,
+      providerCheckoutId: real.providerCheckoutId,
     });
-    if (!assinatura) return; // checkout que não é nosso
+    if (!assinatura) return; // cobrança que não é de nenhuma conta nossa
 
-    if (!this.gateway.consultarCheckout) {
-      throw new Error('Gateway sem `consultarCheckout`: não dá para confirmar o pagamento com segurança.');
-    }
-    const real = await this.gateway.consultarCheckout(evento.providerCheckoutId!);
-
-    if (real.status !== 'PAID') {
-      // Cancelado ou expirado: a assinatura nunca chegou a valer, e fica como
-      // estava — INCOMPLETE não libera nada. Apagar a linha perderia o
-      // registro de que a pessoa tentou e não concluiu.
-      return;
+    const plano = await this.prisma.plan.findUnique({ where: { id: assinatura.planId } });
+    if (plano && Number(plano.amount) > real.valor) {
+      throw new Error(
+        `Cobrança de ${real.valor} não cobre o plano ${plano.code}, de ${Number(plano.amount)}.`,
+      );
     }
 
+    await this.registrarCobranca(assinatura.id, evento, SubscriptionInvoiceStatus.PAID, real.valor);
     await this.prisma.subscription.update({
       where: { id: assinatura.id },
       data: {
         status: SubscriptionStatus.ACTIVE,
-        providerCustomerId: real.providerCustomerId ?? assinatura.providerCustomerId,
+        currentPeriodEnd: this.lerData(evento, 'currentPeriodEnd'),
+        // Na primeira cobrança é aqui que a assinatura e o cliente do
+        // gateway entram: antes de pagar, eles não existiam.
         providerSubscriptionId: real.providerSubscriptionId ?? assinatura.providerSubscriptionId,
+        providerCustomerId: real.providerCustomerId ?? assinatura.providerCustomerId,
       },
     });
   }
@@ -358,10 +384,13 @@ export class BillingService {
     subscriptionId: string,
     evento: EventoWebhook,
     status: SubscriptionInvoiceStatus,
+    valorConferido?: number,
   ) {
     if (!evento.providerInvoiceId) return;
     const dados = evento.payload as { data?: { amount?: number; dueDate?: string; failureReason?: string } };
-    const valor = dados.data?.amount ?? 0;
+    // O valor conferido vem da consulta ao gateway e tem precedência: o do
+    // corpo é só o que o remetente afirmou.
+    const valor = valorConferido ?? dados.data?.amount ?? 0;
     const vencimento = dados.data?.dueDate ? new Date(dados.data.dueDate) : new Date();
 
     await this.prisma.subscriptionInvoice.upsert({

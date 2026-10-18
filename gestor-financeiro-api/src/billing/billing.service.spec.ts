@@ -208,7 +208,10 @@ describe('BillingService — checkout hospedado', () => {
       nome: 'ASAAS',
       cabecalhoDeAutenticacao: 'asaas-access-token',
       criarCheckout: jest.fn(async () => ({ providerCheckoutId: 'chk_1', url: 'https://asaas/pagar' })),
-      consultarCheckout: jest.fn(async () => ({ status: 'PAID', providerCustomerId: 'cus_1', providerSubscriptionId: 'sub_1' })),
+      consultarCobranca: jest.fn(async () => ({
+        pago: true, valor: 29.9,
+        providerSubscriptionId: 'sub_1', providerCustomerId: 'cus_1', providerCheckoutId: 'chk_1',
+      })),
       criarCliente: jest.fn(), registrarCartao: jest.fn(), criarAssinatura: jest.fn(),
       cancelarAssinatura: jest.fn(), lerWebhook: jest.fn(),
     };
@@ -240,17 +243,20 @@ describe('BillingService — checkout hospedado', () => {
     expect(Object.keys(enviado)).not.toContain('paymentToken');
   });
 
-  // A regra que paga a conta: o corpo do webhook não decide nada. A
-  // credencial do Asaas é um token fixo, que prova quem mandou e não que o
-  // conteúdo chegou intacto.
-  it('CHECKOUT_PAID não libera sozinho: o estado vem de uma consulta ao gateway', async () => {
-    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', providerCheckoutId: 'chk_1' });
+  const PAGAMENTO = {
+    providerEventId: 'evt_1', type: 'invoice.paid', payload: {},
+    providerInvoiceId: 'pay_9', providerSubscriptionId: 'sub_1', providerCheckoutId: 'chk_1',
+  };
 
-    await service.aplicarEvento({
-      providerEventId: 'evt_1', type: 'checkout.paid', payload: {}, providerCheckoutId: 'chk_1',
-    });
+  // A regra que paga a conta: do corpo do webhook sai só o id da cobrança.
+  // Se foi paga, por quanto e de quem — tudo vem da consulta ao gateway.
+  it('o acesso só abre depois de o gateway confirmar a cobrança', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', planId: 'p1', providerCheckoutId: 'chk_1' });
+    prisma.plan.findUnique.mockResolvedValue(PLANO);
 
-    expect(gateway.consultarCheckout).toHaveBeenCalledWith('chk_1');
+    await service.aplicarEvento(PAGAMENTO);
+
+    expect(gateway.consultarCobranca).toHaveBeenCalledWith('pay_9');
     expect(prisma.subscription.update.mock.calls[0][0].data).toEqual(
       expect.objectContaining({
         status: SubscriptionStatus.ACTIVE,
@@ -260,35 +266,58 @@ describe('BillingService — checkout hospedado', () => {
     );
   });
 
-  it('se o gateway diz que NÃO está pago, nada é liberado — mesmo com o evento de pago', async () => {
-    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', providerCheckoutId: 'chk_1' });
-    gateway.consultarCheckout.mockResolvedValue({ status: 'ACTIVE' });
+  it('se o gateway desmente o evento, nada é liberado', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', planId: 'p1', providerCheckoutId: 'chk_1' });
+    gateway.consultarCobranca.mockResolvedValue({ pago: false, valor: 0 });
 
-    await service.aplicarEvento({
-      providerEventId: 'evt_1', type: 'checkout.paid', payload: {}, providerCheckoutId: 'chk_1',
-    });
-
+    await service.aplicarEvento(PAGAMENTO);
     expect(prisma.subscription.update).not.toHaveBeenCalled();
   });
 
-  it('checkout que não é nosso é ignorado em silêncio', async () => {
+  // Sem isto, uma cobrança de um real pagaria um plano de trinta.
+  it('cobrança menor que o plano é recusada, e o erro fica gravado', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', planId: 'p1', providerCheckoutId: 'chk_1' });
+    prisma.plan.findUnique.mockResolvedValue(PLANO);
+    gateway.consultarCobranca.mockResolvedValue({
+      pago: true, valor: 1, providerSubscriptionId: 'sub_1', providerCheckoutId: 'chk_1',
+    });
+
+    await expect(service.aplicarEvento(PAGAMENTO)).rejects.toThrow(/não cobre o plano/);
+    expect(prisma.subscription.update).not.toHaveBeenCalled();
+  });
+
+  it('cobrança de ninguém daqui é ignorada em silêncio', async () => {
     prisma.subscription.findUnique.mockResolvedValue(null);
-    await service.aplicarEvento({
-      providerEventId: 'evt_1', type: 'checkout.paid', payload: {}, providerCheckoutId: 'chk_de_outro',
-    });
-    expect(gateway.consultarCheckout).not.toHaveBeenCalled();
+    await service.aplicarEvento(PAGAMENTO);
     expect(prisma.subscription.update).not.toHaveBeenCalled();
   });
 
-  it('cancelado ou expirado deixa a assinatura como estava, sem liberar', async () => {
-    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', providerCheckoutId: 'chk_1' });
-    for (const status of ['CANCELED', 'EXPIRED'] as const) {
-      gateway.consultarCheckout.mockResolvedValue({ status });
-      await service.aplicarEvento({
-        providerEventId: 'evt_' + status, type: 'checkout.canceled', payload: {}, providerCheckoutId: 'chk_1',
-      });
-    }
+  // O evento de checkout chega no mesmo instante do de pagamento e não cita
+  // cobrança nenhuma: não há o que conferir, então ele não decide nada.
+  it('o evento de checkout não libera acesso sozinho', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', planId: 'p1', providerCheckoutId: 'chk_1' });
+    await service.aplicarEvento({
+      providerEventId: 'evt_2', type: 'checkout.paid', payload: {}, providerCheckoutId: 'chk_1',
+    });
+    expect(gateway.consultarCobranca).not.toHaveBeenCalled();
     expect(prisma.subscription.update).not.toHaveBeenCalled();
+  });
+
+  // Na renovação não há checkout nenhum: o vínculo é a assinatura, que já
+  // está gravada desde a primeira cobrança.
+  it('a renovação acha a conta pela assinatura, sem checkout', async () => {
+    prisma.subscription.findUnique.mockImplementation(async (args) =>
+      args.where.providerSubscriptionId === 'sub_1'
+        ? { id: 's1', planId: 'p1', providerSubscriptionId: 'sub_1' }
+        : null,
+    );
+    prisma.plan.findUnique.mockResolvedValue(PLANO);
+    gateway.consultarCobranca.mockResolvedValue({
+      pago: true, valor: 29.9, providerSubscriptionId: 'sub_1',
+    });
+
+    await service.aplicarEvento({ ...PAGAMENTO, providerEventId: 'evt_3', providerCheckoutId: undefined });
+    expect(prisma.subscription.update.mock.calls[0][0].data.status).toBe(SubscriptionStatus.ACTIVE);
   });
 
   it('recusa checkout de plano sem cobrança e de quem já está ativo', async () => {

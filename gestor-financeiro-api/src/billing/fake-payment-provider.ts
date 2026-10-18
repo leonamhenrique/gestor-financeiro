@@ -17,6 +17,7 @@ import {
   AssinarInput,
   AssinaturaRemota,
   CartaoTokenizado,
+  CobrancaRemota,
   CriarClienteInput,
   EventoWebhook,
   PaymentProviderPort,
@@ -29,6 +30,19 @@ export class FakePaymentProvider implements PaymentProviderPort {
 
   async criarCliente(input: CriarClienteInput): Promise<string> {
     return `fake_cus_${input.userId.slice(0, 8)}`;
+  }
+
+  /**
+   * O gateway de mentira também precisa saber responder "esta cobrança foi
+   * paga?", senão o caminho que libera acesso — o único que confere contra o
+   * gateway antes de agir — não poderia ser exercitado sem gateway real.
+   *
+   * Aqui tudo é dado por pago: no FAKE não existe cobrança de verdade para
+   * desmentir. Quem quiser testar o caminho do "não pago" usa um dublê no
+   * teste, que é o que o próprio BillingService faz.
+   */
+  async consultarCobranca(providerInvoiceId: string): Promise<CobrancaRemota> {
+    return { pago: true, valor: 0, providerSubscriptionId: undefined, providerCheckoutId: providerInvoiceId };
   }
 
   async registrarCartao(_providerCustomerId: string, paymentToken: string): Promise<CartaoTokenizado> {

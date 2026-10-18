@@ -33,7 +33,7 @@ import {
   AssinaturaRemota,
   CartaoTokenizado,
   CheckoutRemoto,
-  CheckoutRemotoResolvido,
+  CobrancaRemota,
   CriarCheckoutInput,
   CriarClienteInput,
   EventoWebhook,
@@ -77,7 +77,16 @@ export const EVENTO_DO_ASAAS: Record<string, string> = {
 interface CorpoAsaas {
   id?: string;
   event?: string;
-  payment?: { id?: string; subscription?: string; customer?: string; value?: number; dueDate?: string };
+  payment?: {
+    id?: string;
+    subscription?: string;
+    customer?: string;
+    value?: number;
+    dueDate?: string;
+    /** O checkout que gerou esta cobrança. Medido no sandbox: é o único
+     * campo que liga o pagamento à tela que o usuário abriu no nosso app. */
+    checkoutSession?: string;
+  };
   subscription?: { id?: string; customer?: string };
   checkout?: { id?: string; status?: string };
 }
@@ -114,7 +123,12 @@ export class AsaasPaymentProvider implements PaymentProviderPort {
    */
   async criarCheckout(input: CriarCheckoutInput): Promise<CheckoutRemoto> {
     const corpo = {
-      billingTypes: ['CREDIT_CARD', 'PIX'],
+      // CARTÃO e só. Não é escolha nossa: o Asaas recusa o checkout com
+      // qualquer outro método quando o tipo é RECURRENT — "o método de
+      // pagamento CREDIT_CARD é o único método de pagamento permitido para
+      // operações RECURRENT". Pix exige tipo DETACHED, que é cobrança
+      // avulsa: daria uma venda, não uma assinatura que se renova sozinha.
+      billingTypes: ['CREDIT_CARD'],
       chargeTypes: ['RECURRENT'],
       minutesToExpire: 60,
       callback: { successUrl: input.urlSucesso, cancelUrl: input.urlCancelamento },
@@ -144,15 +158,26 @@ export class AsaasPaymentProvider implements PaymentProviderPort {
     return { providerCheckoutId: String(r.id), url: String(r.link) };
   }
 
-  async consultarCheckout(providerCheckoutId: string): Promise<CheckoutRemotoResolvido> {
-    const r = await this.chamar('GET', `/checkouts/${encodeURIComponent(providerCheckoutId)}`);
+  /**
+   * A fonte da verdade sobre um pagamento.
+   *
+   * Não existe leitura de checkout no Asaas — `GET /checkouts/{id}` responde
+   * 404, e a lista também. Medido no sandbox. O que dá para ler é a COBRANÇA,
+   * e ela traz tudo que interessa, inclusive o `checkoutSession`: o id da
+   * tela que a originou, que é o que liga a primeira cobrança ao usuário.
+   *
+   * `CONFIRMED` e `RECEIVED` contam como pago. São estados diferentes para o
+   * Asaas — confirmado é "pagou", recebido é "o dinheiro caiu na conta
+   * dele" — e o mesmo para nós: em ambos o usuário pagou.
+   */
+  async consultarCobranca(providerInvoiceId: string): Promise<CobrancaRemota> {
+    const r = await this.chamar('GET', `/payments/${encodeURIComponent(providerInvoiceId)}`);
     return {
-      status: (r.status as CheckoutRemotoResolvido['status']) ?? 'ACTIVE',
+      pago: r.status === 'CONFIRMED' || r.status === 'RECEIVED',
+      valor: Number(r.value ?? 0),
+      providerSubscriptionId: textoOuNada(r.subscription),
       providerCustomerId: textoOuNada(r.customer),
-      // O id da assinatura pode vir como string ou dentro do objeto, conforme
-      // a forma do checkout. Os dois caminhos levam ao mesmo lugar.
-      providerSubscriptionId:
-        textoOuNada(r.subscription) ?? textoOuNada((r.subscription as { id?: unknown } | undefined)?.id),
+      providerCheckoutId: textoOuNada(r.checkoutSession),
     };
   }
 
@@ -242,7 +267,11 @@ export class AsaasPaymentProvider implements PaymentProviderPort {
       payload: corpo,
       providerSubscriptionId: corpo.payment?.subscription ?? corpo.subscription?.id,
       providerInvoiceId: corpo.payment?.id,
-      providerCheckoutId: corpo.checkout?.id,
+      // Do pagamento vem o checkout que o originou — é ele que liga a
+      // primeira cobrança ao usuário. No evento de checkout vem o id direto,
+      // mas esse evento não serve para liberar nada: ele não cita a cobrança,
+      // e sem cobrança não há o que conferir contra a API.
+      providerCheckoutId: corpo.payment?.checkoutSession ?? corpo.checkout?.id,
     };
   }
 
@@ -250,13 +279,38 @@ export class AsaasPaymentProvider implements PaymentProviderPort {
   // HTTP
   // ----------------------------------------------------------
 
+  /**
+   * Chave de sandbox tem prefixo próprio (`$aact_hmlg_`); a de produção, não.
+   * Trocar uma pela outra por engano dá 401 — chato, mas inofensivo — ou
+   * algo bem pior: um teste rodando contra a conta de verdade, cobrando
+   * gente de verdade. É barato recusar antes de a chamada sair.
+   */
+  private conferirAmbiente() {
+    const ehSandbox = this.baseUrl.includes('sandbox');
+    const chaveDeSandbox = this.apiKey.startsWith('$aact_hmlg_');
+    if (ehSandbox && !chaveDeSandbox) {
+      throw new Error(
+        'ASAAS_BASE_URL aponta para o sandbox, mas a ASAAS_API_KEY não é de sandbox (ela começaria com $aact_hmlg_).',
+      );
+    }
+    if (!ehSandbox && chaveDeSandbox) {
+      throw new Error(
+        'ASAAS_API_KEY é de sandbox, mas a ASAAS_BASE_URL aponta para produção. Teste contra https://api-sandbox.asaas.com/v3.',
+      );
+    }
+  }
+
   private async chamar(metodo: string, caminho: string, corpo?: unknown): Promise<Record<string, any>> {
     if (!this.apiKey) throw new Error('ASAAS_API_KEY não configurada.');
+    this.conferirAmbiente();
     const resposta = await this.buscar(this.baseUrl + caminho, {
       method: metodo,
       headers: {
         'Content-Type': 'application/json',
         access_token: this.apiKey,
+        // O Asaas pede que a aplicação se identifique. Serve para o suporte
+        // deles achar as nossas chamadas quando algo der errado.
+        'User-Agent': 'saldonline',
       },
       body: corpo === undefined ? undefined : JSON.stringify(corpo),
     });

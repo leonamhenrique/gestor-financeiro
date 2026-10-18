@@ -51,12 +51,19 @@ export interface CheckoutRemoto {
   url: string;
 }
 
-/** O que o gateway sabe sobre um checkout depois que ele foi pago. Vem de uma
- * CONSULTA ao gateway, não do corpo do webhook — ver `consultarCheckout`. */
-export interface CheckoutRemotoResolvido {
-  status: 'ACTIVE' | 'PAID' | 'CANCELED' | 'EXPIRED';
-  providerCustomerId?: string;
+/**
+ * O que o gateway diz sobre uma cobrança quando PERGUNTADO — e não o que o
+ * corpo do webhook afirma. É daqui que sai a decisão de liberar acesso.
+ */
+export interface CobrancaRemota {
+  pago: boolean;
+  valor: number;
   providerSubscriptionId?: string;
+  providerCustomerId?: string;
+  /** A tela de pagamento que originou a cobrança. É por este id que a
+   * PRIMEIRA cobrança encontra de quem ela é: nas seguintes, quem liga é a
+   * assinatura, que a essa altura já está gravada do nosso lado. */
+  providerCheckoutId?: string;
 }
 
 export interface AssinarInput {
@@ -119,13 +126,13 @@ export interface PaymentProviderPort {
   criarCheckout?(input: CriarCheckoutInput): Promise<CheckoutRemoto>;
 
   /**
-   * Lê do GATEWAY o estado de um checkout, pelo id guardado na criação.
+   * Lê do GATEWAY o estado de uma cobrança, pelo id que o webhook citou.
    *
-   * Existe porque o corpo do webhook não é confiável como fonte: a credencial
-   * do Asaas é um token fixo, que prova quem mandou e não que o conteúdo não
-   * foi alterado. Então o webhook serve de GATILHO e a verdade vem daqui.
+   * Existe porque o corpo do webhook não é fonte confiável: a credencial do
+   * Asaas é um token fixo, que prova quem mandou e não que o conteúdo chegou
+   * intacto. Então o webhook diz "olhe a cobrança X" e a verdade vem daqui.
    */
-  consultarCheckout?(providerCheckoutId: string): Promise<CheckoutRemotoResolvido>;
+  consultarCobranca?(providerInvoiceId: string): Promise<CobrancaRemota>;
 
   criarCliente(input: CriarClienteInput): Promise<string>;
 
