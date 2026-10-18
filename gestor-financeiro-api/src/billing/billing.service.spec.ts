@@ -183,3 +183,131 @@ describe('BillingService', () => {
     });
   });
 });
+
+// ============================================================
+// A cobrança pela WEB, em tela hospedada pelo gateway.
+// ============================================================
+describe('BillingService — checkout hospedado', () => {
+  let service: BillingService;
+  let prisma: any;
+  let gateway: any;
+
+  const PLANO = { id: 'p1', code: 'pro-mensal', name: 'Pro', amount: 29.9, interval: 'MONTHLY', isActive: true };
+
+  beforeEach(async () => {
+    prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'u1', name: 'Henrique', email: 'h@x.com' }) },
+      plan: { findUnique: jest.fn().mockResolvedValue(PLANO) },
+      subscription: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn(), upsert: jest.fn() },
+      subscriptionInvoice: { upsert: jest.fn() },
+      paymentMethod: { updateMany: jest.fn(), upsert: jest.fn() },
+      webhookEvent: { create: jest.fn(async () => ({ id: 'w1' })), update: jest.fn() },
+      $transaction: jest.fn((cb) => cb(prisma)),
+    };
+    gateway = {
+      nome: 'ASAAS',
+      cabecalhoDeAutenticacao: 'asaas-access-token',
+      criarCheckout: jest.fn(async () => ({ providerCheckoutId: 'chk_1', url: 'https://asaas/pagar' })),
+      consultarCheckout: jest.fn(async () => ({ status: 'PAID', providerCustomerId: 'cus_1', providerSubscriptionId: 'sub_1' })),
+      criarCliente: jest.fn(), registrarCartao: jest.fn(), criarAssinatura: jest.fn(),
+      cancelarAssinatura: jest.fn(), lerWebhook: jest.fn(),
+    };
+
+    const modulo: TestingModule = await Test.createTestingModule({
+      providers: [
+        BillingService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: PAYMENT_PROVIDER, useValue: gateway },
+      ],
+    }).compile();
+    service = modulo.get(BillingService);
+  });
+
+  it('devolve a URL e guarda o id do checkout ANTES de o usuário sair do app', async () => {
+    const r = await service.iniciarCheckout('u1', 'pro-mensal', 'https://ok', 'https://nao');
+
+    expect(r).toEqual({ url: 'https://asaas/pagar' });
+    const gravado = prisma.subscription.upsert.mock.calls[0][0].create;
+    expect(gravado.providerCheckoutId).toBe('chk_1');
+    // INCOMPLETE: abrir a tela não é ter pago.
+    expect(gravado.status).toBe(SubscriptionStatus.INCOMPLETE);
+  });
+
+  it('nenhum dado de pagamento é pedido ao app: nem CPF, nem cartão', async () => {
+    await service.iniciarCheckout('u1', 'pro-mensal', 'https://ok', 'https://nao');
+    const enviado = gateway.criarCheckout.mock.calls[0][0];
+    expect(Object.keys(enviado)).not.toContain('cpfCnpj');
+    expect(Object.keys(enviado)).not.toContain('paymentToken');
+  });
+
+  // A regra que paga a conta: o corpo do webhook não decide nada. A
+  // credencial do Asaas é um token fixo, que prova quem mandou e não que o
+  // conteúdo chegou intacto.
+  it('CHECKOUT_PAID não libera sozinho: o estado vem de uma consulta ao gateway', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', providerCheckoutId: 'chk_1' });
+
+    await service.aplicarEvento({
+      providerEventId: 'evt_1', type: 'checkout.paid', payload: {}, providerCheckoutId: 'chk_1',
+    });
+
+    expect(gateway.consultarCheckout).toHaveBeenCalledWith('chk_1');
+    expect(prisma.subscription.update.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({
+        status: SubscriptionStatus.ACTIVE,
+        providerCustomerId: 'cus_1',
+        providerSubscriptionId: 'sub_1',
+      }),
+    );
+  });
+
+  it('se o gateway diz que NÃO está pago, nada é liberado — mesmo com o evento de pago', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', providerCheckoutId: 'chk_1' });
+    gateway.consultarCheckout.mockResolvedValue({ status: 'ACTIVE' });
+
+    await service.aplicarEvento({
+      providerEventId: 'evt_1', type: 'checkout.paid', payload: {}, providerCheckoutId: 'chk_1',
+    });
+
+    expect(prisma.subscription.update).not.toHaveBeenCalled();
+  });
+
+  it('checkout que não é nosso é ignorado em silêncio', async () => {
+    prisma.subscription.findUnique.mockResolvedValue(null);
+    await service.aplicarEvento({
+      providerEventId: 'evt_1', type: 'checkout.paid', payload: {}, providerCheckoutId: 'chk_de_outro',
+    });
+    expect(gateway.consultarCheckout).not.toHaveBeenCalled();
+    expect(prisma.subscription.update).not.toHaveBeenCalled();
+  });
+
+  it('cancelado ou expirado deixa a assinatura como estava, sem liberar', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', providerCheckoutId: 'chk_1' });
+    for (const status of ['CANCELED', 'EXPIRED'] as const) {
+      gateway.consultarCheckout.mockResolvedValue({ status });
+      await service.aplicarEvento({
+        providerEventId: 'evt_' + status, type: 'checkout.canceled', payload: {}, providerCheckoutId: 'chk_1',
+      });
+    }
+    expect(prisma.subscription.update).not.toHaveBeenCalled();
+  });
+
+  it('recusa checkout de plano sem cobrança e de quem já está ativo', async () => {
+    prisma.plan.findUnique.mockResolvedValue({ ...PLANO, amount: 0 });
+    await expect(service.iniciarCheckout('u1', 'gratis', 'https://a', 'https://b')).rejects.toThrow(
+      /sem cobrança/,
+    );
+
+    prisma.plan.findUnique.mockResolvedValue(PLANO);
+    prisma.subscription.findUnique.mockResolvedValue({ status: SubscriptionStatus.ACTIVE });
+    await expect(service.iniciarCheckout('u1', 'pro-mensal', 'https://a', 'https://b')).rejects.toThrow(
+      /já tem uma assinatura ativa/,
+    );
+  });
+
+  it('gateway sem tela hospedada diz isso em vez de falhar torto', async () => {
+    delete gateway.criarCheckout;
+    await expect(service.iniciarCheckout('u1', 'pro-mensal', 'https://a', 'https://b')).rejects.toThrow(
+      /não tem tela de pagamento hospedada/,
+    );
+  });
+});

@@ -25,6 +25,7 @@ import {
 @Injectable()
 export class FakePaymentProvider implements PaymentProviderPort {
   readonly nome = 'FAKE' as const;
+  readonly cabecalhoDeAutenticacao = 'x-webhook-signature';
 
   async criarCliente(input: CriarClienteInput): Promise<string> {
     return `fake_cus_${input.userId.slice(0, 8)}`;

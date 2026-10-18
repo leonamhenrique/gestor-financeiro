@@ -13,6 +13,7 @@ import { BillingController } from './billing.controller';
 import { SubscriptionActiveGuard } from './subscription-active.guard';
 import { PAYMENT_PROVIDER } from './payment-provider.port';
 import { FakePaymentProvider } from './fake-payment-provider';
+import { AsaasPaymentProvider } from './asaas-payment-provider';
 
 @Module({
   imports: [PrismaModule],
@@ -25,7 +26,8 @@ import { FakePaymentProvider } from './fake-payment-provider';
       useFactory: () => {
         switch (process.env.PAYMENT_PROVIDER) {
           // case 'STRIPE': return new StripePaymentProvider();
-          // case 'ASAAS': return new AsaasPaymentProvider();
+          case 'ASAAS':
+            return new AsaasPaymentProvider();
           default:
             return new FakePaymentProvider();
         }

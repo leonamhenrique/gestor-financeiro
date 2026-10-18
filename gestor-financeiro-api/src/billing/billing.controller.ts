@@ -68,16 +68,35 @@ export class BillingController {
     return this.billing.cancelar(userId, imediato !== 'true');
   }
 
+  /**
+   * Abre a tela de pagamento hospedada pelo gateway e devolve o endereço.
+   *
+   * Nenhum dado de pagamento passa por aqui — nem cartão, nem CPF. Quem pede
+   * o CPF é a tela do gateway, direto ao pagador: o dado não entra no nosso
+   * banco nem na declaração de Data Safety da Play.
+   */
+  @Post('checkout')
+  async checkout(
+    @Req() req: RequisicaoAutenticada,
+    @Body() body: { planCode: string; urlSucesso: string; urlCancelamento: string },
+  ) {
+    const userId = req.user.id ?? req.user.sub!;
+    return this.billing.iniciarCheckout(userId, body.planCode, body.urlSucesso, body.urlCancelamento);
+  }
+
   @Public()
   @Post('webhook')
-  async webhook(
-    @Req() req: { rawBody?: Buffer },
-    @Headers('x-webhook-signature') assinatura: string,
-  ) {
+  async webhook(@Req() req: { rawBody?: Buffer }, @Headers() cabecalhos: Record<string, string>) {
     if (!req.rawBody) {
       throw new Error('Corpo bruto ausente: habilite `rawBody: true` em NestFactory.create.');
     }
-    const evento = this.gateway.lerWebhook(req.rawBody, assinatura);
+    // Qual cabeçalho carrega a credencial é coisa de cada gateway, e quem
+    // sabe disso é o adaptador: o Stripe assina o corpo em
+    // `x-webhook-signature`, o Asaas manda um token fixo em
+    // `asaas-access-token`. Fixar um nome aqui prenderia o controlador a um
+    // provedor — e, pior, calaria a autenticação do outro.
+    const nome = this.gateway.cabecalhoDeAutenticacao.toLowerCase();
+    const evento = this.gateway.lerWebhook(req.rawBody, cabecalhos[nome] ?? '');
     const resultado = await this.billing.aplicarEvento(evento);
     return { recebido: true, resultado };
   }

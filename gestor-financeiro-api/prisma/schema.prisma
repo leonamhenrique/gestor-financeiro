@@ -199,6 +199,11 @@ model Subscription {
   provider               PaymentProvider @default(FAKE)
   providerCustomerId     String?         @map("provider_customer_id")
   providerSubscriptionId String?         @unique @map("provider_subscription_id")
+  // Id da tela de pagamento hospedada, gravado ANTES de o usuário sair do
+  // app. Enquanto ele paga, é a única ponte que existe: a assinatura e o
+  // cliente do gateway só nascem depois, e o webhook de volta chega falando
+  // deste id. Sem ele, um pagamento confirmado não teria dono.
+  providerCheckoutId     String?         @unique @map("provider_checkout_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

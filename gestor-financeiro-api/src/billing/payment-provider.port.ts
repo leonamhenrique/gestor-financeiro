@@ -21,6 +21,42 @@ export interface CriarClienteInput {
   userId: string;
   nome: string;
   email: string;
+  /** CPF/CNPJ. Obrigatório em alguns gateways (Asaas), ausente em outros.
+   * Opcional aqui porque este app NÃO coleta CPF: quem pede é a tela de
+   * pagamento do gateway, e o dado nunca passa por nós. Ver `criarCheckout`. */
+  cpfCnpj?: string;
+}
+
+/** O que precisa para abrir uma tela de pagamento HOSPEDADA pelo gateway. */
+export interface CriarCheckoutInput {
+  userId: string;
+  nome: string;
+  email: string;
+  /** Código do plano no nosso catálogo — vira o item da tela. */
+  planoCode: string;
+  planoNome: string;
+  valor: number;
+  intervalo: 'MONTHLY' | 'YEARLY';
+  /** Para onde o gateway devolve o usuário. Não confirmam pagamento: quem
+   * confirma é o webhook. */
+  urlSucesso: string;
+  urlCancelamento: string;
+}
+
+export interface CheckoutRemoto {
+  /** Id do checkout no gateway. É a PONTE: guardado antes de o usuário sair
+   * do app, é como o webhook de volta encontra de quem era a compra. */
+  providerCheckoutId: string;
+  /** Endereço da tela de pagamento, para onde o navegador vai. */
+  url: string;
+}
+
+/** O que o gateway sabe sobre um checkout depois que ele foi pago. Vem de uma
+ * CONSULTA ao gateway, não do corpo do webhook — ver `consultarCheckout`. */
+export interface CheckoutRemotoResolvido {
+  status: 'ACTIVE' | 'PAID' | 'CANCELED' | 'EXPIRED';
+  providerCustomerId?: string;
+  providerSubscriptionId?: string;
 }
 
 export interface AssinarInput {
@@ -52,12 +88,44 @@ export interface EventoWebhook {
   payload: unknown;
   providerSubscriptionId?: string;
   providerInvoiceId?: string;
+  /** Presente nos eventos de tela hospedada, onde a assinatura ainda não
+   * existe: é por ele que o evento encontra de quem era a compra. */
+  providerCheckoutId?: string;
 }
 
 export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
 
 export interface PaymentProviderPort {
   readonly nome: 'STRIPE' | 'ASAAS' | 'MERCADO_PAGO' | 'FAKE';
+
+  /** Qual cabeçalho carrega a credencial do webhook. Cada gateway usa o seu
+   * (`x-webhook-signature` no Stripe, `asaas-access-token` no Asaas), e quem
+   * sabe disso é o adaptador — não o controlador. */
+  readonly cabecalhoDeAutenticacao: string;
+
+  /**
+   * Abre uma tela de pagamento HOSPEDADA pelo gateway e devolve para onde
+   * mandar o navegador. É o caminho que este app usa, e a razão é dupla:
+   *
+   *   PCI    número de cartão nunca encosta no nosso domínio nem no nosso
+   *          servidor. Com tokenização no navegador ele também não encostaria,
+   *          mas a tela hospedada tira até o formulário da nossa conta.
+   *   CPF    o Asaas exige CPF/CNPJ para criar o cliente, e este app não
+   *          coleta CPF. Na tela hospedada quem pede é o gateway, direto ao
+   *          pagador — o dado não entra no nosso banco nem na Data Safety.
+   *
+   * Gateway que não tem tela hospedada simplesmente não implementa.
+   */
+  criarCheckout?(input: CriarCheckoutInput): Promise<CheckoutRemoto>;
+
+  /**
+   * Lê do GATEWAY o estado de um checkout, pelo id guardado na criação.
+   *
+   * Existe porque o corpo do webhook não é confiável como fonte: a credencial
+   * do Asaas é um token fixo, que prova quem mandou e não que o conteúdo não
+   * foi alterado. Então o webhook serve de GATILHO e a verdade vem daqui.
+   */
+  consultarCheckout?(providerCheckoutId: string): Promise<CheckoutRemotoResolvido>;
 
   criarCliente(input: CriarClienteInput): Promise<string>;
 
