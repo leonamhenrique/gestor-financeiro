@@ -174,6 +174,21 @@ describe('AsaasPaymentProvider — tradução de eventos', () => {
     }
   });
 
+  // Chargeback é o dinheiro voltando pela mão do banco, sem passar por nós.
+  // Ignorar deixaria a assinatura ATIVA com o valor já perdido. PAST_DUE e
+  // não CANCELED porque a disputa ainda pode ser ganha — e PAST_DUE é
+  // reversível: bloqueia criar registro novo e não apaga nada.
+  it('chargeback pedido bloqueia, mas não fecha a assinatura', () => {
+    expect(EVENTO_DO_ASAAS.PAYMENT_CHARGEBACK_REQUESTED).toBe('invoice.payment_failed');
+  });
+
+  // A disputa em si não muda nada: o bloqueio já veio no pedido, e o
+  // desfecho chega como estorno (perdemos) ou reversão (ganhamos).
+  it('a disputa e a espera de reversão não mexem no estado', () => {
+    expect(EVENTO_DO_ASAAS.PAYMENT_CHARGEBACK_DISPUTE).toBeUndefined();
+    expect(EVENTO_DO_ASAAS.PAYMENT_AWAITING_CHARGEBACK_REVERSAL).toBeUndefined();
+  });
+
   // O dinheiro voltou, então o acesso acaba. Parcial entra junto: não há
   // meio-acesso para dar.
   it('estorno total e parcial encerram a assinatura', () => {

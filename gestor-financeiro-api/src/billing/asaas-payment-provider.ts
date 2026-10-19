@@ -64,6 +64,17 @@ export const EVENTO_DO_ASAAS: Record<string, string> = {
   PAYMENT_REPROVED_BY_RISK_ANALYSIS: 'invoice.payment_failed',
   PAYMENT_REFUNDED: 'subscription.canceled',
   PAYMENT_PARTIALLY_REFUNDED: 'subscription.canceled',
+  // Chargeback é o dinheiro voltando pela mão do banco, sem passar por nós:
+  // o cliente contestou a compra e a adquirente puxou o valor de volta.
+  // Ignorar isso deixaria a assinatura ATIVA com o dinheiro já perdido.
+  //
+  // PAST_DUE e não CANCELED porque a disputa ainda pode ser ganha — e
+  // PAST_DUE é reversível: bloqueia criar registro novo, mas não apaga nada
+  // e não fecha a assinatura. Se a contestação cair, uma cobrança nova
+  // reativa; se vencermos, o Asaas manda o evento de reversão.
+  PAYMENT_CHARGEBACK_REQUESTED: 'invoice.payment_failed',
+  // Recebimento em dinheiro desfeito: o pagamento que valia deixou de valer.
+  PAYMENT_RECEIVED_IN_CASH_UNDONE: 'invoice.payment_failed',
   SUBSCRIPTION_INACTIVATED: 'subscription.canceled',
   SUBSCRIPTION_DELETED: 'subscription.canceled',
   CHECKOUT_PAID: 'checkout.paid',
