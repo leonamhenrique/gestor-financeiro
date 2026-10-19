@@ -29,6 +29,10 @@ const STATUS_LIBERADOS: SubscriptionStatus[] = [
   SubscriptionStatus.ACTIVE,
 ];
 
+/** O endereço do app, para onde o gateway devolve quem pagou. Vem do
+ * ambiente e não do pedido: ver `iniciarCheckout`. */
+const ENDERECO_DO_APP = (process.env.APP_URL ?? 'https://saldonline.com.br').replace(/\/+$/, '') + '/';
+
 @Injectable()
 export class BillingService {
   constructor(
@@ -45,6 +49,17 @@ export class BillingService {
     const assinatura = await this.prisma.subscription.findUnique({ where: { userId } });
     if (!assinatura) return true;
     return STATUS_LIBERADOS.includes(assinatura.status);
+  }
+
+  /** O catálogo, para a tela não guardar preço próprio. Preço duplicado no
+   * cliente é preço que um dia diverge do que a cobrança faz — e aí o app
+   * promete um valor e o cartão recebe outro. */
+  async planos() {
+    return this.prisma.plan.findMany({
+      where: { isActive: true },
+      orderBy: { amount: 'asc' },
+      select: { code: true, name: true, amount: true, interval: true },
+    });
   }
 
   async obterAssinatura(userId: string) {
@@ -167,8 +182,13 @@ export class BillingService {
    *
    * INCOMPLETE não libera nada: quem libera é o webhook, depois de o gateway
    * confirmar. Abrir a tela não é ter pago.
+   *
+   * Para onde o gateway devolve o usuário é decidido AQUI, nunca pelo
+   * cliente. Com a URL vindo de fora, bastava chamar esta rota com um
+   * endereço qualquer para o gateway devolver quem pagou num site de outra
+   * pessoa — e com a aparência de ter vindo da nossa cobrança.
    */
-  async iniciarCheckout(userId: string, planCode: string, urlSucesso: string, urlCancelamento: string) {
+  async iniciarCheckout(userId: string, planCode: string) {
     if (!this.gateway.criarCheckout) {
       throw new BadRequestException('Este gateway não tem tela de pagamento hospedada.');
     }
@@ -195,8 +215,8 @@ export class BillingService {
       planoNome: plano.name,
       valor: Number(plano.amount),
       intervalo: plano.interval === 'YEARLY' ? 'YEARLY' : 'MONTHLY',
-      urlSucesso,
-      urlCancelamento,
+      urlSucesso: ENDERECO_DO_APP + '?assinatura=ok',
+      urlCancelamento: ENDERECO_DO_APP + '?assinatura=cancelada',
     });
 
     const dados = {

@@ -35,6 +35,11 @@ export class BillingController {
     @Inject(PAYMENT_PROVIDER) private readonly gateway: PaymentProviderPort,
   ) {}
 
+  @Get('plans')
+  planos() {
+    return this.billing.planos();
+  }
+
   @Get('subscription')
   async minhaAssinatura(@Req() req: RequisicaoAutenticada) {
     const userId = req.user.id ?? req.user.sub!;
@@ -76,12 +81,9 @@ export class BillingController {
    * banco nem na declaração de Data Safety da Play.
    */
   @Post('checkout')
-  async checkout(
-    @Req() req: RequisicaoAutenticada,
-    @Body() body: { planCode: string; urlSucesso: string; urlCancelamento: string },
-  ) {
+  async checkout(@Req() req: RequisicaoAutenticada, @Body() body: { planCode: string }) {
     const userId = req.user.id ?? req.user.sub!;
-    return this.billing.iniciarCheckout(userId, body.planCode, body.urlSucesso, body.urlCancelamento);
+    return this.billing.iniciarCheckout(userId, body.planCode);
   }
 
   @Public()

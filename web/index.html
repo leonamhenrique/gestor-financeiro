@@ -3698,13 +3698,12 @@
   <div class="layer-body">
     <div class="opt-list">
       <button type="button" class="opt" data-perfil="meu">Meu perfil<span class="opt-meta">Nome e e-mail da conta.</span></button>
-      <!-- Assinatura e Planos saem de cena enquanto o paywall não cobra de
-           verdade. Ver ASSINATURA_VISIVEL, no script, para o porquê. -->
+      <!-- Só aparece onde dá para cobrar: no navegador, nunca dentro do app
+           da Play. Ver `podeAssinarAqui`, no script, para o porquê. -->
       <button type="button" class="opt" data-perfil="assinatura" hidden>
         <span class="opt-linha">Minha assinatura<span class="tag" id="pf-status"></span></span>
         <span class="opt-meta" id="pf-plano"></span>
       </button>
-      <button type="button" class="opt" data-perfil="planos" hidden>Planos<span class="opt-meta">Comparar e trocar de plano.</span></button>
       <button type="button" class="opt" data-perfil="instalar" hidden>Instalar no aparelho<span class="opt-meta" id="pf-instalar-meta">Abre em janela própria, com ícone na tela inicial.</span></button>
       <button type="button" class="opt" data-perfil="config">Configurações<span class="opt-meta" id="pf-config-meta">Em que data os relatórios contam o cartão.</span></button>
       <button type="button" class="opt" data-perfil="zerar">Começar do zero<span class="opt-meta">Apaga contas, cartões e lançamentos e refaz os primeiros passos.</span></button>
@@ -3778,7 +3777,7 @@
 </dialog>
 
 <dialog id="dlg-assinatura">
-  <div class="layer-head"><h3>Minha assinatura</h3><div class="ctx">Exemplo — nenhuma cobrança real é processada</div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-head"><h3>Minha assinatura</h3><div class="ctx" id="as-ctx">Cobrança pelo site, fora da loja de aplicativos</div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
   <div class="layer-body">
     <div class="seg">
       <div class="seg-cell">
@@ -3796,50 +3795,22 @@
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4.5M12 17h.01M10.3 3.9 2.7 17.5c-.6 1 .1 2.3 1.3 2.3h16c1.2 0 1.9-1.3 1.3-2.3L13.7 3.9a1.5 1.5 0 0 0-2.6 0Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>
       <span id="as-aviso-texto"></span>
     </div>
-    <div class="field">
-      <label class="lbl">Meio de pagamento</label>
-      <div class="row" style="border-top:none;padding-top:0">
-        <span class="row-main"><span class="row-title"><span class="row-name" id="as-cartao"></span></span>
-        <span class="row-meta" id="as-cartao-meta"></span></span>
-        <button type="button" class="ghost" id="as-trocar-cartao">Trocar</button>
-      </div>
     </div>
+    <div class="field" id="as-planos-wrap" hidden>
+      <label class="lbl">Escolha o plano</label>
+      <div class="opt-list" id="as-planos"></div>
+      <div class="field-help">O pagamento acontece na tela do gateway. Nem o número do cartão nem o CPF passam por este app.</div>
+    </div>
+    <div class="field-error" id="as-erro"></div>
     <div class="field" id="as-historico-wrap">
       <label class="lbl">Últimas cobranças</label>
       <div class="list" id="as-historico"></div>
     </div>
   </div>
   <div class="layer-foot">
-    <button type="button" class="ghost esquerda" id="as-simular">Simular atraso</button>
-    <button type="button" class="primary" id="as-quitar">Quitar pendência</button>
+    <button type="button" class="ghost danger" id="as-cancelar">Cancelar assinatura</button>
   </div>
 </dialog>
-
-<dialog id="dlg-cartao-pag">
-  <form id="form-cartao-pag">
-    <div class="layer-head"><h3>Meio de pagamento</h3><div class="ctx">Exemplo — nada é enviado a nenhuma operadora</div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
-    <div class="layer-body">
-      <div class="field"><label class="lbl" for="cp-numero">Número do cartão</label><input id="cp-numero" type="text" inputmode="numeric" maxlength="19" placeholder="0000 0000 0000 0000" required></div>
-      <div class="field"><label class="lbl" for="cp-nome">Nome impresso</label><input id="cp-nome" type="text" maxlength="60" required></div>
-      <div class="field-row">
-        <div class="field"><label class="lbl" for="cp-validade">Validade</label><input id="cp-validade" type="text" maxlength="5" placeholder="MM/AA" required></div>
-        <div class="field"><label class="lbl" for="cp-cvv">CVV</label><input id="cp-cvv" type="text" inputmode="numeric" maxlength="4" required></div>
-      </div>
-      <div class="field-help">Só ficam guardados a bandeira e os quatro últimos dígitos. O número completo e o CVV não são armazenados.</div>
-      <div class="field-error" id="cp-erro"></div>
-    </div>
-    <div class="layer-foot"><button type="submit" class="primary">Salvar cartão</button></div>
-  </form>
-</dialog>
-
-<!-- O mapa de uma categoria só. Abre ao tocar numa barra de "Maiores
-     despesas" ou "Maiores receitas": o ranking diz QUANTO, e isto diz QUANDO. -->
-<!-- Escolher o mês sem precisar bater seta por seta. Um diálogo só serve as
-     seis telas que navegam por mês: elas diferem no estado, não no gesto. -->
-<!-- Importar extrato. Dois passos no mesmo diálogo: escolher o arquivo e o
-     destino, depois conferir linha a linha. O segundo passo é o que importa —
-     é lá que se decide o que entra, com que categoria, e o que já existe. -->
-
 
 <dialog id="dlg-mes">
   <div class="layer-head">
@@ -3866,9 +3837,6 @@
   <div class="layer-body"><div class="calor" id="cc-mapa"></div></div>
 </dialog>
 
-<dialog id="dlg-planos">
-  <div class="layer-head"><h3>Planos</h3><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
-  <div class="layer-body"><div class="opt-list" id="planos-lista"></div></div>
 </dialog>
 
 <dialog id="dlg-mensagem">
@@ -3969,38 +3937,36 @@
   if (!state.perfil) state.perfil = { nome: "Leonam", email: "leonam@exemplo.com" };
   // Sessão guarda só "entrou ou não". Senha nunca entra no state.
   if (!state.sessao) state.sessao = { entrou: false };
-  if (!state.assinatura) {
-    state.assinatura = {
-      planoId: "pro", status: "ATIVA", proximaCobranca: "2026-10-05", valorMensal: 29.90,
-      cartao: { bandeira: "Visa", final: "4242", nome: "LEONAM S SILVA", validade: "09/29" },
-      historico: []
-    };
-  }
-  if (!state.assinatura.historico) state.assinatura.historico = [];
   function persist() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {} }
 
-  var PLANOS = [
-    { id: "free", nome: "Gratuito", preco: 0, periodo: "sempre", desc: "Até 2 contas e 1 cartão. Sem recorrência nem parcelamento." },
-    { id: "pro", nome: "Pro", preco: 29.90, periodo: "mês", desc: "Contas e cartões ilimitados, lançamentos recorrentes e parcelados." },
-    { id: "anual", nome: "Pro Anual", preco: 23.90, periodo: "mês, cobrado por ano", desc: "Tudo do Pro com desconto, numa cobrança anual." }
-  ];
-  function planoAtual() {
-    return PLANOS.filter(function (p) { return p.id === state.assinatura.planoId; })[0] || PLANOS[1];
-  }
+  /* ================= onde dá para cobrar =================
+   *
+   * A mesma página roda em dois lugares, e só num deles podemos cobrar:
+   *
+   *   NAVEGADOR   checkout do Asaas, hospedado por eles. O CPF e o cartão
+   *               são pedidos na tela deles, nunca aqui.
+   *   APP DA PLAY o app é um TWA — um invólucro que abre ESTE site. Para o
+   *               Google, as páginas daqui estão DENTRO do app, e a política
+   *               de pagamentos exige que bem digital vendido dentro do app
+   *               passe pelo faturamento do Play. Mais que isso: lá dentro
+   *               não se pode nem LINKAR para a nossa cobrança. Então, até
+   *               o Play Billing existir, assinar some por completo.
+   *
+   * Como saber onde estamos: `getDigitalGoodsService` só existe quando a
+   * página roda dentro de um TWA instalado pela Play. É a própria API do
+   * Play Billing servindo de detector — não depende de user-agent, que
+   * qualquer um falsifica, nem de acordo nosso com o invólucro. */
+  /** O que o servidor diz sobre a assinatura desta conta, e o catálogo de
+   * planos. Nulos enquanto não há servidor ou não dá para cobrar aqui. */
+  var cobranca = null;
+  var cobrancaPlanos = [];
 
-  /* ================= assinatura: fora de alcance por ora =================
-   * O paywall existe no código e NÃO cobra nada: o provedor da API é falso e
-   * o app não chama /billing/. Enquanto for assim, Assinatura e Planos ficam
-   * escondidos.
-   *
-   * O motivo não é estética. A política de pagamentos do Google Play exige
-   * que bem digital vendido dentro do app passe pelo Play Billing, e uma tela
-   * que aceita cartão e escolhe um plano de R$ 29,90 se lê como cobrança por
-   * fora — tenha ela cobrado ou não. Soma-se o risco de alguém digitar o
-   * número real do cartão num formulário que não faz nada.
-   *
-   * Para religar: trocar para true, DEPOIS de o Play Billing existir. */
-  var ASSINATURA_VISIVEL = false;
+  function dentroDoAppDaPlay() {
+    return typeof window.getDigitalGoodsService === "function";
+  }
+  function podeAssinarAqui() {
+    return MODO_API && !dentroDoAppDaPlay();
+  }
 
   /** Assinatura pendente bloqueia PARCIALMENTE: nada de criar registro novo
    * até quitar, mas o que já existe continua editável, pagável e visível —
@@ -4010,8 +3976,18 @@
    * Com a assinatura fora de alcance, nada pode estar bloqueado: senão o app
    * recusaria uma ação apontando para uma tela que o usuário não consegue
    * abrir. */
+  /** Quem decide é o SERVIDOR, não a tela: `podeCriarRegistros` é o mesmo
+   * número que a API usa para recusar o POST. Decidir aqui por conta própria
+   * daria uma tela que libera o que o servidor recusa, ou o contrário — e as
+   * duas versões confundem.
+   *
+   * Sem resposta nenhuma, nada bloqueia: é o caso de quem roda sem servidor
+   * e o de quem está dentro do app da Play, onde assinar nem aparece. */
+  function bloqueiaCriacao(respostaDoServidor) {
+    return !!respostaDoServidor && respostaDoServidor.podeCriarRegistros === false;
+  }
   function assinaturaBloqueada() {
-    return ASSINATURA_VISIVEL && state.assinatura.status === "PENDENTE";
+    return bloqueiaCriacao(cobranca);
   }
   function bloqueado() {
     if (!assinaturaBloqueada()) return false;
@@ -5966,6 +5942,9 @@
     // O servidor não sabe da fila: os pendentes voltam para a lista depois de
     // cada carga, senão sumiriam da tela a cada atualização.
     aplicarFilaNoEstado();
+    // A cobrança vem na mesma carga: é ela que diz se criar registro está
+    // liberado, e esse número precisa chegar junto com o resto, não depois.
+    await cobrancaCarregar();
     persist();
   }
 
@@ -6291,6 +6270,7 @@
     // que não é de quem acabou de entrar.
     cpMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
     cpPessoaAberta = null; cpExtrato = null; cpResumo = null; cpPessoas = [];
+    cobranca = null; cobrancaPlanos = [];
     cartaoSel = null; faturaMes = null;
     carregarFila();
     try {
@@ -6298,6 +6278,10 @@
       // Falhar aqui não pode derrubar a entrada: o resto do app funciona sem
       // este módulo, e quem acabou de entrar não quer ver erro por causa dele.
       await cpCarregar().catch(function () {});
+      // O retorno do checkout do gateway chega como `?assinatura=` na URL.
+      // Só depois da carga, porque o recado que ele dá depende do que o
+      // servidor respondeu — e não do que o endereço afirma.
+      await conferirVoltaDoCheckout();
     } catch (e) {
       // Sem rede, o app abre com o que já estava no aparelho da última vez —
       // dado velho e dito como tal é melhor que tela vazia.
@@ -12750,16 +12734,19 @@
 
   function abrirPerfilMenu() {
     var p = state.perfil, bloq = assinaturaBloqueada();
-    ["assinatura", "planos"].forEach(function (acao) {
-      var b = document.querySelector('[data-perfil="' + acao + '"]');
-      if (b) b.hidden = !ASSINATURA_VISIVEL;
-    });
+    // "Planos" sumiu: escolher plano agora acontece na própria tela de
+    // assinatura, que é onde o preço vem do servidor.
+    var bAss = document.querySelector('[data-perfil="assinatura"]');
+    if (bAss) bAss.hidden = !podeAssinarAqui();
+    var bPlanos = document.querySelector('[data-perfil="planos"]');
+    if (bPlanos) bPlanos.hidden = true;
     document.getElementById("pf-nome-head").textContent = p.nome;
     document.getElementById("pf-email-head").textContent = p.email;
     var pill = document.getElementById("pf-status");
-    pill.textContent = bloq ? "Pendente" : "Em dia";
+    var st = cobranca && cobranca.assinatura ? cobranca.assinatura.status : null;
+    pill.textContent = SITUACAO[st] ? SITUACAO[st].curto : "Sem assinatura";
     pill.className = "tag " + (bloq ? "danger" : "ok");
-    document.getElementById("pf-plano").textContent = "Plano " + planoAtual().nome;
+    document.getElementById("pf-plano").textContent = rotuloDaAssinatura();
     atualizarConvitesDeInstalacao();
     abrir("dlg-perfil");
   }
@@ -12787,96 +12774,157 @@
     persist(); renderPerfil(); fechar("dlg-meu-perfil");
   });
 
+  /** Os estados que o servidor devolve, em português e com o que cada um
+   * significa para quem lê. São os mesmos nomes do enum da API: traduzir
+   * aqui e não lá evita dois vocabulários para a mesma coisa. */
+  var SITUACAO = {
+    ACTIVE:     { curto: "Ativa",     cor: "var(--positive)", frase: "Tudo em dia." },
+    TRIALING:   { curto: "Em teste",  cor: "var(--positive)", frase: "Período de teste em andamento." },
+    PAST_DUE:   { curto: "Pendente",  cor: "var(--warning)",  frase: "A última cobrança não foi paga." },
+    INCOMPLETE: { curto: "Incompleta", cor: "var(--warning)", frase: "O pagamento foi aberto e não se concluiu." },
+    CANCELED:   { curto: "Cancelada", cor: "var(--fg-muted)", frase: "Esta assinatura foi encerrada." }
+  };
+
+  function rotuloDaAssinatura() {
+    if (!cobranca || !cobranca.assinatura) return "Sem assinatura";
+    return "Plano " + (cobranca.assinatura.plan ? cobranca.assinatura.plan.name : "—");
+  }
+
+  /** Lê do servidor a assinatura e o catálogo. Um só lugar: toda tela que
+   * fala de cobrança lê daqui, e nenhuma guarda preço próprio. */
+  async function cobrancaCarregar() {
+    if (!podeAssinarAqui()) { cobranca = null; cobrancaPlanos = []; return; }
+    try {
+      var r = await Promise.all([api("/billing/subscription"), api("/billing/plans")]);
+      cobranca = r[0];
+      cobrancaPlanos = r[1] || [];
+    } catch (e) {
+      // Falha ao ler cobrança não pode derrubar o resto: o app continua
+      // servindo os dados, e só a tela de assinatura fica indisponível.
+      cobranca = null; cobrancaPlanos = [];
+    }
+  }
+
   function abrirAssinatura() {
-    if (!ASSINATURA_VISIVEL) return;
-    var a = state.assinatura, bloq = assinaturaBloqueada(), plano = planoAtual();
-    document.getElementById("as-plano").textContent = plano.nome;
-    document.getElementById("as-preco").textContent = plano.preco > 0
-      ? brl(plano.preco) + " por " + plano.periodo : "sem cobrança";
-    document.getElementById("as-status").textContent = bloq ? "Pendente" : "Ativa";
-    document.getElementById("as-status").style.color = bloq ? "var(--warning)" : "var(--positive)";
-    document.getElementById("as-cobranca").textContent = a.proximaCobranca
-      ? (bloq ? "venceu em " + fmtDia(a.proximaCobranca) : "próxima em " + fmtDia(a.proximaCobranca))
-      : "sem cobrança programada";
+    if (!podeAssinarAqui()) return;
+    desenharAssinatura();
+    if (!document.getElementById("dlg-assinatura").open) abrir("dlg-assinatura");
+  }
 
+  function desenharAssinatura() {
+    var a = cobranca && cobranca.assinatura;
+    var st = a ? SITUACAO[a.status] : null;
+    var ativa = !!a && (a.status === "ACTIVE" || a.status === "TRIALING");
+
+    document.getElementById("as-plano").textContent = a && a.plan ? a.plan.name : "Nenhum";
+    document.getElementById("as-preco").textContent = a && a.plan
+      ? brl(Number(a.plan.amount)) + (a.plan.interval === "YEARLY" ? " por ano" : " por mês")
+      : "sem cobrança";
+    document.getElementById("as-status").textContent = st ? st.curto : "Sem assinatura";
+    document.getElementById("as-status").style.color = st ? st.cor : "var(--fg-muted)";
+    document.getElementById("as-cobranca").textContent = a && a.currentPeriodEnd
+      ? "vale até " + fmtDia(String(a.currentPeriodEnd).slice(0, 10))
+      : (ativa ? "renova automaticamente" : "nada programado");
+
+    var bloq = assinaturaBloqueada();
     document.getElementById("as-aviso").hidden = !bloq;
-    document.getElementById("as-aviso-texto").textContent =
-      "Enquanto estiver pendente, criar conta, lançamento, cartão ou categoria fica bloqueado. Consultar, editar e pagar fatura continuam liberados.";
-    document.getElementById("as-quitar").style.display = bloq ? "" : "none";
-    document.getElementById("as-simular").style.display = bloq ? "none" : "";
+    document.getElementById("as-aviso-texto").textContent = st
+      ? st.frase + " Enquanto não regularizar, criar conta, lançamento, cartão ou categoria fica bloqueado — consultar, editar e pagar fatura continuam liberados."
+      : "";
 
-    document.getElementById("as-cartao").textContent = a.cartao
-      ? a.cartao.bandeira + " •••• " + a.cartao.final
-      : "Nenhum cartão cadastrado";
-    document.getElementById("as-cartao-meta").textContent = a.cartao
-      ? a.cartao.nome + " · validade " + a.cartao.validade : "Necessário para renovar";
+    // Os planos vêm do servidor, com o preço que a cobrança vai usar. Preço
+    // escrito na tela é preço que um dia diverge do que o cartão recebe.
+    var pagos = cobrancaPlanos.filter(function (p) { return Number(p.amount) > 0; });
+    document.getElementById("as-planos-wrap").hidden = ativa || !pagos.length;
+    document.getElementById("as-planos").innerHTML = pagos.map(function (p) {
+      return '<button type="button" class="opt" data-assinar="' + esc(p.code) + '">' +
+        '<span class="opt-linha">' + esc(p.name) +
+        '<span class="tag">' + brl(Number(p.amount)) + '</span></span>' +
+        '<span class="opt-meta">' + (p.interval === "YEARLY" ? "cobrado uma vez por ano" : "cobrado todo mês") +
+        ' · cartão de crédito</span></button>';
+    }).join("");
 
-    document.getElementById("as-historico-wrap").hidden = !a.historico.length;
-    document.getElementById("as-historico").innerHTML = a.historico.slice(0, 4).map(function (h) {
+    var cobrancas = (a && a.invoices) || [];
+    document.getElementById("as-historico-wrap").hidden = !cobrancas.length;
+    document.getElementById("as-historico").innerHTML = cobrancas.slice(0, 6).map(function (h) {
       return '<div class="row"><span class="row-main"><span class="row-title">' +
-        '<span class="row-name">' + esc(h.desc) + '</span></span>' +
-        '<span class="row-meta">' + fmtDia(h.data) + '</span></span>' +
-        '<span class="row-val num">' + money(h.valor) + '</span></div>';
+        '<span class="row-name">' + (COBRANCA_STATUS[h.status] || h.status) + '</span></span>' +
+        '<span class="row-meta">' + fmtDia(String(h.dueDate).slice(0, 10)) + '</span></span>' +
+        '<span class="row-val num">' + money(Number(h.amount)) + '</span></div>';
     }).join("");
 
-    var dlg = document.getElementById("dlg-assinatura");
-    if (!dlg.open) abrir("dlg-assinatura");
+    document.getElementById("as-cancelar").style.display = ativa ? "" : "none";
+    document.getElementById("as-erro").textContent = "";
   }
 
-  document.getElementById("as-simular").addEventListener("click", function () {
-    state.assinatura.status = "PENDENTE";
-    if (!state.assinatura.proximaCobranca) state.assinatura.proximaCobranca = isoDate(dataDeHoje());
-    persist(); renderPerfil(); abrirAssinatura();
-  });
-  document.getElementById("as-quitar").addEventListener("click", function () {
-    var a = state.assinatura;
-    if (!a.cartao) { abrirCartaoPagamento(); return; }
-    a.status = "ATIVA";
-    a.historico.unshift({ data: isoDate(dataDeHoje()), desc: "Regularização — Plano " + planoAtual().nome, valor: a.valorMensal });
-    a.proximaCobranca = isoDate(adicionarMeses(dataDeHoje(), 1));
-    persist(); renderAll(); abrirAssinatura();
+  var COBRANCA_STATUS = { PAID: "Paga", PENDING: "Em aberto", FAILED: "Não paga", REFUNDED: "Estornada" };
+
+  /** Abre a tela de pagamento do gateway e manda o navegador para lá.
+   *
+   * O que NÃO acontece aqui: nenhum dado de pagamento é pedido. Nem cartão,
+   * nem CPF. Quem pede é a tela do gateway, direto ao pagador — por isso
+   * este app não tem (e não pode ter) formulário de cartão. */
+  document.getElementById("as-planos").addEventListener("click", async function (e) {
+    var b = e.target.closest("[data-assinar]");
+    if (!b || b.disabled) return;
+    var erro = document.getElementById("as-erro");
+    erro.textContent = "";
+    b.disabled = true;
+    try {
+      // Só o plano. Para onde o gateway devolve quem pagou é decidido no
+      // servidor: com a URL saindo daqui, bastava um pedido forjado para o
+      // gateway devolver o usuário no site de outra pessoa, com a aparência
+      // de ter vindo da nossa cobrança.
+      var r = await api("/billing/checkout", { planCode: b.dataset.assinar });
+      // `replace` e não `href`: voltar para esta tela com o botão do
+      // navegador não deve reabrir um checkout que já foi usado.
+      location.replace(r.url);
+    } catch (err) {
+      erro.textContent = err.message;
+      b.disabled = false;
+    }
   });
 
-  function abrirCartaoPagamento() {
-    document.getElementById("form-cartao-pag").reset();
-    document.getElementById("cp-erro").textContent = "";
-    abrir("dlg-cartao-pag");
-  }
-  document.getElementById("as-trocar-cartao").addEventListener("click", abrirCartaoPagamento);
-  document.getElementById("form-cartao-pag").addEventListener("submit", function (e) {
-    e.preventDefault();
-    var numero = document.getElementById("cp-numero").value.replace(/\D/g, "");
-    if (numero.length < 12) { document.getElementById("cp-erro").textContent = "Número de cartão inválido."; return; }
-    // Só bandeira e quatro últimos dígitos são guardados; número e CVV são descartados.
-    state.assinatura.cartao = {
-      bandeira: numero.charAt(0) === "4" ? "Visa" : (numero.charAt(0) === "5" ? "Mastercard" : "Cartão"),
-      final: numero.slice(-4),
-      nome: document.getElementById("cp-nome").value.trim(),
-      validade: document.getElementById("cp-validade").value.trim()
-    };
-    persist(); fechar("dlg-cartao-pag"); abrirAssinatura();
+  document.getElementById("as-cancelar").addEventListener("click", function () {
+    pedirConfirmacao({
+      titulo: "Cancelar a assinatura?",
+      detalhe: "A cobrança não se repete mais. Nada é apagado: os seus lançamentos continuam onde estão, e você segue podendo consultar e editar o que já existe.",
+      acao: "Cancelar assinatura",
+      destrutivo: true
+    }, async function () {
+      try {
+        await api("/billing/subscription", null, "DELETE");
+        await cobrancaCarregar();
+        desenharAssinatura();
+        renderPerfil();
+      } catch (err) { document.getElementById("as-erro").textContent = err.message; }
+    });
   });
 
-  function abrirPlanos() {
-    if (!ASSINATURA_VISIVEL) return;
-    document.getElementById("planos-lista").innerHTML = PLANOS.map(function (p) {
-      var atual = p.id === state.assinatura.planoId;
-      return '<button type="button" class="opt" data-plano="' + p.id + '"' + (atual ? " disabled" : "") + '>' +
-        '<span class="opt-linha">' + p.nome +
-        '<span class="tag' + (atual ? " ok" : "") + '">' + (atual ? "atual" : (p.preco > 0 ? brl(p.preco) : "grátis")) + '</span></span>' +
-        '<span class="opt-meta">' + p.desc + (p.preco > 0 ? " · " + brl(p.preco) + " por " + p.periodo : "") + '</span></button>';
-    }).join("");
-    abrir("dlg-planos");
+  /** O retorno do gateway. A URL só diz que a pessoa voltou — quem confirma
+   * pagamento é o webhook, e por isso aqui a tela apenas RELÊ do servidor em
+   * vez de acreditar no endereço. Alguém digitando "?assinatura=ok" na barra
+   * não libera nada. */
+  async function conferirVoltaDoCheckout() {
+    var q = new URLSearchParams(location.search);
+    if (!q.get("assinatura")) return;
+    var veio = q.get("assinatura");
+    history.replaceState(null, "", location.pathname);
+    if (!podeAssinarAqui()) return;
+
+    await cobrancaCarregar();
+    renderPerfil();
+    var a = cobranca && cobranca.assinatura;
+    if (a && (a.status === "ACTIVE" || a.status === "TRIALING")) {
+      avisar("Assinatura ativa", "Pagamento confirmado. Obrigado!");
+    } else if (veio === "cancelada") {
+      avisar("Pagamento não concluído", "Você saiu antes de terminar. Nada foi cobrado, e dá para tentar de novo quando quiser.");
+    } else {
+      // Pode ser só demora: o webhook chega em segundos, mas chega depois.
+      avisar("Confirmando o pagamento",
+        "O gateway ainda está confirmando. Isso costuma levar alguns segundos — recarregue a página em instantes.");
+    }
   }
-  document.getElementById("planos-lista").addEventListener("click", function (e) {
-    var b = e.target.closest("[data-plano]");
-    if (!b) return;
-    var p = PLANOS.filter(function (x) { return x.id === b.dataset.plano; })[0];
-    if (!p) return;
-    state.assinatura.planoId = p.id;
-    state.assinatura.valorMensal = p.preco;
-    persist(); renderPerfil(); fechar("dlg-planos"); abrirAssinatura();
-  });
 
   function abrirMensagem(tipo) {
     var suporte = tipo === "suporte";
@@ -12903,7 +12951,6 @@
     if (acao === "config") abrirConfig();
     if (acao === "meu") abrirMeuPerfil();
     if (acao === "assinatura") abrirAssinatura();
-    if (acao === "planos") abrirPlanos();
     if (acao === "instalar") instalarApp();
     if (acao === "zerar") comecarDoZero();
     if (acao === "sair") sairDaConta();
@@ -13000,15 +13047,16 @@
    * aconteceu, para ninguém achar que foi erro.
    *
    * Não troca o `state` por um `seed()` novo: as listas são normalizadas uma
-   * vez na partida (assinatura, perfil, campos que versões antigas não
-   * tinham), e um objeto recém-criado chega sem nada disso — o primeiro
-   * desenho morre lendo `state.assinatura.status`. Esvaziar o que existe é o
-   * que mantém o formato de pé. */
+   * vez na partida (perfil, campos que versões antigas não tinham), e um
+   * objeto recém-criado chega sem nada disso — o primeiro desenho morre
+   * lendo o que ainda não existe. Esvaziar o que existe é o que mantém o
+   * formato de pé. */
   function esquecerContaApagada() {
     state.transferencias = [];
     state.objetivos = [];
     state.planejamentos = [];
     state.perfil = { nome: "", email: "" };
+    cobranca = null; cobrancaPlanos = [];
     sairDaConta("Conta excluída. Seus dados foram apagados do servidor.");
   }
 

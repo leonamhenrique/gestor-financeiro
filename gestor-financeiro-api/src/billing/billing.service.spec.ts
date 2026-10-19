@@ -227,7 +227,7 @@ describe('BillingService — checkout hospedado', () => {
   });
 
   it('devolve a URL e guarda o id do checkout ANTES de o usuário sair do app', async () => {
-    const r = await service.iniciarCheckout('u1', 'pro-mensal', 'https://ok', 'https://nao');
+    const r = await service.iniciarCheckout('u1', 'pro-mensal');
 
     expect(r).toEqual({ url: 'https://asaas/pagar' });
     const gravado = prisma.subscription.upsert.mock.calls[0][0].create;
@@ -237,10 +237,23 @@ describe('BillingService — checkout hospedado', () => {
   });
 
   it('nenhum dado de pagamento é pedido ao app: nem CPF, nem cartão', async () => {
-    await service.iniciarCheckout('u1', 'pro-mensal', 'https://ok', 'https://nao');
+    await service.iniciarCheckout('u1', 'pro-mensal');
     const enviado = gateway.criarCheckout.mock.calls[0][0];
     expect(Object.keys(enviado)).not.toContain('cpfCnpj');
     expect(Object.keys(enviado)).not.toContain('paymentToken');
+  });
+
+  // Com a URL vindo de fora, bastava um pedido forjado para o gateway
+  // devolver quem pagou no site de outra pessoa -- e com a aparencia de ter
+  // vindo da nossa cobranca.
+  it('o endereço de retorno é do servidor, e um pedido forjado não o troca', async () => {
+    // O `as any` imita o que um cliente mal-intencionado mandaria: um campo
+    // a mais no corpo, que o TypeScript nem deixaria escrever de propósito.
+    await (service.iniciarCheckout as any)('u1', 'pro-mensal', 'https://site-falso.test/ok');
+    const enviado = gateway.criarCheckout.mock.calls[0][0];
+    expect(enviado.urlSucesso).not.toContain('site-falso');
+    expect(enviado.urlSucesso).toContain('saldonline.com.br');
+    expect(enviado.urlCancelamento).toContain('saldonline.com.br');
   });
 
   const PAGAMENTO = {
@@ -322,20 +335,20 @@ describe('BillingService — checkout hospedado', () => {
 
   it('recusa checkout de plano sem cobrança e de quem já está ativo', async () => {
     prisma.plan.findUnique.mockResolvedValue({ ...PLANO, amount: 0 });
-    await expect(service.iniciarCheckout('u1', 'gratis', 'https://a', 'https://b')).rejects.toThrow(
+    await expect(service.iniciarCheckout('u1', 'gratis')).rejects.toThrow(
       /sem cobrança/,
     );
 
     prisma.plan.findUnique.mockResolvedValue(PLANO);
     prisma.subscription.findUnique.mockResolvedValue({ status: SubscriptionStatus.ACTIVE });
-    await expect(service.iniciarCheckout('u1', 'pro-mensal', 'https://a', 'https://b')).rejects.toThrow(
+    await expect(service.iniciarCheckout('u1', 'pro-mensal')).rejects.toThrow(
       /já tem uma assinatura ativa/,
     );
   });
 
   it('gateway sem tela hospedada diz isso em vez de falhar torto', async () => {
     delete gateway.criarCheckout;
-    await expect(service.iniciarCheckout('u1', 'pro-mensal', 'https://a', 'https://b')).rejects.toThrow(
+    await expect(service.iniciarCheckout('u1', 'pro-mensal')).rejects.toThrow(
       /não tem tela de pagamento hospedada/,
     );
   });
