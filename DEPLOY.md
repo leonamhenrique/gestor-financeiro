@@ -157,6 +157,63 @@ O `prisma migrate deploy` roda sozinho no start do Render, aplicando no banco
 do Neon o que ainda falta. Migration que **apaga** coluna ou tabela some com
 os dados de verdade: leia o SQL gerado antes do push.
 
+## Ligar a cobrança (Asaas)
+
+A cobrança acontece **pela web**, no checkout hospedado do Asaas. Dentro do app
+da Play ela não existe: lá a política do Google exige o faturamento do Play, e
+nem linkar para a nossa cobrança é permitido.
+
+Enquanto `PAYMENT_PROVIDER` for `FAKE`, a tela de assinatura **some sozinha** no
+app — a API responde que não há com que cobrar. Nada de ruim acontece se você
+parar no meio desta receita.
+
+**1. Conta e chave.** No painel do Asaas de **produção**, menu do usuário →
+Integrações → gerar API Key. Ela aparece **uma vez só**. A de produção não tem o
+prefixo `$aact_hmlg_` (esse é do sandbox) — e o adaptador recusa rodar se a
+chave não combinar com a `ASAAS_BASE_URL`, para um teste não cobrar ninguém de
+verdade.
+
+**2. Token do webhook.** Um valor que **você inventa**, de 32 a 255 caracteres,
+e que não pode ser a chave de API. Guarde: o Asaas só o mostra na criação.
+
+**3. No painel do Render** (Environment), preencha **antes** de trocar o
+provedor:
+
+| variável | valor |
+|---|---|
+| `ASAAS_API_KEY` | a chave de produção |
+| `ASAAS_WEBHOOK_TOKEN` | o token que você inventou |
+| `APP_URL` | `https://saldonline.com.br` (se ainda não estiver) |
+
+Depois troque `PAYMENT_PROVIDER` para `ASAAS`. A ordem importa: com `ASAAS` e
+sem chave, quem tentar assinar vê erro.
+
+**4. O webhook, no painel do Asaas.** URL
+`https://<a-api-no-render>/billing/webhook`, com o token do passo 2 e estes seis
+eventos:
+
+```
+PAYMENT_CONFIRMED  PAYMENT_RECEIVED  PAYMENT_OVERDUE
+CHECKOUT_PAID      CHECKOUT_CANCELED  CHECKOUT_EXPIRED
+```
+
+Depois de **15 falhas seguidas o Asaas PAUSA a fila inteira** e para de mandar
+eventos até alguém reativar. Se as assinaturas pararem de ser liberadas, é o
+primeiro lugar para olhar.
+
+**5. Os planos.** Os preços que o app mostra saem da tabela `plans` do Neon — não
+há preço escrito na tela. Confira o que está lá antes de ligar.
+
+**6. Conferir.** Assine com um cartão de verdade, de valor baixo se possível, e
+veja a assinatura virar `ACTIVE` sozinha. Se ficar em `INCOMPLETE`, o pagamento
+aconteceu e o webhook não chegou — confira a URL e o token.
+
+### O que NÃO passa por aqui
+
+Número de cartão e CPF. Os dois são pedidos na tela do Asaas, direto ao
+pagador. É de propósito: mantém o app fora do escopo pesado do PCI-DSS e o CPF
+fora do nosso banco e da declaração de Data Safety da Play.
+
 ## O que esperar (e o que não)
 
 - **A API grátis do Render dorme** depois de 15 minutos parada. A primeira
@@ -490,8 +547,10 @@ O Gradle gera **sem assinatura** — o projeto não tem `signingConfigs`, quem
 assinaria seria o Bubblewrap. Então a assinatura vai em passo separado:
 
 ```
-jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore android.keystore -signedjar app-release-bundle.aab appuildoutputsundleeleaseapp-release.aab android
-zipalign -f -p 4 appuildoutputsapkeleaseapp-release-unsigned.apk app-release-aligned.apk
+jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore android.keystore -signedjar app-release-bundle.aab appuildoutputsundle
+eleaseapp-release.aab android
+zipalign -f -p 4 appuildoutputsapk
+eleaseapp-release-unsigned.apk app-release-aligned.apk
 apksigner sign --ks android.keystore --ks-key-alias android --out app-release-signed.apk app-release-aligned.apk
 ```
 

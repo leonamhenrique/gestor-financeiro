@@ -46,7 +46,11 @@ services:
       # DIRECT_URL    → a mesma do Neon, mas a DIRETA (sem "-pooler"): as
       #                 migrations não passam por pool (ver prisma/schema.prisma)
       # CORS_ORIGINS  → a URL do app no Cloudflare Pages, ex.: https://gestor-financeiro.pages.dev
-      # APP_URL       → a mesma URL do app (usada nos links de e-mail)
+      # APP_URL       → a mesma URL do app. Usada nos links de e-mail E como
+      #                 endereço de retorno do checkout do Asaas: é de onde
+      #                 sai o "para onde devolver quem pagou", que nunca vem
+      #                 do cliente. Precisa ser https e público — o Asaas
+      #                 recusa endereço local.
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
@@ -73,6 +77,35 @@ services:
       # ele é público. A chave começa com "re_".
       - key: RESEND_API_KEY
         sync: false
+      # ---- Cobrança de assinatura (Asaas) ----
+      #
+      # FAKE sobe a API sem gateway nenhum: a tela de assinatura some
+      # sozinha no app, porque a resposta de /billing/subscription diz que
+      # não há com que cobrar. Trocar para ASAAS LIGA a cobrança.
+      #
+      # ORDEM IMPORTA, como no Resend: preencha as três variáveis abaixo no
+      # painel ANTES de trocar este valor. Com ASAAS e sem chave, o primeiro
+      # pedido de checkout falha — e quem tentar assinar vê erro.
+      - key: PAYMENT_PROVIDER
+        value: FAKE
+      # Preencher no painel do Render. NUNCA no repositório: ele é público.
+      #
+      # ASAAS_API_KEY       a chave de PRODUÇÃO da conta Asaas. A de sandbox
+      #                     começa com "$aact_hmlg_" e o adaptador recusa
+      #                     rodar se ela não combinar com a URL abaixo.
+      # ASAAS_WEBHOOK_TOKEN valor que VOCÊ inventa (32 a 255 caracteres) e
+      #                     repete ao criar o webhook no painel do Asaas. Não
+      #                     é a chave de API. Sem ele, a rota de webhook
+      #                     recusa tudo — que é o certo.
+      - key: ASAAS_API_KEY
+        sync: false
+      - key: ASAAS_WEBHOOK_TOKEN
+        sync: false
+      # Produção. O sandbox é https://api-sandbox.asaas.com/v3 — e apontar
+      # para lá com chave de produção (ou o contrário) é recusado antes de a
+      # chamada sair, para um teste não cobrar gente de verdade.
+      - key: ASAAS_BASE_URL
+        value: https://api.asaas.com/v3
       # Este não é segredo e fica versionado. O domínio precisa estar
       # verificado no Resend, e o endereço não precisa de caixa postal: o
       # Resend só envia, e quem responder cai em contato@saldonline.com.br
