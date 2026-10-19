@@ -346,6 +346,25 @@ describe('BillingService — checkout hospedado', () => {
     );
   });
 
+  // A tela precisa saber ANTES de oferecer: com o provedor de
+  // desenvolvimento nao ha tela de pagamento, e um plano que falha no clique
+  // e pior do que plano nenhum.
+  it('a resposta diz se existe gateway capaz de cobrar', async () => {
+    const { BillingController } = require('./billing.controller');
+    prisma.subscription.findUnique.mockResolvedValue(null);
+
+    const comGateway = new BillingController({ obterAssinatura: async () => null, podeCriarRegistros: async () => true } as any, gateway);
+    await expect(comGateway.minhaAssinatura({ user: { id: 'u1' } } as any)).resolves.toEqual(
+      expect.objectContaining({ checkoutDisponivel: true }),
+    );
+
+    const semGateway = { ...gateway, criarCheckout: undefined };
+    const sem = new BillingController({ obterAssinatura: async () => null, podeCriarRegistros: async () => true } as any, semGateway as any);
+    await expect(sem.minhaAssinatura({ user: { id: 'u1' } } as any)).resolves.toEqual(
+      expect.objectContaining({ checkoutDisponivel: false }),
+    );
+  });
+
   it('gateway sem tela hospedada diz isso em vez de falhar torto', async () => {
     delete gateway.criarCheckout;
     await expect(service.iniciarCheckout('u1', 'pro-mensal')).rejects.toThrow(

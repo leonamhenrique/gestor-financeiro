@@ -3967,6 +3967,16 @@
   function podeAssinarAqui() {
     return MODO_API && !dentroDoAppDaPlay();
   }
+  /** O servidor tem com que cobrar? Com o provedor de desenvolvimento não há
+   * tela de pagamento nenhuma, e oferecer um plano que falha no clique é
+   * pior do que não oferecer. Quem responde é a própria API, não um palpite
+   * daqui sobre qual gateway está configurado lá. */
+  function servidorTemCheckout(respostaDoServidor) {
+    return !!respostaDoServidor && respostaDoServidor.checkoutDisponivel === true;
+  }
+  function temComoCobrar() {
+    return podeAssinarAqui() && servidorTemCheckout(cobranca);
+  }
 
   /** Assinatura pendente bloqueia PARCIALMENTE: nada de criar registro novo
    * até quitar, mas o que já existe continua editável, pagável e visível —
@@ -12737,7 +12747,7 @@
     // "Planos" sumiu: escolher plano agora acontece na própria tela de
     // assinatura, que é onde o preço vem do servidor.
     var bAss = document.querySelector('[data-perfil="assinatura"]');
-    if (bAss) bAss.hidden = !podeAssinarAqui();
+    if (bAss) bAss.hidden = !temComoCobrar();
     var bPlanos = document.querySelector('[data-perfil="planos"]');
     if (bPlanos) bPlanos.hidden = true;
     document.getElementById("pf-nome-head").textContent = p.nome;
@@ -12806,7 +12816,7 @@
   }
 
   function abrirAssinatura() {
-    if (!podeAssinarAqui()) return;
+    if (!temComoCobrar()) return;
     desenharAssinatura();
     if (!document.getElementById("dlg-assinatura").open) abrir("dlg-assinatura");
   }

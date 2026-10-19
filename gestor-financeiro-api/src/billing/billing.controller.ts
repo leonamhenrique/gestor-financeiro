@@ -47,6 +47,10 @@ export class BillingController {
     return {
       assinatura,
       podeCriarRegistros: await this.billing.podeCriarRegistros(userId),
+      // Se existe gateway capaz de abrir tela de pagamento. Com o provedor
+      // falso não existe, e a tela precisa saber disso ANTES de oferecer um
+      // plano: oferecer e falhar no clique é pior do que não oferecer.
+      checkoutDisponivel: typeof this.gateway.criarCheckout === 'function',
     };
   }
 
