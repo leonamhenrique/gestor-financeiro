@@ -365,6 +365,44 @@ describe('BillingService — checkout hospedado', () => {
     );
   });
 
+  // O caso que gerou tudo isto: cancelou no dia 3, pagou ate o dia 30.
+  it('cancelar nao tira o acesso do ciclo ja pago', async () => {
+    const fim = new Date(Date.now() + 20 * 24 * 3600 * 1000);
+    prisma.subscription.findUnique.mockResolvedValue({
+      id: 's1', planId: 'p1', providerSubscriptionId: 'sub_1',
+      status: SubscriptionStatus.CANCELED, cancelAtPeriodEnd: true, currentPeriodEnd: fim,
+    });
+    await expect(service.podeCriarRegistros('u1')).resolves.toBe(true);
+  });
+
+  it('passado o fim do ciclo, bloqueia', async () => {
+    const ontem = new Date(Date.now() - 24 * 3600 * 1000);
+    prisma.subscription.findUnique.mockResolvedValue({
+      id: 's1', planId: 'p1', providerSubscriptionId: 'sub_1',
+      status: SubscriptionStatus.CANCELED, cancelAtPeriodEnd: true, currentPeriodEnd: ontem,
+    });
+    await expect(service.podeCriarRegistros('u1')).resolves.toBe(false);
+  });
+
+  // Antes isto lia um campo que o gateway nunca mandou, e ficava sempre
+  // nulo -- sem data, a cortesia acima nao teria em que se apoiar.
+  it('o pagamento grava ate quando vale o ciclo, a partir do vencimento', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', planId: 'p1', providerCheckoutId: 'chk_1' });
+    prisma.plan.findUnique.mockResolvedValue({ ...PLANO, interval: 'MONTHLY' });
+    gateway.consultarCobranca.mockResolvedValue({
+      pago: true, valor: 29.9, vencimento: new Date('2026-11-05T00:00:00.000Z'),
+      providerSubscriptionId: 'sub_1', providerCheckoutId: 'chk_1',
+    });
+
+    await service.aplicarEvento({
+      providerEventId: 'evt_fim', type: 'invoice.paid', payload: {},
+      providerInvoiceId: 'pay_9', providerCheckoutId: 'chk_1',
+    });
+
+    const gravado = prisma.subscription.update.mock.calls[0][0].data.currentPeriodEnd;
+    expect(gravado.toISOString().slice(0, 10)).toBe('2026-12-05');
+  });
+
   it('gateway sem tela hospedada diz isso em vez de falhar torto', async () => {
     delete gateway.criarCheckout;
     await expect(service.iniciarCheckout('u1', 'pro-mensal')).rejects.toThrow(

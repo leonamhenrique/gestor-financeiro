@@ -58,6 +58,9 @@ export interface CheckoutRemoto {
 export interface CobrancaRemota {
   pago: boolean;
   valor: number;
+  /** Vencimento desta cobrança. É dele que sai até quando vale o ciclo
+   * pago — e, por consequência, até quando quem cancelou segue com acesso. */
+  vencimento?: Date;
   providerSubscriptionId?: string;
   providerCustomerId?: string;
   /** A tela de pagamento que originou a cobrança. É por este id que a

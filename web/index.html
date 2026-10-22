@@ -12792,7 +12792,13 @@
     TRIALING:   { curto: "Em teste",  cor: "var(--positive)", frase: "Período de teste em andamento." },
     PAST_DUE:   { curto: "Pendente",  cor: "var(--warning)",  frase: "A última cobrança não foi paga." },
     INCOMPLETE: { curto: "Incompleta", cor: "var(--warning)", frase: "O pagamento foi aberto e não se concluiu." },
-    CANCELED:   { curto: "Cancelada", cor: "var(--fg-muted)", frase: "Esta assinatura foi encerrada." }
+    CANCELED:   { curto: "Cancelada", cor: "var(--fg-muted)", frase: "Esta assinatura foi encerrada." },
+    // Cancelada, mas o ciclo pago ainda corre. É estado nosso, não do
+    // servidor: nasce de CANCELED mais uma data no futuro. Dizer só
+    // "encerrada" para quem ainda tem acesso faria a pessoa achar que
+    // perdeu o que pagou.
+    CANCELADA_VIGENTE: { curto: "Cancelada", cor: "var(--warning)",
+      frase: "Não haverá nova cobrança. O acesso continua até o fim do período já pago." }
   };
 
   function rotuloDaAssinatura() {
@@ -12823,8 +12829,11 @@
 
   function desenharAssinatura() {
     var a = cobranca && cobranca.assinatura;
-    var st = a ? SITUACAO[a.status] : null;
     var ativa = !!a && (a.status === "ACTIVE" || a.status === "TRIALING");
+    // Quem cancelou e ainda tem ciclo pago correndo não está "encerrado":
+    // quem sabe disso é o servidor, em `podeCriarRegistros`.
+    var cortesia = !!a && a.status === "CANCELED" && cobranca.podeCriarRegistros === true;
+    var st = a ? SITUACAO[cortesia ? "CANCELADA_VIGENTE" : a.status] : null;
 
     document.getElementById("as-plano").textContent = a && a.plan ? a.plan.name : "Nenhum";
     document.getElementById("as-preco").textContent = a && a.plan
@@ -12833,14 +12842,15 @@
     document.getElementById("as-status").textContent = st ? st.curto : "Sem assinatura";
     document.getElementById("as-status").style.color = st ? st.cor : "var(--fg-muted)";
     document.getElementById("as-cobranca").textContent = a && a.currentPeriodEnd
-      ? "vale até " + fmtDia(String(a.currentPeriodEnd).slice(0, 10))
+      ? (cortesia ? "acesso até " : ativa ? "renova em " : "valeu até ") +
+        fmtDia(String(a.currentPeriodEnd).slice(0, 10))
       : (ativa ? "renova automaticamente" : "nada programado");
 
     var bloq = assinaturaBloqueada();
-    document.getElementById("as-aviso").hidden = !bloq;
-    document.getElementById("as-aviso-texto").textContent = st
-      ? st.frase + " Enquanto não regularizar, criar conta, lançamento, cartão ou categoria fica bloqueado — consultar, editar e pagar fatura continuam liberados."
-      : "";
+    document.getElementById("as-aviso").hidden = !bloq && !cortesia;
+    document.getElementById("as-aviso-texto").textContent = !st ? ""
+      : cortesia ? st.frase
+      : st.frase + " Enquanto não regularizar, criar conta, lançamento, cartão ou categoria fica bloqueado — consultar, editar e pagar fatura continuam liberados.";
 
     // Os planos vêm do servidor, com o preço que a cobrança vai usar. Preço
     // escrito na tela é preço que um dia diverge do que o cartão recebe.
@@ -12864,6 +12874,9 @@
     }).join("");
 
     document.getElementById("as-cancelar").style.display = ativa ? "" : "none";
+    // Na cortesia, assinar de novo é o que faz sentido — e o bloco de planos
+    // já aparece, porque `ativa` é falso.
+
     document.getElementById("as-erro").textContent = "";
   }
 

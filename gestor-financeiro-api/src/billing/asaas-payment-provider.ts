@@ -186,6 +186,10 @@ export class AsaasPaymentProvider implements PaymentProviderPort {
     return {
       pago: r.status === 'CONFIRMED' || r.status === 'RECEIVED',
       valor: Number(r.value ?? 0),
+      // O vencimento é quem diz até quando vale o que foi pago. Vem da
+      // consulta, e não do corpo do webhook, pelo mesmo motivo de todo o
+      // resto: o corpo prova quem mandou, não o que aconteceu.
+      vencimento: r.dueDate ? new Date(String(r.dueDate) + 'T00:00:00.000Z') : undefined,
       providerSubscriptionId: textoOuNada(r.subscription),
       providerCustomerId: textoOuNada(r.customer),
       providerCheckoutId: textoOuNada(r.checkoutSession),

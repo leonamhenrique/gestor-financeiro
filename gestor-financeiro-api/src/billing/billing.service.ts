@@ -22,8 +22,10 @@ import { Inject, Injectable, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionStatus, SubscriptionInvoiceStatus, Prisma } from '@prisma/client';
 import { PAYMENT_PROVIDER, PaymentProviderPort, EventoWebhook } from './payment-provider.port';
+import { acessoLiberado, fimDoCicloPago } from './acesso';
 
-/** Estados em que a conta segue podendo criar registros. */
+/** Estados em que a conta segue podendo criar registros SEM mais perguntas.
+ * Cancelada com ciclo pago correndo também libera — ver `acessoLiberado`. */
 const STATUS_LIBERADOS: SubscriptionStatus[] = [
   SubscriptionStatus.TRIALING,
   SubscriptionStatus.ACTIVE,
@@ -47,8 +49,7 @@ export class BillingService {
    */
   async podeCriarRegistros(userId: string): Promise<boolean> {
     const assinatura = await this.prisma.subscription.findUnique({ where: { userId } });
-    if (!assinatura) return true;
-    return STATUS_LIBERADOS.includes(assinatura.status);
+    return acessoLiberado(assinatura);
   }
 
   /** O catálogo, para a tela não guardar preço próprio. Preço duplicado no
@@ -391,7 +392,12 @@ export class BillingService {
       where: { id: assinatura.id },
       data: {
         status: SubscriptionStatus.ACTIVE,
-        currentPeriodEnd: this.lerData(evento, 'currentPeriodEnd'),
+        // Até quando vale o que acabou de ser pago. Antes isto lia um campo
+        // que o gateway nunca mandou, e ficava sempre nulo: quem cancelasse
+        // perderia o acesso na hora, sem data em que se apoiar.
+        currentPeriodEnd: real.vencimento && plano
+          ? fimDoCicloPago(real.vencimento, plano.interval)
+          : assinatura.currentPeriodEnd,
         // Na primeira cobrança é aqui que a assinatura e o cliente do
         // gateway entram: antes de pagar, eles não existiam.
         providerSubscriptionId: real.providerSubscriptionId ?? assinatura.providerSubscriptionId,
