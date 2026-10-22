@@ -21,7 +21,9 @@ describe('acessoLiberado()', () => {
     [SubscriptionStatus.ACTIVE, true],
     [SubscriptionStatus.TRIALING, true],
     [SubscriptionStatus.PAST_DUE, false],
-    [SubscriptionStatus.INCOMPLETE, false],
+    // INCOMPLETE libera: quem abriu a tela de pagamento e desistiu volta
+    // para onde estava. Ninguém perde acesso por ter olhado o preço.
+    [SubscriptionStatus.INCOMPLETE, true],
   ])('status %s → libera: %s', (status, esperado) => {
     expect(
       acessoLiberado({ status, cancelAtPeriodEnd: false, currentPeriodEnd: null }),
@@ -87,6 +89,35 @@ describe('acessoLiberado()', () => {
         { status: SubscriptionStatus.PAST_DUE, cancelAtPeriodEnd: true, currentPeriodEnd: EM('2027-01-01') },
         EM('2026-11-03'),
       ),
+    ).toBe(false);
+  });
+});
+
+// O tranco que isto corrige: antes de clicar em "Assinar" nao havia
+// assinatura nenhuma e tudo estava liberado; depois de abrir o checkout e
+// desistir, a linha ficava INCOMPLETE e a conta travava. Olhar o preco
+// trancava o app.
+describe('desistir do checkout não pode trancar a conta', () => {
+  it('quem abriu a tela e nao concluiu fica como estava', () => {
+    const semAssinatura = acessoLiberado(null);
+    const depoisDeDesistir = acessoLiberado({
+      status: SubscriptionStatus.INCOMPLETE,
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: null,
+    });
+    expect(depoisDeDesistir).toBe(semAssinatura);
+    expect(depoisDeDesistir).toBe(true);
+  });
+
+  // E quem ja pagou e parou continua bloqueado: a diferenca entre os dois
+  // e ter recebido o servico.
+  it('mas quem pagou e parou continua bloqueado', () => {
+    expect(
+      acessoLiberado({
+        status: SubscriptionStatus.PAST_DUE,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+      }),
     ).toBe(false);
   });
 });

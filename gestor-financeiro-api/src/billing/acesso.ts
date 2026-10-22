@@ -13,8 +13,22 @@
 
 import { BillingInterval, SubscriptionStatus } from '@prisma/client';
 
-/** Estados em que a conta cria registro sem mais perguntas. */
-const LIBERADOS: SubscriptionStatus[] = [SubscriptionStatus.TRIALING, SubscriptionStatus.ACTIVE];
+/**
+ * Estados em que a conta cria registro sem mais perguntas.
+ *
+ * `INCOMPLETE` está aqui, e é o que corrige um tranco: ele quer dizer
+ * "abriu a tela de pagamento e nunca concluiu". Quem desiste no checkout
+ * tem de voltar exatamente para onde estava — antes de clicar não havia
+ * assinatura nenhuma, e ninguém perde acesso por ter olhado o preço.
+ *
+ * O bloqueio é para quem assinou e PAROU de pagar (`PAST_DUE`), não para
+ * quem nunca pagou.
+ */
+const LIBERADOS: SubscriptionStatus[] = [
+  SubscriptionStatus.TRIALING,
+  SubscriptionStatus.ACTIVE,
+  SubscriptionStatus.INCOMPLETE,
+];
 
 export interface AssinaturaParaAcesso {
   status: SubscriptionStatus;
@@ -27,7 +41,8 @@ export interface AssinaturaParaAcesso {
  * de pagar, não para quem ainda não passou pelo checkout.
  *
  * `PAST_DUE` não entra na cortesia do período: ali a cobrança do ciclo NÃO
- * foi paga, então não há ciclo pago a honrar.
+ * foi paga, então não há ciclo pago a honrar. É o único estado que bloqueia
+ * — e bloqueia porque a pessoa já teve o serviço e deixou de pagar por ele.
  */
 export function acessoLiberado(
   assinatura: AssinaturaParaAcesso | null | undefined,

@@ -56,9 +56,14 @@ describe('BillingService', () => {
       [SubscriptionStatus.TRIALING, true],
       [SubscriptionStatus.PAST_DUE, false],
       [SubscriptionStatus.CANCELED, false],
-      [SubscriptionStatus.INCOMPLETE, false],
+      // INCOMPLETE libera: quem abriu a tela de pagamento e desistiu volta
+      // para onde estava. Ninguém perde acesso por ter olhado o preço — ver
+      // `acessoLiberado`.
+      [SubscriptionStatus.INCOMPLETE, true],
     ])('status %s → pode criar: %s', async (status, esperado) => {
-      prisma.subscription.findUnique.mockResolvedValue({ status });
+      prisma.subscription.findUnique.mockResolvedValue({
+        status, cancelAtPeriodEnd: false, currentPeriodEnd: null,
+      });
       await expect(service.podeCriarRegistros('u1')).resolves.toBe(esperado);
     });
   });
