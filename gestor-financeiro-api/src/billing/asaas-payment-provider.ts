@@ -345,10 +345,24 @@ export class AsaasPaymentProvider implements PaymentProviderPort {
   }
 }
 
-/** Hoje em AAAA-MM-DD, que é o formato de data do Asaas. */
+/**
+ * Hoje em AAAA-MM-DD, no fuso de BRASÍLIA — não em UTC.
+ *
+ * Com `toISOString()` o dia vira o seguinte a partir das 21h daqui, e a
+ * primeira cobrança da assinatura nascia vencendo AMANHÃ. O cartão era
+ * autorizado, a tela do gateway dizia "pagamento confirmado", e a cobrança
+ * ficava PENDENTE até o dia seguinte — sem `PAYMENT_CONFIRMED`, sem webhook,
+ * e a assinatura presa em INCOMPLETE. Visto em produção, às 21h25.
+ *
+ * O fuso é fixo de propósito: o Asaas é brasileiro, trabalha em horário de
+ * Brasília, e o resto do app conta dia pelo calendário de quem usa.
+ */
 function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 }
+
+/** Exposta só para o teste poder provar a regra do fuso sem subir nada. */
+export const _hojeNoBrasil = hojeISO;
 
 function textoOuNada(v: unknown): string | undefined {
   return typeof v === 'string' && v ? v : undefined;

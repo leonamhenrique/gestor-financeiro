@@ -7,7 +7,7 @@
 // ============================================================
 
 import { UnauthorizedException } from '@nestjs/common';
-import { AsaasPaymentProvider, EVENTO_DO_ASAAS } from './asaas-payment-provider';
+import { AsaasPaymentProvider, EVENTO_DO_ASAAS, _hojeNoBrasil } from './asaas-payment-provider';
 
 const TOKEN = 'token-de-webhook-com-32-caracteres-ok';
 const CHAVE = '$aact_hmlg_chave-de-sandbox';
@@ -332,6 +332,37 @@ describe('AsaasPaymentProvider — sandbox e produção não se misturam', () =>
     const g = new AsaasPaymentProvider('$aact_hmlg_xxx', TOKEN, 'https://api-sandbox.asaas.com/v3', f2);
     await abrir(g);
     expect(chamadas[0].init.headers['User-Agent']).toBe('saldonline');
+  });
+});
+
+// Visto em PRODUCAO, as 21h25: com `toISOString()` o dia virava o seguinte
+// a partir das 21h daqui, e a primeira cobranca nascia vencendo AMANHA. O
+// cartao era autorizado, a tela dizia "pagamento confirmado", e a cobranca
+// ficava PENDENTE -- sem webhook, e a assinatura presa em INCOMPLETE.
+describe('AsaasPaymentProvider — o dia é o de Brasília, não o de UTC', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('às 21h25 de Brasília ainda é hoje, não amanhã', () => {
+    // 2026-10-23T00:25Z = 22/10 às 21h25 em Brasília.
+    jest.useFakeTimers({ now: new Date('2026-10-23T00:25:00.000Z') });
+    expect(_hojeNoBrasil()).toBe('2026-10-22');
+  });
+
+  it('e passada a meia-noite daqui, aí vira', () => {
+    // 2026-10-23T03:05Z = 23/10 às 00h05 em Brasília.
+    jest.useFakeTimers({ now: new Date('2026-10-23T03:05:00.000Z') });
+    expect(_hojeNoBrasil()).toBe('2026-10-23');
+  });
+
+  it('a primeira cobrança vence HOJE, para o pagamento confirmar na hora', async () => {
+    jest.useFakeTimers({ now: new Date('2026-10-23T00:25:00.000Z') });
+    const { f, chamadas } = fetchFalso({ id: 'chk_1', link: 'https://x' });
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
+    await g.criarCheckout({
+      userId: 'u1', nome: 'H', email: 'h@x.com', planoCode: 'p', planoNome: 'P',
+      valor: 5, intervalo: 'MONTHLY', urlSucesso: 'https://a', urlCancelamento: 'https://b',
+    });
+    expect(JSON.parse(chamadas[0].init.body).subscription.nextDueDate).toBe('2026-10-22');
   });
 });
 
