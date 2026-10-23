@@ -9580,39 +9580,23 @@
     b.addEventListener("click", function () { b.closest("dialog").close(); });
   });
 
-  /* Clicar no fundo dispensa a camada — mas NÃO quando há formulário dentro.
+  /* NENHUMA camada fecha ao clicar no fundo. Só o X — e o Esc, que é
+   * deliberado e é o que o teclado espera.
    *
-   * Camada com formulário só fecha pelo X (e pelo Esc, que é deliberado).
-   * O motivo é uma perda de dado real: arrastar para selecionar texto num
-   * campo e soltar o botão fora da camada gera um `click` cujo alvo é o
-   * próprio <dialog>, com as coordenadas já fora do retângulo. A camada
-   * fechava e levava junto tudo que tinha sido digitado — num lançamento,
-   * valor, descrição, data, conta e categoria de uma vez.
+   * O que motivou tirar: arrastar para selecionar texto num campo e soltar o
+   * botão fora da camada fechava tudo e levava junto o que tinha sido
+   * digitado. Não era o fundo sendo clicado — o `click` que nasce de um
+   * arrasto chega com alvo no próprio <dialog> e com as coordenadas já fora
+   * do retângulo, que era exatamente a condição usada para dispensar.
    *
-   * Onde não há o que perder (menu do perfil, seletor de mês, confirmação),
-   * o fundo continua dispensando: é o gesto natural, principalmente no
-   * celular. Lá o arrasto também foi corrigido, exigindo que o clique
-   * COMECE e TERMINE no fundo.
+   * Daria para exigir que o clique começasse E terminasse no fundo, e isso
+   * resolvia o arrasto. A escolha foi outra: fechar camada é ação, e ação se
+   * pede num alvo, não num gesto que o navegador adivinha. Um só caminho de
+   * saída também é mais fácil de explicar do que dois com exceções.
    *
-   * O clique no ::backdrop chega como clique no próprio <dialog>, então
-   * `e.target === dlg` não basta: a barra de rolagem da camada também tem o
-   * dialog como alvo e está DENTRO dele. Comparar com o retângulo separa os
-   * dois casos. */
-  function noFundo(dlg, e) {
-    if (e.target !== dlg) return false;
-    var r = dlg.getBoundingClientRect();
-    return e.clientX < r.left || e.clientX > r.right ||
-           e.clientY < r.top || e.clientY > r.bottom;
-  }
-  document.querySelectorAll("dialog").forEach(function (dlg) {
-    if (dlg.querySelector("form")) return; // formulário: só pelo X
-    var comecouNoFundo = false;
-    dlg.addEventListener("pointerdown", function (e) { comecouNoFundo = noFundo(dlg, e); });
-    dlg.addEventListener("click", function (e) {
-      if (comecouNoFundo && noFundo(dlg, e)) dlg.close();
-      comecouNoFundo = false;
-    });
-  });
+   * Isso faz do X a única saída de mouse de toda camada — por isso camada
+   * sem X é armadilha, e há teste que falha se alguma ficar assim. */
+
   function montarCores(hostId, selecionada) {
     var host = document.getElementById(hostId);
     host.innerHTML = CORES.map(function (c) {
