@@ -24,6 +24,11 @@ export const PLANOS_PADRAO = [
   { code: 'free', name: 'Gratuito', amount: 0, interval: BillingInterval.MONTHLY },
   { code: 'pro-mensal', name: 'Pro', amount: 29.9, interval: BillingInterval.MONTHLY },
   { code: 'pro-anual', name: 'Pro Anual', amount: 286.8, interval: BillingInterval.YEARLY },
+  // TEMPORÁRIO — só para provar a cobrança em produção com dinheiro de
+  // verdade sem gastar 29,90. Sai desta lista depois do teste, e aí é
+  // DESATIVADO sozinho na subida seguinte (ver abaixo: o catálogo daqui é a
+  // verdade, e plano que sai da lista para de ser oferecido).
+  { code: 'teste-cobranca', name: 'Teste de cobrança', amount: 5, interval: BillingInterval.MONTHLY },
 ];
 
 /**
@@ -41,9 +46,22 @@ export async function garantirPlanosPadrao(prisma: PrismaClient | any): Promise<
     await prisma.plan.upsert({
       where: { code: plano.code },
       create: plano,
-      update: { name: plano.name, amount: plano.amount, interval: plano.interval },
+      update: { name: plano.name, amount: plano.amount, interval: plano.interval, isActive: true },
     });
     if (!antes) criados++;
   }
+
+  // O catálogo daqui é a VERDADE: plano que saiu desta lista para de ser
+  // oferecido. Desativado e não apagado, porque assinatura existente aponta
+  // para ele — apagar levaria junto o histórico de quem pagou, e a chave
+  // estrangeira recusaria de qualquer forma.
+  //
+  // Quem já assinou um plano desativado continua com ele: o acesso olha o
+  // status da assinatura, não se o plano ainda está à venda.
+  await prisma.plan.updateMany({
+    where: { isActive: true, code: { notIn: PLANOS_PADRAO.map((p) => p.code) } },
+    data: { isActive: false },
+  });
+
   return criados;
 }

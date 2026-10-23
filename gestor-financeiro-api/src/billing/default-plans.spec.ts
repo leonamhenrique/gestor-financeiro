@@ -15,8 +15,15 @@ function prismaFalso(existentes: Record<string, any> = {}) {
     plan: {
       findUnique: jest.fn(async ({ where }: any) => banco[where.code] ?? null),
       upsert: jest.fn(async ({ where, create, update }: any) => {
-        banco[where.code] = banco[where.code] ? { ...banco[where.code], ...update } : { ...create };
+        banco[where.code] = banco[where.code]
+          ? { ...banco[where.code], ...update }
+          : { isActive: true, ...create };
         return banco[where.code];
+      }),
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        for (const p of Object.values(banco) as any[]) {
+          if (p.isActive !== false && !where.code.notIn.includes(p.code)) Object.assign(p, data);
+        }
       }),
     },
   };
@@ -28,7 +35,13 @@ describe('garantirPlanosPadrao()', () => {
     const criados = await garantirPlanosPadrao(p as any);
 
     expect(criados).toBe(PLANOS_PADRAO.length);
-    expect(Object.keys(p.banco).sort()).toEqual(['free', 'pro-anual', 'pro-mensal']);
+    // Derivado da lista, e não escrito à mão: um plano a mais no catálogo
+    // não deve quebrar este teste, que é sobre criar tudo que está lá.
+    expect(Object.keys(p.banco).sort()).toEqual(PLANOS_PADRAO.map((x) => x.code).sort());
+    // Os de sempre têm de estar entre eles.
+    for (const fixo of ['free', 'pro-mensal', 'pro-anual']) {
+      expect(Object.keys(p.banco)).toContain(fixo);
+    }
   });
 
   // Roda em toda subida da API: a segunda vez não pode duplicar nem contar
@@ -62,6 +75,29 @@ describe('garantirPlanosPadrao()', () => {
     for (const chamada of p.plan.upsert.mock.calls) {
       expect(Object.keys(chamada[0].update)).not.toContain('code');
     }
+  });
+
+  // O catálogo do código é a verdade: plano que saiu da lista para de ser
+  // oferecido. É o que deixa um plano temporário (um teste de cobrança, uma
+  // promoção) sumir sozinho quando sai do código.
+  it('plano fora da lista é desativado, não apagado', async () => {
+    const p = prismaFalso({
+      'promo-antiga': { code: 'promo-antiga', name: 'Promo', amount: 1, isActive: true },
+    });
+    await garantirPlanosPadrao(p as any);
+
+    // Continua existindo: assinatura que aponta para ele não pode ficar órfã.
+    expect(p.banco['promo-antiga']).toBeDefined();
+    expect(p.banco['promo-antiga'].isActive).toBe(false);
+  });
+
+  it('plano que voltou para a lista é reativado', async () => {
+    const codigo = PLANOS_PADRAO[1].code;
+    const p = prismaFalso({
+      [codigo]: { ...PLANOS_PADRAO[1], isActive: false },
+    });
+    await garantirPlanosPadrao(p as any);
+    expect(p.banco[codigo].isActive).toBe(true);
   });
 
   // No anual o valor é o TOTAL do ano. Guardar a mensalidade equivalente
