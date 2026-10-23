@@ -7,10 +7,12 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   // Sinal de vida do serviço: é o que o Render consulta e o que qualquer um
-  // usa para saber se a API está de pé. Não devolve dado de ninguém.
+  // usa para saber se a API está de pé. Não devolve dado de ninguém — só o
+  // commit que está respondendo e desde quando, que é o que responde
+  // "o conserto já subiu?" sem adivinhação.
   @Public()
   @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  estado() {
+    return this.appService.estado();
   }
 }
