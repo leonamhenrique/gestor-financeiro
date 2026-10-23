@@ -161,6 +161,14 @@ export class DeleteSeriesQueryDto {
   scope: 'ONLY' | 'FOLLOWING' | 'ALL';
 }
 
+/** De quantos meses as parcelas seguintes andam. Negativo puxa para tras. */
+export class ShiftInvoiceDto {
+  @IsInt()
+  @Min(-60)
+  @Max(60)
+  months: number;
+}
+
 export class AnticipateDto {
   @Matches(MES, { message: MES_MSG })
   destinationMonth: string;

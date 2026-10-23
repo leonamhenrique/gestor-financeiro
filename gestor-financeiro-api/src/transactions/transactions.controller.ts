@@ -26,6 +26,7 @@ import {
   ListTransactionsQueryDto,
   DeleteSeriesQueryDto,
   AnticipateDto,
+  ShiftInvoiceDto,
 } from './dto/transaction.dto';
 
 @Controller('transactions')
@@ -60,6 +61,19 @@ export class TransactionsController {
   @HttpCode(200)
   anticipate(@Req() req: any, @Param('seriesId') seriesId: string, @Body() dto: AnticipateDto) {
     return this.transactionsService.anticipate(req.user.id, seriesId, dto);
+  }
+
+  // PATCH /transactions/:id/series/shift-invoice — empurra as parcelas
+  // SEGUINTES para outra fatura, de `months` meses. Serve ao caso em que a
+  // operadora joga a primeira parcela para a fatura seguinte: corrigida a
+  // primeira, as outras precisam andar junto.
+  @Patch(':id/series/shift-invoice')
+  deslocarFaturas(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: ShiftInvoiceDto,
+  ) {
+    return this.transactionsService.deslocarFaturasSeguintes(req.user.id, id, dto.months);
   }
 
   // DELETE /transactions/:id/series?scope=ONLY|FOLLOWING|ALL

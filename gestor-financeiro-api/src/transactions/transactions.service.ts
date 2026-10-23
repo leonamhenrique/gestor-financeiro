@@ -48,6 +48,7 @@ import {
   dataParaMes,
   mesParaData,
   moverParaOMes,
+  somarMesesNoMes,
 } from './series.utils';
 
 const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -666,6 +667,87 @@ export class TransactionsService {
         await this.applyEffect(tx, this.efeitoDe(movida));
       }
       return { anticipated: escolhidas.length, remaining: antecipaveis.length - escolhidas.length };
+    });
+  }
+
+  /**
+   * Empurra as parcelas SEGUINTES de uma série para a frente (ou para trás)
+   * no calendário de faturas.
+   *
+   * Existe por um caso que acontece de verdade: a compra parcelada entra na
+   * fatura que a data indicaria, mas o cartão fechou antes e a operadora
+   * jogou a primeira parcela para a fatura seguinte. Quem corrige só a
+   * primeira fica com as outras todas uma fatura atrás — e teria que editar
+   * uma a uma, doze vezes num parcelado em doze.
+   *
+   * Move só o que vem DEPOIS da parcela informada: a dela já foi corrigida
+   * por quem chamou, e o que já passou fica onde está.
+   *
+   * Parcela em fatura PAGA ou TRANSPORTADA não se move, e a resposta diz
+   * quantas ficaram: a fatura foi quitada por um valor fechado, e tirar uma
+   * parcela de dentro descasaria o pago do que sobrou.
+   */
+  async deslocarFaturasSeguintes(
+    userId: string,
+    transactionId: string,
+    meses: number,
+  ): Promise<{ moved: number; protectedCount: number }> {
+    if (!Number.isInteger(meses) || meses === 0) {
+      throw new BadRequestException('Informe de quantos meses é o deslocamento.');
+    }
+    if (Math.abs(meses) > MAX_OCORRENCIAS) {
+      throw new BadRequestException('Deslocamento grande demais.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const alvo = await tx.transaction.findFirst({ where: { id: transactionId, userId } });
+      if (!alvo) throw new NotFoundException('Transação não encontrada');
+      if (!alvo.seriesId) throw new BadRequestException('Este lançamento não faz parte de uma série.');
+      if (!alvo.creditCardId) {
+        throw new BadRequestException('Só compra no cartão tem fatura para deslocar.');
+      }
+
+      const card = await tx.creditCard.findUnique({ where: { id: alvo.creditCardId } });
+      if (!card) throw new NotFoundException('Cartão de crédito não encontrado');
+      await tx.$queryRaw`SELECT id FROM credit_cards WHERE id = ${alvo.creditCardId} FOR UPDATE`;
+
+      const seguintes = await tx.transaction.findMany({
+        where: {
+          seriesId: alvo.seriesId,
+          userId,
+          creditCardId: alvo.creditCardId,
+          seriesIndex: { gt: alvo.seriesIndex ?? 0 },
+        },
+        orderBy: { seriesIndex: 'asc' },
+      });
+      if (!seguintes.length) return { moved: 0, protectedCount: 0 };
+
+      const faturas = await this.faturasDoCartao(tx, card);
+      const protegida = (mes: string) => {
+        const s = faturas.get(mes)?.status;
+        return s === 'PAID' || s === 'CARRIED';
+      };
+
+      let moved = 0;
+      let protectedCount = 0;
+      for (const p of seguintes) {
+        const de = this.mesDaFatura(p, card);
+        const para = dataParaMes(somarMesesNoMes(de, meses));
+        // Nem sair de fatura fechada nem entrar numa: os dois lados
+        // descasariam o que já foi pago do que a fatura lista.
+        if (protegida(de) || protegida(para)) {
+          protectedCount++;
+          continue;
+        }
+        await this.reverseEffect(tx, this.efeitoDe(p));
+        const movida = await tx.transaction.update({
+          where: { id: p.id },
+          data: { invoiceMonthOverride: mesParaData(para) },
+        });
+        await this.applyEffect(tx, this.efeitoDe(movida));
+        moved++;
+      }
+      return { moved, protectedCount };
     });
   }
 

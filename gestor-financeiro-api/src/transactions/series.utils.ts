@@ -49,6 +49,17 @@ export function moverParaOMes(data: Date, mes: string): Date {
   return new Date(Date.UTC(ano, m - 1, Math.min(data.getUTCDate(), diasNoMes(ano, m - 1))));
 }
 
+/**
+ * O mês 'AAAA-MM' deslocado de `meses`, como data do dia 1 em UTC.
+ *
+ * Mês não tem dia para escorregar, então a conta é só de calendário: o
+ * `Date.UTC` normaliza 2026-13 para 2027-01 sozinho.
+ */
+export function somarMesesNoMes(mes: string, meses: number): Date {
+  const [a, m] = mes.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1 + meses, 1));
+}
+
 /** 'AAAA-MM' → dia 1 desse mês em UTC (como fica gravado o mês da fatura). */
 export function mesParaData(mes: string): Date {
   const [a, m] = mes.split('-').map(Number);

@@ -32,6 +32,7 @@ describe('TransactionsService — séries e fatura escolhida', () => {
     if (where.userId && t.userId !== where.userId) return false;
     if (where.seriesId && t.seriesId !== where.seriesId) return false;
     if (where.seriesIndex?.gte !== undefined && t.seriesIndex < where.seriesIndex.gte) return false;
+    if (where.seriesIndex?.gt !== undefined && !(t.seriesIndex > where.seriesIndex.gt)) return false;
     if (where.creditCardId?.not === null && !t.creditCardId) return false;
     if (where.bankAccountId?.not === null && !t.bankAccountId) return false;
     return true;
@@ -333,6 +334,101 @@ describe('TransactionsService — séries e fatura escolhida', () => {
       const r = await service.anticipate('user-1', id, { destinationMonth: '2026-09', quantity: 1, confirm: true });
       expect(r.anticipated).toBe(1);
       expect(totalDe('2026-09')).toBe(200);
+    });
+  });
+
+  // O caso que isto resolve acontece de verdade: a compra entra na fatura
+  // que a data indicaria, mas o cartao fechou antes e a operadora jogou a
+  // primeira parcela para a seguinte. Quem corrige so a primeira fica com as
+  // outras todas uma fatura atras.
+  describe('empurrar as faturas seguintes', () => {
+    /** 3x a partir de 20/09: faturas de outubro, novembro e dezembro. */
+    async function serie3x() {
+      const r = await service.createSeries(base({ transactionDate: utc('2026-09-20') }), parcelado(3));
+      return r.transactions;
+    }
+    const faturaDe = (t: any) =>
+      t.invoiceMonthOverride ? mesDe(t.invoiceMonthOverride) : null;
+
+    it('a primeira corrigida, as outras andam junto', async () => {
+      const [p1, p2, p3] = await serie3x();
+      // Quem edita a primeira e o fluxo normal de edicao; aqui so as outras.
+      const r = await service.deslocarFaturasSeguintes('user-1', p1.id, 1);
+
+      expect(r).toEqual({ moved: 2, protectedCount: 0 });
+      const depois = [...transacoes.values()].sort((a, b) => a.seriesIndex - b.seriesIndex);
+      // Novembro -> dezembro, dezembro -> janeiro.
+      expect(faturaDe(depois[1])).toBe('2026-12');
+      expect(faturaDe(depois[2])).toBe('2027-01');
+    });
+
+    it('o valor sai de uma fatura e entra na outra', async () => {
+      const [p1] = await serie3x();
+      expect([totalDe('2026-11'), totalDe('2026-12')]).toEqual([100, 100]);
+
+      await service.deslocarFaturasSeguintes('user-1', p1.id, 1);
+      // Novembro esvazia, dezembro fica com a que veio de novembro, e
+      // janeiro recebe a que veio de dezembro.
+      expect([totalDe('2026-11'), totalDe('2026-12'), totalDe('2027-01')]).toEqual([0, 100, 100]);
+    });
+
+    it('a parcela informada NAO se move: ela ja foi corrigida', async () => {
+      const [p1] = await serie3x();
+      await service.deslocarFaturasSeguintes('user-1', p1.id, 1);
+      expect(faturaDe(transacoes.get(p1.id))).toBe(null);
+    });
+
+    it('anda para tras tambem, com meses negativos', async () => {
+      const [p1] = await serie3x();
+      await service.deslocarFaturasSeguintes('user-1', p1.id, -1);
+      const depois = [...transacoes.values()].sort((a, b) => a.seriesIndex - b.seriesIndex);
+      expect([faturaDe(depois[1]), faturaDe(depois[2])]).toEqual(['2026-10', '2026-11']);
+    });
+
+    // Fatura paga foi quitada por um valor fechado: tirar parcela de dentro
+    // descasaria o pago do que sobrou.
+    it('parcela em fatura paga fica, e a resposta conta quantas ficaram', async () => {
+      const [p1] = await serie3x();
+      pagar('2026-11');
+      const r = await service.deslocarFaturasSeguintes('user-1', p1.id, 1);
+      expect(r).toEqual({ moved: 1, protectedCount: 1 });
+      expect(totalDe('2026-11')).toBe(100);
+    });
+
+    it('nem entra numa fatura paga', async () => {
+      const [p1] = await serie3x();
+      pagar('2026-12');
+      // A de novembro iria para dezembro, que esta paga: nao vai.
+      const r = await service.deslocarFaturasSeguintes('user-1', p1.id, 1);
+      expect(r.protectedCount).toBeGreaterThan(0);
+    });
+
+    it('sem parcela depois, nao faz nada', async () => {
+      const parcelas = await serie3x();
+      const ultima = parcelas[parcelas.length - 1];
+      await expect(service.deslocarFaturasSeguintes('user-1', ultima.id, 1)).resolves.toEqual({
+        moved: 0, protectedCount: 0,
+      });
+    });
+
+    it('recusa deslocamento zero, lancamento avulso e serie de outro usuario', async () => {
+      const [p1] = await serie3x();
+      await expect(service.deslocarFaturasSeguintes('user-1', p1.id, 0)).rejects.toThrow(/quantos meses/);
+
+      const avulso = await service.create(base());
+      await expect(service.deslocarFaturasSeguintes('user-1', avulso.id, 1)).rejects.toThrow(/série/);
+
+      await expect(service.deslocarFaturasSeguintes('user-2', p1.id, 1)).rejects.toThrow('Transação não encontrada');
+    });
+
+    it('serie de CONTA nao tem fatura para deslocar', async () => {
+      const r = await service.createSeries(
+        base({ creditCardId: undefined, bankAccountId: 'acc-1' }),
+        parcelado(3),
+      );
+      await expect(
+        service.deslocarFaturasSeguintes('user-1', r.transactions[0].id, 1),
+      ).rejects.toThrow(/cartão/);
     });
   });
 

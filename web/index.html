@@ -3605,6 +3605,20 @@
   </div>
 </dialog>
 
+<!-- Depois de corrigir a fatura de uma parcela, as seguintes quase sempre
+     precisam andar junto: a operadora que pulou uma pulou todas. Mas nem
+     sempre — por isso pergunta, em vez de decidir. -->
+<dialog id="dlg-fatura-serie">
+  <div class="layer-head"><h3>E as próximas parcelas?</h3><div class="ctx" id="fs-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-body">
+    <div class="opt-list">
+      <button type="button" class="opt" data-fatura-serie="SOMENTE">Somente esta<span class="opt-meta" id="fs-meta-somente"></span></button>
+      <button type="button" class="opt" data-fatura-serie="PROXIMOS">Esta e as próximas<span class="opt-meta" id="fs-meta-proximas"></span></button>
+    </div>
+    <div class="field-help">Parcela que já caiu numa fatura paga fica onde está: a fatura foi quitada por um valor fechado.</div>
+  </div>
+</dialog>
+
 <dialog id="dlg-mic">
   <div class="layer-head"><h3>Lançar falando</h3><div class="ctx">Uma permissão, uma vez só</div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
   <div class="layer-body">
@@ -9760,6 +9774,115 @@
 
   /* ================= camada: lançamento ================= */
   var editandoLancamento = null;
+
+  /* ---------- a fatura da parcela e as que vêm depois ----------
+   *
+   * O caso: a compra parcelada entra na fatura que a data indicaria, mas o
+   * cartão fechou antes e a operadora jogou a primeira parcela para a
+   * seguinte. Corrigir só a primeira deixa as outras todas uma fatura atrás
+   * — e num parcelado em doze são onze edições à mão.
+   *
+   * Decidir sozinho seria pior: às vezes só a primeira pulou mesmo. Então o
+   * app detecta e PERGUNTA. */
+
+  /** Quantos meses separam dois meses 'AAAA-MM'. Negativo quando anda para
+   * trás. É o deslocamento que as parcelas seguintes vão repetir. */
+  function mesesEntreMeses(de, para) {
+    var a = parseMonthKey(de), b = parseMonthKey(para);
+    return (b.y - a.y) * 12 + (b.m - a.m);
+  }
+
+  /** As parcelas que vêm DEPOIS desta na mesma série. O que já passou fica
+   * onde está, e a própria já foi corrigida por quem editou. */
+  function parcelasDepoisDe(lista, t) {
+    if (!t || !t.serieId) return [];
+    var indice = t.serieIndex || 0;
+    return lista.filter(function (x) {
+      return x.serieId === t.serieId && (x.serieIndex || 0) > indice;
+    });
+  }
+
+  /** A fatura em que esta parcela cai hoje, em 'AAAA-MM'. Nulo quando não é
+   * compra de cartão — aí não há fatura para deslocar. */
+  function faturaDaParcela(t) {
+    if (!t || !t.cartaoId) return null;
+    var card = byId(state.cards, t.cartaoId);
+    if (!card) return null;
+    return monthKey(periodoDaTransacao(t, card));
+  }
+
+  var deslocarAlvoId = null;
+  var deslocarMeses = 0;
+
+  /** Pergunta — e só pergunta quando há o que perguntar: parcela de cartão,
+   * em série, com fatura que realmente mudou e com parcelas depois dela. */
+  function talvezPerguntarDeslocamento(id, faturaAntes) {
+    var t = byId(state.transactions, id);
+    var faturaDepois = faturaDaParcela(t);
+    if (!t || !faturaAntes || !faturaDepois || faturaAntes === faturaDepois) return false;
+
+    var seguintes = parcelasDepoisDe(state.transactions, t);
+    if (!seguintes.length) return false;
+
+    deslocarAlvoId = id;
+    deslocarMeses = mesesEntreMeses(faturaAntes, faturaDepois);
+
+    var quantas = seguintes.length;
+    var paraFrente = deslocarMeses > 0;
+    var passo = Math.abs(deslocarMeses);
+    var emMeses = passo === 1 ? "um mês" : passo + " meses";
+
+    document.getElementById("fs-ctx").textContent =
+      "Esta parcela saiu da fatura de " + rotuloMes(parseMonthKey(faturaAntes)) +
+      " para a de " + rotuloMes(parseMonthKey(faturaDepois)) + ".";
+    document.getElementById("fs-meta-somente").textContent =
+      quantas === 1 ? "A outra parcela fica onde está." : "As outras " + quantas + " ficam onde estão.";
+    document.getElementById("fs-meta-proximas").textContent =
+      (quantas === 1 ? "A próxima anda " : "As próximas " + quantas + " andam ") +
+      emMeses + (paraFrente ? " para a frente" : " para trás") + ", junto com esta.";
+
+    abrir("dlg-fatura-serie");
+    return true;
+  }
+
+  document.querySelectorAll("#dlg-fatura-serie [data-fatura-serie]").forEach(function (b) {
+    b.addEventListener("click", async function () {
+      var escolha = b.dataset.faturaSerie;
+      var id = deslocarAlvoId, meses = deslocarMeses;
+      fechar("dlg-fatura-serie");
+      deslocarAlvoId = null; deslocarMeses = 0;
+      if (escolha !== "PROXIMOS" || !id || !meses) return;
+
+      if (MODO_API) {
+        var movidas = 0, protegidas = 0;
+        var ok = await comServidor("mover as próximas parcelas", async function () {
+          var r = await api("/transactions/" + id + "/series/shift-invoice", { months: meses }, "PATCH");
+          movidas = r ? r.moved : 0;
+          protegidas = r ? r.protectedCount : 0;
+        });
+        if (!ok) return;
+        avisar(movidas === 1 ? "1 parcela movida" : movidas + " parcelas movidas",
+          protegidas
+            ? (protegidas === 1 ? "Uma parcela ficou" : protegidas + " parcelas ficaram") +
+              " onde estava: a fatura dela já foi paga."
+            : "Elas andaram junto com a primeira.");
+        return;
+      }
+
+      var alvo = byId(state.transactions, id);
+      var movidasLocal = 0;
+      parcelasDepoisDe(state.transactions, alvo).forEach(function (p) {
+        var de = faturaDaParcela(p);
+        if (!de || parcelaBloqueadaPorFaturaPaga(p)) return;
+        var destino = parseMonthKey(de);
+        p.faturaMesOverride = monthKey({ y: destino.y, m: destino.m + meses });
+        movidasLocal++;
+      });
+      persist(); renderAll();
+      avisar(movidasLocal === 1 ? "1 parcela movida" : movidasLocal + " parcelas movidas",
+        "Elas andaram junto com a primeira.");
+    });
+  });
   var faturaTocada = false;
 
   var calLancamento = montarCalendario(document.getElementById("l-data-cal"), {
@@ -10015,6 +10138,12 @@
     var confirmada = document.getElementById("l-confirmado").checked;
     var override = cartaoId ? document.getElementById("l-fatura").value : null;
 
+    // A fatura de antes, para saber se ela mudou — e de quanto. Tem de ser
+    // lida ANTES de gravar, senão já é a nova.
+    var faturaAntes = editandoLancamento
+      ? faturaDaParcela(byId(state.transactions, editandoLancamento))
+      : null;
+
     if (MODO_API) {
       var alvoL = editandoLancamento;
       var repetindo = !alvoL && document.getElementById("l-repetir").checked;
@@ -10089,6 +10218,9 @@
       } else {
         fechar("dlg-lancamento");
       }
+      // Fatura de parcela que mudou: as seguintes quase sempre precisam andar
+      // junto. Depois de fechar, para a pergunta não brigar com o formulário.
+      if (alvoL) talvezPerguntarDeslocamento(alvoL, faturaAntes);
       return;
     }
 
@@ -10140,7 +10272,10 @@
     }
 
     persist(); renderAll();
+    var editadoAgora = editandoLancamento;
     editandoLancamento = null;
+
+    if (editadoAgora) talvezPerguntarDeslocamento(editadoAgora, faturaAntes);
 
     if (e.submitter && e.submitter.id === "l-lancar-novo") {
       reabrirParaOutroLancamento(destino, cartaoId, contaId, categoriaId, data);
