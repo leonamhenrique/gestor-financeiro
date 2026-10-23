@@ -9580,17 +9580,37 @@
     b.addEventListener("click", function () { b.closest("dialog").close(); });
   });
 
-  /* Clicar no fundo dispensa a camada. O clique no ::backdrop chega como um
-   * clique no próprio <dialog>, então só `e.target === dlg` não basta: a barra
-   * de rolagem da camada também tem o dialog como alvo e está DENTRO dele.
-   * Comparar com o retângulo separa um caso do outro. */
+  /* Clicar no fundo dispensa a camada — mas NÃO quando há formulário dentro.
+   *
+   * Camada com formulário só fecha pelo X (e pelo Esc, que é deliberado).
+   * O motivo é uma perda de dado real: arrastar para selecionar texto num
+   * campo e soltar o botão fora da camada gera um `click` cujo alvo é o
+   * próprio <dialog>, com as coordenadas já fora do retângulo. A camada
+   * fechava e levava junto tudo que tinha sido digitado — num lançamento,
+   * valor, descrição, data, conta e categoria de uma vez.
+   *
+   * Onde não há o que perder (menu do perfil, seletor de mês, confirmação),
+   * o fundo continua dispensando: é o gesto natural, principalmente no
+   * celular. Lá o arrasto também foi corrigido, exigindo que o clique
+   * COMECE e TERMINE no fundo.
+   *
+   * O clique no ::backdrop chega como clique no próprio <dialog>, então
+   * `e.target === dlg` não basta: a barra de rolagem da camada também tem o
+   * dialog como alvo e está DENTRO dele. Comparar com o retângulo separa os
+   * dois casos. */
+  function noFundo(dlg, e) {
+    if (e.target !== dlg) return false;
+    var r = dlg.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right ||
+           e.clientY < r.top || e.clientY > r.bottom;
+  }
   document.querySelectorAll("dialog").forEach(function (dlg) {
+    if (dlg.querySelector("form")) return; // formulário: só pelo X
+    var comecouNoFundo = false;
+    dlg.addEventListener("pointerdown", function (e) { comecouNoFundo = noFundo(dlg, e); });
     dlg.addEventListener("click", function (e) {
-      if (e.target !== dlg) return;
-      var r = dlg.getBoundingClientRect();
-      var fora = e.clientX < r.left || e.clientX > r.right ||
-                 e.clientY < r.top || e.clientY > r.bottom;
-      if (fora) dlg.close();
+      if (comecouNoFundo && noFundo(dlg, e)) dlg.close();
+      comecouNoFundo = false;
     });
   });
   function montarCores(hostId, selecionada) {
