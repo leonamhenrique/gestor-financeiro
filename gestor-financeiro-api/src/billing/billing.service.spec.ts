@@ -408,6 +408,28 @@ describe('BillingService — checkout hospedado', () => {
     expect(gravado.toISOString().slice(0, 10)).toBe('2026-12-05');
   });
 
+  // Visto em producao: a cobranca paga em 22/10 aparecia na tela como
+  // "23 out". O `new Date()` de reserva gravava a hora do webhook em UTC, e
+  // depois das 21h daqui isso ja e o dia seguinte.
+  it('a cobrança guarda o vencimento conferido, não a hora do webhook', async () => {
+    prisma.subscription.findUnique.mockResolvedValue({ id: 's1', planId: 'p1', providerCheckoutId: 'chk_1' });
+    // Plano de R$ 5: a trava de valor e outra regra, e ja tem teste proprio.
+    prisma.plan.findUnique.mockResolvedValue({ ...PLANO, code: 'teste-cobranca', amount: 5 });
+    gateway.consultarCobranca.mockResolvedValue({
+      pago: true, valor: 5, vencimento: new Date('2026-10-22T00:00:00.000Z'),
+      providerSubscriptionId: 'sub_1', providerCheckoutId: 'chk_1',
+    });
+
+    await service.aplicarEvento({
+      providerEventId: 'evt_venc', type: 'invoice.paid', payload: {},
+      providerInvoiceId: 'pay_9', providerCheckoutId: 'chk_1',
+    });
+
+    const gravada = prisma.subscriptionInvoice.upsert.mock.calls[0][0].create;
+    expect(gravada.dueDate.toISOString().slice(0, 10)).toBe('2026-10-22');
+    expect(Number(gravada.amount)).toBe(5);
+  });
+
   it('gateway sem tela hospedada diz isso em vez de falhar torto', async () => {
     delete gateway.criarCheckout;
     await expect(service.iniciarCheckout('u1', 'pro-mensal')).rejects.toThrow(

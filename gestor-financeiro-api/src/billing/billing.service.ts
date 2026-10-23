@@ -387,7 +387,10 @@ export class BillingService {
       );
     }
 
-    await this.registrarCobranca(assinatura.id, evento, SubscriptionInvoiceStatus.PAID, real.valor);
+    await this.registrarCobranca(assinatura.id, evento, SubscriptionInvoiceStatus.PAID, {
+      valor: real.valor,
+      vencimento: real.vencimento,
+    });
     await this.prisma.subscription.update({
       where: { id: assinatura.id },
       data: {
@@ -410,14 +413,21 @@ export class BillingService {
     subscriptionId: string,
     evento: EventoWebhook,
     status: SubscriptionInvoiceStatus,
-    valorConferido?: number,
+    conferido?: { valor: number; vencimento?: Date },
   ) {
     if (!evento.providerInvoiceId) return;
     const dados = evento.payload as { data?: { amount?: number; dueDate?: string; failureReason?: string } };
-    // O valor conferido vem da consulta ao gateway e tem precedência: o do
-    // corpo é só o que o remetente afirmou.
-    const valor = valorConferido ?? dados.data?.amount ?? 0;
-    const vencimento = dados.data?.dueDate ? new Date(dados.data.dueDate) : new Date();
+    // Valor e vencimento conferidos vêm da consulta ao gateway e têm
+    // precedência: o do corpo é só o que o remetente afirmou.
+    //
+    // O vencimento importa mais do que parece. Sem ele, o `new Date()` de
+    // reserva grava a hora do webhook em UTC — e depois das 21h daqui isso
+    // é o dia seguinte. A cobrança paga em 22/10 aparecia na tela como
+    // "23 out". Mesmo defeito que já tinha agendado uma cobrança para o dia
+    // errado, agora só na leitura.
+    const valor = conferido?.valor ?? dados.data?.amount ?? 0;
+    const vencimento =
+      conferido?.vencimento ?? (dados.data?.dueDate ? new Date(dados.data.dueDate) : new Date());
 
     await this.prisma.subscriptionInvoice.upsert({
       where: { providerInvoiceId: evento.providerInvoiceId },
