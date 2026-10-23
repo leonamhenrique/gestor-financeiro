@@ -24,11 +24,11 @@ export const PLANOS_PADRAO = [
   { code: 'free', name: 'Gratuito', amount: 0, interval: BillingInterval.MONTHLY },
   { code: 'pro-mensal', name: 'Pro', amount: 29.9, interval: BillingInterval.MONTHLY },
   { code: 'pro-anual', name: 'Pro Anual', amount: 286.8, interval: BillingInterval.YEARLY },
-  // TEMPORÁRIO — só para provar a cobrança em produção com dinheiro de
-  // verdade sem gastar 29,90. Sai desta lista depois do teste, e aí é
-  // DESATIVADO sozinho na subida seguinte (ver abaixo: o catálogo daqui é a
-  // verdade, e plano que sai da lista para de ser oferecido).
-  { code: 'teste-cobranca', name: 'Teste de cobrança', amount: 5, interval: BillingInterval.MONTHLY },
+  // Houve aqui um 'teste-cobranca' de R$ 5,00, para provar a cobrança em
+  // produção com dinheiro de verdade sem gastar 29,90. Saiu desta lista
+  // depois do teste e foi desativado sozinho na subida seguinte — o
+  // catálogo daqui é a verdade. A linha continua no banco, porque a
+  // assinatura que a usou aponta para ela.
 ];
 
 /**
