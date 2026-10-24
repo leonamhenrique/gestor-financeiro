@@ -28,7 +28,24 @@ import {
   AnticipateDto,
   ShiftInvoiceDto,
   BulkCategoryDto,
+  ImportBatchDto,
+  ImportItemDto,
 } from './dto/transaction.dto';
+
+/** Uma linha do extrato, no formato que o service espera. */
+function linhaDoExtrato(dto: ImportItemDto) {
+  return {
+    categoryId: dto.categoryId,
+    type: dto.type,
+    amount: dto.amount,
+    description: dto.description,
+    transactionDate: new Date(dto.transactionDate),
+    bankAccountId: dto.bankAccountId,
+    creditCardId: dto.creditCardId,
+    isConfirmed: dto.isConfirmed,
+    invoiceMonth: dto.invoiceMonth,
+  };
+}
 
 @Controller('transactions')
 export class TransactionsController {
@@ -62,6 +79,22 @@ export class TransactionsController {
   @HttpCode(200)
   anticipate(@Req() req: any, @Param('seriesId') seriesId: string, @Body() dto: AnticipateDto) {
     return this.transactionsService.anticipate(req.user.id, seriesId, dto);
+  }
+
+  // POST /transactions/import — um extrato inteiro de uma vez, atômico.
+  //
+  // Antes das rotas com `:id` pelo mesmo motivo de `bulk-category`: depois
+  // delas, "import" seria lido como o id de um lançamento.
+  @Post('import')
+  importar(@Req() req: any, @Body() dto: ImportBatchDto) {
+    return this.transactionsService.criarEmLote(req.user.id, dto.batchId, dto.items.map(linhaDoExtrato));
+  }
+
+  // DELETE /transactions/import/:batchId — desfaz a importação inteira,
+  // devolvendo saldo e fatura ao que eram.
+  @Delete('import/:batchId')
+  desfazerImportacao(@Req() req: any, @Param('batchId') batchId: string) {
+    return this.transactionsService.desfazerImportacao(req.user.id, batchId);
   }
 
   // PATCH /transactions/bulk-category — põe vários lançamentos na mesma

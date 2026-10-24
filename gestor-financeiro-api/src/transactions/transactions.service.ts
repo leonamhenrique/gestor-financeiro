@@ -70,6 +70,9 @@ export interface CreateTransactionInput {
   invoiceMonth?: string; // 'AAAA-MM', só para cartão
   source?: TransactionSource;
   clientKey?: string; // idempotência: ver `create`
+  // O lote de importação, quando o lançamento vem de um extrato.
+  importBatchId?: string;
+  importedAt?: Date;
 }
 
 interface RepeatInput {
@@ -170,6 +173,77 @@ export class TransactionsService {
     await this.applyEffect(tx, this.efeitoDe(transaction));
 
     return transaction;
+  }
+
+  /**
+   * Grava um extrato inteiro de uma vez.
+   *
+   * Em LOTE, e não um `create` por linha, por duas razões. A primeira é que
+   * um extrato de 74 linhas viraria 74 idas ao servidor, e uma falha na
+   * quadragésima deixaria o extrato pela metade — metade do mês lançado,
+   * metade não, e ninguém sabendo onde parou. A segunda é que o lote é o que
+   * torna a importação desfazível: ou tudo entra, ou nada entra.
+   *
+   * Cada linha passa pelo mesmo `criarEm` do lançamento avulso. Nada aqui
+   * reimplementa saldo, fatura, XOR de conta/cartão ou mês de fatura — uma
+   * segunda implementação dessas regras acabaria divergindo da primeira, e o
+   * dinheiro passaria a depender de por qual porta o lançamento entrou.
+   *
+   * A `clientKey` de cada linha é o lote mais a posição. Se a resposta se
+   * perder no caminho e o app reenviar, `criarEm` devolve o que já está
+   * gravado em vez de lançar o mesmo dinheiro de novo.
+   */
+  async criarEmLote(
+    userId: string,
+    batchId: string,
+    itens: Omit<CreateTransactionInput, 'userId' | 'clientKey' | 'importBatchId' | 'importedAt'>[],
+  ) {
+    const importedAt = new Date();
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const criados = [];
+        for (let i = 0; i < itens.length; i++) {
+          criados.push(
+            await this.criarEm(tx, {
+              ...itens[i],
+              userId,
+              clientKey: `${batchId}:${i}`,
+              importBatchId: batchId,
+              importedAt,
+            }),
+          );
+        }
+        return criados;
+      },
+      // O padrão do Prisma é 5s, e um extrato grande passa disso com folga:
+      // cada linha faz create mais o efeito no saldo ou na fatura.
+      { timeout: 120_000, maxWait: 20_000 },
+    );
+  }
+
+  /**
+   * Desfaz uma importação inteira.
+   *
+   * O que foi importado some junto com o efeito que causou: o saldo volta e a
+   * fatura desconta, pela mesma `reverseEffect` que a exclusão avulsa usa.
+   * Apagar as linhas sem reverter deixaria o saldo com o dinheiro de um
+   * lançamento que já não existe.
+   */
+  async desfazerImportacao(userId: string, batchId: string) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const alvo = await tx.transaction.findMany({ where: { userId, importBatchId: batchId } });
+        if (!alvo.length) throw new NotFoundException('Importação não encontrada');
+
+        for (const t of alvo) {
+          await this.reverseEffect(tx, this.efeitoDe(t));
+          await tx.transaction.delete({ where: { id: t.id } });
+        }
+        return { removed: alvo.length };
+      },
+      { timeout: 120_000, maxWait: 20_000 },
+    );
   }
 
   /** O lançamento desta chave, se já estiver gravado. */
@@ -981,6 +1055,8 @@ export class TransactionsService {
       isConfirmed: input.isConfirmed ?? true,
       source: input.source ?? TransactionSource.APP,
       clientKey: input.clientKey ?? null,
+      importBatchId: input.importBatchId ?? null,
+      importedAt: input.importedAt ?? null,
     };
   }
 

@@ -394,6 +394,14 @@ model Transaction {
   // Postgres, nulos não colidem entre si num índice único.
   clientKey            String?           @map("client_key")
   source               TransactionSource @default(APP)
+  // O LOTE de importacao a que este lancamento pertence, e quando ele subiu.
+  //
+  // O carimbo fica em cada lancamento, e nao numa tabela de lotes a parte:
+  // lista a parte envelhece -- bastaria apagar um lancamento a mao para ela
+  // prometer um desfazer que ja nao bate. Assim o lote E o conjunto dos
+  // lancamentos que o carregam, e a verdade esta sempre nos proprios dados.
+  importBatchId        String?           @map("import_batch_id")
+  importedAt           DateTime?         @map("imported_at")
   createdAt            DateTime          @default(now()) @map("created_at")
   updatedAt            DateTime          @updatedAt @map("updated_at")
 
@@ -406,6 +414,9 @@ model Transaction {
   // o lançamento apaga a divisão dele — não sobra parte de gasto nenhum.
   sharedExpense SharedExpense?
   settlement    Settlement?
+
+  // Desfazer uma importação busca todos os lançamentos de um lote.
+  @@index([userId, importBatchId])
 
   // Uma transação deve pertencer a UMA conta OU a UM cartão, nunca nenhum ou os dois.
   // Essa regra é validada na camada de aplicação (Prisma não suporta CHECK constraints

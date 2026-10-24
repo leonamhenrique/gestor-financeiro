@@ -256,3 +256,84 @@ export class BulkCategoryDto {
   @IsUUID()
   categoryId!: string;
 }
+
+// ============================================================
+// Importação de extrato
+// ============================================================
+
+/**
+ * Teto de um lote. O extrato real medido tinha 74 linhas; 500 é folga larga
+ * e, ao mesmo tempo, impede que um pedido forjado abra uma transação de banco
+ * que não termina mais.
+ */
+export const MAX_LOTE_IMPORTACAO = 500;
+
+/**
+ * Uma linha do extrato. É o mesmo lançamento de sempre, sem o que não faz
+ * sentido aqui: `repeat` (a série de uma compra parcelada é montada pelo app,
+ * linha a linha) e `clientKey` (ela é derivada do lote mais a posição — ver
+ * `criarEmLote` —, e deixar o cliente escolhê-la abriria a porta para duas
+ * linhas do mesmo lote colidirem entre si).
+ *
+ * Escrita campo a campo em vez de herdada de `CreateTransactionDto`: tirar
+ * dois campos de uma classe pede `@nestjs/mapped-types`, que este projeto não
+ * usa, e trazer uma dependência para economizar vinte linhas seria caro pelo
+ * que entrega.
+ */
+export class ImportItemDto {
+  @IsEnum(TransactionType)
+  type!: TransactionType;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsPositive({ message: 'O valor deve ser maior que zero.' })
+  amount!: number;
+
+  @IsUUID()
+  categoryId!: string;
+
+  @IsDateString()
+  transactionDate!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isConfirmed?: boolean;
+
+  // A fatura do extrato: um arquivo é de UMA fatura, e todas as linhas entram
+  // nela mesmo as de datas anteriores.
+  @IsOptional()
+  @Matches(MES, { message: MES_MSG })
+  invoiceMonth?: string;
+
+  // XOR conferido no service, como no lançamento avulso.
+  @ValidateIf((o) => !o.creditCardId)
+  @IsUUID()
+  bankAccountId?: string;
+
+  @ValidateIf((o) => !o.bankAccountId)
+  @IsUUID()
+  creditCardId?: string;
+}
+
+export class ImportBatchDto {
+  /**
+   * O id do lote, gerado pelo app. Vem do cliente, e não do servidor, porque
+   * é ele que torna o reenvio seguro: a mesma importação mandada duas vezes
+   * carrega o mesmo lote e as mesmas chaves, e a segunda não lança nada de
+   * novo. Um id gerado aqui mudaria a cada tentativa.
+   */
+  @IsString()
+  @Length(8, 64)
+  @Matches(/^[A-Za-z0-9_.:-]+$/, { message: 'batchId aceita letras, números e _ . : -' })
+  batchId!: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_LOTE_IMPORTACAO)
+  @ValidateNested({ each: true })
+  @Type(() => ImportItemDto)
+  items!: ImportItemDto[];
+}

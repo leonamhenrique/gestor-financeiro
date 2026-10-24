@@ -5960,7 +5960,10 @@
       // ele voltaria colado no texto a cada edição e viraria "(Parcela 2/6)
       // (Parcela 2/6)". Ver rotuloLancamento.
       serieTipo: j.series ? j.series.kind : null,
-      serieTotal: j.series ? j.series.count : null
+      serieTotal: j.series ? j.series.count : null,
+      // O lote de importação, para "importações recentes" e o desfazer.
+      importacaoId: j.importBatchId || null,
+      importadoEm: j.importedAt || ""
     };
   }
   function pagamentoDaApi(p) {
@@ -9357,7 +9360,25 @@
         : "") + "Categorias criadas pela importação não são apagadas.",
       acao: "Desfazer",
       destrutivo: true
-    }, function () {
+    }, async function () {
+      if (MODO_API) {
+        // O servidor apaga o lote inteiro e devolve saldo e fatura numa
+        // transação só. Fatura paga não é exceção aqui como é no caminho
+        // local: lá o desfazer remove um a um e precisa pular o que travaria;
+        // o lote é atômico, e tirar parte dele deixaria o resto órfão.
+        var removidos = 0;
+        var ok = await comServidor("desfazer a importação", async function () {
+          var r = await api("/transactions/import/" + encodeURIComponent(id), null, "DELETE");
+          removidos = r ? r.removed : 0;
+          await carregarDoServidor();
+        });
+        if (!ok) return;
+        renderAll(); pintarImportacoesRecentes();
+        avisar("Importação desfeita",
+          removidos + (removidos === 1 ? " lançamento removido" : " lançamentos removidos") +
+          ". O saldo e a fatura voltaram ao que eram.");
+        return;
+      }
       podem.forEach(removerTransacao);
       persist(); renderAll();
       pintarImportacoesRecentes();
@@ -9698,35 +9719,54 @@
     }).catch(function () {});
   }
 
-  document.getElementById("imp-confirmar").addEventListener("click", function () {
-    var marcadas = imp.linhas.filter(function (l) { return l.marcada; });
-    if (!marcadas.length) return;
-    var caixaParcelas = document.getElementById("imp-parcelas");
-    var criarParcelas = !document.getElementById("imp-parcelas-campo").hidden && caixaParcelas.checked;
-    var criadas = {};
-    var chaveFatura = imp.ehCartao ? monthKey(imp.fatura) : null;
-    /* O carimbo do lote é o que torna a importação desfazível. Fica em cada
-     * lançamento, e não numa lista à parte, porque lista à parte envelhece:
-     * bastaria alguém apagar um lançamento à mão para ela passar a prometer
-     * um desfazer que já não bate. Assim a verdade está sempre nos próprios
-     * dados — o lote É o conjunto dos lançamentos que o carregam. */
-    var loteId = uid("imp");
-    var agora = new Date().toISOString();
-
+  /** Resolve as categorias pedidas com "Criar …" em categorias de verdade.
+   *
+   * Em modo API elas precisam nascer NO SERVIDOR antes das linhas: um id
+   * inventado aqui não existe lá, e o lote inteiro morreria em "categoria não
+   * encontrada". Devolve nome → id, ou null se alguma falhou — e aí a
+   * importação não acontece, em vez de acontecer pela metade. */
+  async function resolverCategoriasDaImportacao(marcadas) {
+    var nomes = [];
     marcadas.forEach(function (l) {
-      var categoriaId = l.categoriaId;
-      // Categoria pedida e ainda inexistente: nasce aqui, uma vez só por nome.
-      if (!categoriaId && l.criar) {
-        var nome = l.criar;
-        if (!criadas[nome]) {
-          var nova = { id: uid("c"), nome: nome, tipo: l.base.tipo, cor: CORES[state.categories.length % CORES.length], padrao: false, paiId: null };
-          state.categories.push(nova);
-          criadas[nome] = nova.id;
-        }
-        categoriaId = criadas[nome];
+      if (!l.categoriaId && l.criar && nomes.indexOf(l.criar) < 0) nomes.push(l.criar);
+    });
+    var criadas = {};
+    if (!nomes.length) return criadas;
+
+    if (!MODO_API) {
+      nomes.forEach(function (nome) {
+        var tipo = marcadas.filter(function (l) { return l.criar === nome; })[0].base.tipo;
+        var nova = { id: uid("c"), nome: nome, tipo: tipo, cor: CORES[state.categories.length % CORES.length], padrao: false, paiId: null };
+        state.categories.push(nova);
+        criadas[nome] = nova.id;
+      });
+      return criadas;
+    }
+
+    var ok = await comServidor("criar as categorias da importação", async function () {
+      for (var i = 0; i < nomes.length; i++) {
+        var nome = nomes[i];
+        var tipo = marcadas.filter(function (l) { return l.criar === nome; })[0].base.tipo;
+        var j = await api("/categories", { name: nome, type: tipo, color: CORES[(state.categories.length + i) % CORES.length] });
+        var nova = categoriaDaApi(j);
+        state.categories.push(nova);
+        criadas[nome] = nova.id;
       }
-      var nova = {
-        id: uid("t"), tipo: l.base.tipo, valor: l.base.valor, categoriaId: categoriaId || null,
+    });
+    return ok ? criadas : null;
+  }
+
+  /** As linhas que a importação vai gravar: as marcadas mais a continuidade
+   * das parcelas. Monta e devolve, sem gravar — quem grava é o chamador, no
+   * aparelho ou no servidor, a partir da MESMA lista. Duas montagens
+   * diferentes acabariam divergindo, e o extrato ficaria diferente conforme
+   * houvesse internet. */
+  function montarLinhasDaImportacao(marcadas, criadas, loteId, agora, criarParcelas) {
+    var chaveFatura = imp.ehCartao ? monthKey(imp.fatura) : null;
+    var linhas = marcadas.map(function (l) {
+      return {
+        id: uid("t"), tipo: l.base.tipo, valor: l.base.valor,
+        categoriaId: l.categoriaId || (l.criar ? criadas[l.criar] : "") || null,
         desc: l.base.desc, data: l.base.data,
         contaId: imp.ehCartao ? null : imp.destinoId,
         cartaoId: imp.ehCartao ? imp.destinoId : null,
@@ -9736,8 +9776,6 @@
         faturaMesOverride: chaveFatura,
         importacaoId: loteId, importadoEm: agora
       };
-      state.transactions.push(nova);
-      if (nova.confirmada) aplicarEfeito(nova, 1);
     });
 
     /* A continuidade das parcelas.
@@ -9767,7 +9805,7 @@
         var fut = adicionarMeses(new Date(s.data + "T00:00:00"), d.passo + 1);
         var nova = {
           id: uid("t"), tipo: s.tipo, valor: s.valor,
-          categoriaId: (origem && origem.categoriaId) || null,
+          categoriaId: (origem && (origem.categoriaId || (origem.criar ? criadas[origem.criar] : ""))) || null,
           desc: s.lojista + " - Parcela " + d.n + "/" + s.total,
           data: isoDate(fut), contaId: null, cartaoId: imp.destinoId,
           confirmada: true,
@@ -9777,8 +9815,76 @@
         // Se a parcela já existe no app, não se cria de novo — a mesma
         // regra do resto da importação.
         if (jaTem[chaveDeLancamento(nova)]) return;
-        state.transactions.push(nova);
+        linhas.push(nova);
         projetadas++;
+      });
+    }
+    return { linhas: linhas, projetadas: projetadas, puladasPorFatura: puladasPorFatura };
+  }
+
+  /** Uma linha da importação no formato que a API espera. */
+  function linhaParaApi(t) {
+    return {
+      type: t.tipo, amount: t.valor, categoryId: t.categoriaId,
+      description: t.desc, transactionDate: t.data,
+      bankAccountId: t.contaId || undefined,
+      creditCardId: t.cartaoId || undefined,
+      isConfirmed: t.confirmada,
+      invoiceMonth: t.cartaoId && t.faturaMesOverride ? t.faturaMesOverride : undefined
+    };
+  }
+
+  document.getElementById("imp-confirmar").addEventListener("click", async function () {
+    var marcadas = imp.linhas.filter(function (l) { return l.marcada; });
+    if (!marcadas.length) return;
+    // Sem categoria o servidor recusa a linha, e recusar no fim derrubaria o
+    // extrato inteiro depois da espera. Melhor dizer antes.
+    var semCat = marcadas.filter(function (l) { return !l.categoriaId && !l.criar; });
+    if (semCat.length) {
+      avisar("Falta categoria",
+        semCat.length + (semCat.length === 1 ? " lançamento está" : " lançamentos estão") +
+        " sem categoria. Escolha uma em cada um, ou desmarque.");
+      return;
+    }
+    var caixaParcelas = document.getElementById("imp-parcelas");
+    var criarParcelas = !document.getElementById("imp-parcelas-campo").hidden && caixaParcelas.checked;
+    /* O carimbo do lote é o que torna a importação desfazível. Fica em cada
+     * lançamento, e não numa lista à parte, porque lista à parte envelhece:
+     * bastaria alguém apagar um lançamento à mão para ela passar a prometer
+     * um desfazer que já não bate. Assim a verdade está sempre nos próprios
+     * dados — o lote É o conjunto dos lançamentos que o carregam. */
+    var loteId = uid("imp");
+    var agora = new Date().toISOString();
+
+    var criadas = await resolverCategoriasDaImportacao(marcadas);
+    if (!criadas) return;
+
+    var montado = montarLinhasDaImportacao(marcadas, criadas, loteId, agora, criarParcelas);
+    var projetadas = montado.projetadas, puladasPorFatura = montado.puladasPorFatura;
+
+    if (MODO_API) {
+      /* O extrato sobe num lote só. Era aqui que a importação se perdia: ela
+       * gravava apenas no aparelho, e na primeira carga do servidor — que é
+       * quem manda — os lançamentos sumiam da fatura sem aviso nenhum.
+       *
+       * O `loteId` vai no pedido em vez de nascer no servidor: é ele que
+       * torna o reenvio seguro. Mandado duas vezes, o segundo não lança nada
+       * de novo. */
+      var ok = await comServidor("importar o extrato", async function () {
+        await api("/transactions/import", {
+          batchId: loteId,
+          items: montado.linhas.map(linhaParaApi)
+        });
+        // Recarrega em vez de confiar na resposta: saldo da conta, total da
+        // fatura e status dela mudaram todos juntos, e remontá-los aqui seria
+        // refazer na mão a conta que o servidor acabou de fechar.
+        await carregarDoServidor();
+      });
+      if (!ok) return;
+    } else {
+      montado.linhas.forEach(function (t) {
+        state.transactions.push(t);
+        if (t.confirmada) aplicarEfeito(t, 1);
       });
     }
 
