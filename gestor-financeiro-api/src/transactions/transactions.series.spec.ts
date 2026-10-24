@@ -21,6 +21,7 @@ describe('TransactionsService — séries e fatura escolhida', () => {
   let service: TransactionsService;
   let transacoes: Map<string, any>;
   let faturas: Map<string, any>; // chave 'AAAA-MM'
+  let series: Map<string, any>;
   let saldo: number;
   let seq: number;
 
@@ -41,7 +42,19 @@ describe('TransactionsService — séries e fatura escolhida', () => {
   const prisma: any = {
     $transaction: jest.fn((cb: any) => cb(prisma)),
     $queryRaw: jest.fn(async () => []),
-    transactionSeries: { create: jest.fn(async ({ data }: any) => ({ id: 'serie-' + ++seq, ...data })) },
+    transactionSeries: {
+      create: jest.fn(async ({ data }: any) => {
+        const s = { id: 'serie-' + ++seq, ...data };
+        series.set(s.id, s);
+        return s;
+      }),
+      findFirst: jest.fn(async ({ where }: any) => {
+        const s = series.get(where.id);
+        if (!s) return null;
+        if (where.userId && s.userId !== where.userId) return null;
+        return { ...s };
+      }),
+    },
     transaction: {
       create: jest.fn(async ({ data }: any) => {
         const t = { id: 't' + ++seq, seriesId: null, seriesIndex: null, invoiceMonthOverride: null, ...data };
@@ -117,6 +130,7 @@ describe('TransactionsService — séries e fatura escolhida', () => {
     jest.useFakeTimers({ now: new Date('2026-09-13T15:00:00Z') });
     transacoes = new Map();
     faturas = new Map();
+    series = new Map();
     saldo = 1000;
     seq = 0;
     jest.clearAllMocks();
@@ -429,6 +443,80 @@ describe('TransactionsService — séries e fatura escolhida', () => {
       await expect(
         service.deslocarFaturasSeguintes('user-1', r.transactions[0].id, 1),
       ).rejects.toThrow(/cartão/);
+    });
+  });
+
+  // O mesmo problema das faturas, num destino onde fatura nao existe: quem
+  // corrige a data da primeira parcela fica com as outras no ritmo antigo.
+  describe('realinhar as datas seguintes, na conta', () => {
+    const naConta = (extra = {}) => base({ creditCardId: undefined, bankAccountId: 'acc-1', ...extra });
+    async function serieNaConta(dia = '2026-10-22') {
+      const r = await service.createSeries(naConta({ transactionDate: utc(dia) }), parcelado(3));
+      return r.transactions;
+    }
+    const datas = (serieId) =>
+      [...transacoes.values()].filter((t) => t.seriesId === serieId)
+        .sort((a, b) => a.seriesIndex - b.seriesIndex)
+        .map((t) => t.transactionDate.toISOString().slice(0, 10));
+
+    // Mudar de 22/10 para 05/11 move o MES e o DIA: as seguintes tem de cair
+    // no dia 5, nao no 22.
+    it('as seguintes adotam o novo dia, nao so o novo mes', async () => {
+      const [p1] = await serieNaConta();
+      await service.update(p1.id, { transactionDate: utc('2026-11-05') }, 'user-1');
+
+      const r = await service.realinharDatasSeguintes('user-1', p1.id);
+      expect(r).toEqual({ moved: 2, protectedCount: 0 });
+      expect(datas(p1.seriesId)).toEqual(['2026-11-05', '2026-12-05', '2027-01-05']);
+    });
+
+    it('a parcela informada nao se move: ela ja foi corrigida', async () => {
+      const [p1] = await serieNaConta();
+      await service.update(p1.id, { transactionDate: utc('2026-11-05') }, 'user-1');
+      await service.realinharDatasSeguintes('user-1', p1.id);
+      expect(transacoes.get(p1.id).transactionDate.toISOString().slice(0, 10)).toBe('2026-11-05');
+    });
+
+    // Dia 31 continua caindo no ultimo dia valido, porque quem recalcula e a
+    // mesma funcao que criou a serie na origem -- nao ha regra duplicada.
+    it('dia 31 cai no ultimo dia valido de cada mes', async () => {
+      const [p1] = await serieNaConta();
+      await service.update(p1.id, { transactionDate: utc('2026-12-31') }, 'user-1');
+      await service.realinharDatasSeguintes('user-1', p1.id);
+      expect(datas(p1.seriesId)).toEqual(['2026-12-31', '2027-01-31', '2027-02-28']);
+    });
+
+    // Confirmada e dinheiro que ja saiu naquele dia.
+    it('parcela confirmada nao se move, e a resposta conta', async () => {
+      const [p1, , p3] = await serieNaConta();
+      await service.update(p3.id, { isConfirmed: true }, 'user-1');
+      await service.update(p1.id, { transactionDate: utc('2026-11-05') }, 'user-1');
+
+      const r = await service.realinharDatasSeguintes('user-1', p1.id);
+      expect(r).toEqual({ moved: 1, protectedCount: 1 });
+      expect(transacoes.get(p3.id).transactionDate.toISOString().slice(0, 10)).toBe('2026-12-22');
+    });
+
+    it('sem parcela depois, nao faz nada', async () => {
+      const parcelas = await serieNaConta();
+      const ultima = parcelas[parcelas.length - 1];
+      await expect(service.realinharDatasSeguintes('user-1', ultima.id)).resolves.toEqual({
+        moved: 0, protectedCount: 0,
+      });
+    });
+
+    it('serie de CARTAO realinha pela fatura, nao por aqui', async () => {
+      const { transactions } = await service.createSeries(base(), parcelado(2));
+      await expect(
+        service.realinharDatasSeguintes('user-1', transactions[0].id),
+      ).rejects.toThrow(/fatura/);
+    });
+
+    it('lancamento avulso e serie de outro usuario sao recusados', async () => {
+      const avulso = await service.create(naConta());
+      await expect(service.realinharDatasSeguintes('user-1', avulso.id)).rejects.toThrow(/série/);
+      const [p1] = await serieNaConta();
+      await expect(service.realinharDatasSeguintes('user-2', p1.id)).rejects.toThrow('Transação não encontrada');
     });
   });
 

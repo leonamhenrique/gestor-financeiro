@@ -76,6 +76,13 @@ export class TransactionsController {
     return this.transactionsService.deslocarFaturasSeguintes(req.user.id, id, dto.months);
   }
 
+  // PATCH /transactions/:id/series/realign-dates — na CONTA nao ha fatura:
+  // o que se corrige e a data, e as seguintes sao recalculadas a partir dela.
+  @Patch(':id/series/realign-dates')
+  realinharDatas(@Req() req: any, @Param('id') id: string) {
+    return this.transactionsService.realinharDatasSeguintes(req.user.id, id);
+  }
+
   // DELETE /transactions/:id/series?scope=ONLY|FOLLOWING|ALL
   @Delete(':id/series')
   deleteSeries(@Req() req: any, @Param('id') id: string, @Query() query: DeleteSeriesQueryDto) {

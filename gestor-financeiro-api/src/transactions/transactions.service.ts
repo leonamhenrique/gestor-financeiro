@@ -752,6 +752,70 @@ export class TransactionsService {
   }
 
   /**
+   * Realinha as parcelas SEGUINTES de uma série de CONTA pela data da
+   * parcela informada.
+   *
+   * É o mesmo problema das faturas, num destino onde fatura não existe: quem
+   * corrige a data da primeira parcela fica com as outras no ritmo antigo.
+   * Mas aqui a conta não é "mais N meses": mudar de 22/10 para 05/11 move o
+   * mês E o dia, e as seguintes têm de cair no dia 5, não no 22.
+   *
+   * Por isso a série é RECALCULADA a partir da nova data, com a frequência
+   * dela — a mesma função que criou as ocorrências na origem. Assim o dia 31
+   * continua caindo no último dia válido do mês, sem regra duplicada.
+   *
+   * Parcela já CONFIRMADA não se move: o dinheiro saiu naquele dia, e mudar
+   * a data reescreveria um débito que já está no extrato.
+   */
+  async realinharDatasSeguintes(
+    userId: string,
+    transactionId: string,
+  ): Promise<{ moved: number; protectedCount: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const alvo = await tx.transaction.findFirst({ where: { id: transactionId, userId } });
+      if (!alvo) throw new NotFoundException('Transação não encontrada');
+      if (!alvo.seriesId) throw new BadRequestException('Este lançamento não faz parte de uma série.');
+      if (!alvo.bankAccountId) {
+        throw new BadRequestException('Compra no cartão realinha pela fatura, não pela data.');
+      }
+
+      const serie = await tx.transactionSeries.findFirst({
+        where: { id: alvo.seriesId, userId },
+      });
+      if (!serie) throw new NotFoundException('Série não encontrada');
+
+      const seguintes = await tx.transaction.findMany({
+        where: {
+          seriesId: alvo.seriesId,
+          userId,
+          bankAccountId: { not: null },
+          seriesIndex: { gt: alvo.seriesIndex ?? 0 },
+        },
+        orderBy: { seriesIndex: 'asc' },
+      });
+      if (!seguintes.length) return { moved: 0, protectedCount: 0 };
+
+      const base = alvo.seriesIndex ?? 0;
+      let moved = 0;
+      let protectedCount = 0;
+      for (const p of seguintes) {
+        if (p.isConfirmed) {
+          protectedCount++;
+          continue;
+        }
+        const nova = dataDaOcorrencia(alvo.transactionDate, serie.frequency, (p.seriesIndex ?? 0) - base);
+        if (nova.getTime() === p.transactionDate.getTime()) continue;
+        await tx.transaction.update({
+          where: { id: p.id },
+          data: { transactionDate: nova },
+        });
+        moved++;
+      }
+      return { moved, protectedCount };
+    });
+  }
+
+  /**
    * Antecipar parcela de CONTA: aqui a data é o dia do débito, então é ela
    * que se move. O dia do mês é mantido — uma parcela de 17/12 antecipada
    * para outubro vira 17/10, e não dia 1.
