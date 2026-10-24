@@ -873,6 +873,44 @@ export class TransactionsService {
     });
   }
 
+  /**
+   * Põe vários lançamentos na mesma categoria de uma vez.
+   *
+   * Serve à correção de um lojista classificado errado: achada a padaria em
+   * Transporte, o usuário pode arrastar os anteriores junto em vez de abrir
+   * um por um.
+   *
+   * Categoria NÃO mexe em dinheiro: o valor de cada lançamento continua o
+   * mesmo, a fatura fecha pelo mesmo total e nenhum saldo se move. Por isso
+   * aqui não há `reverseEffect`/`applyEffect` — ao contrário de quase todo o
+   * resto deste arquivo — e por isso lançamento confirmado, ou em fatura já
+   * paga, pode ser reclassificado sem reabrir nada. O que muda é só em qual
+   * categoria ele é CONTADO, e isso é leitura, não movimento.
+   *
+   * Quem escolhe os ids é o cliente (ver BulkCategoryDto). O que se confere
+   * aqui é posse: um id que não seja do usuário derruba a operação inteira,
+   * em vez de ser ignorado em silêncio — ignorar faria o número devolvido
+   * mentir sobre o que foi feito.
+   */
+  async reclassificarEmLote(userId: string, ids: string[], categoryId: string) {
+    const unicos = [...new Set(ids)];
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.conferirCategoria(tx, userId, categoryId);
+
+      const meus = await tx.transaction.count({ where: { id: { in: unicos }, userId } });
+      if (meus !== unicos.length) {
+        throw new NotFoundException('Lançamento não encontrado');
+      }
+
+      const { count } = await tx.transaction.updateMany({
+        where: { id: { in: unicos }, userId },
+        data: { categoryId },
+      });
+      return { changed: count };
+    });
+  }
+
   // ----------------------------------------------------------
   // Helpers privados
   // ----------------------------------------------------------

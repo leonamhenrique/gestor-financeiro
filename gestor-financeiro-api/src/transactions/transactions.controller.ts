@@ -27,6 +27,7 @@ import {
   DeleteSeriesQueryDto,
   AnticipateDto,
   ShiftInvoiceDto,
+  BulkCategoryDto,
 } from './dto/transaction.dto';
 
 @Controller('transactions')
@@ -61,6 +62,16 @@ export class TransactionsController {
   @HttpCode(200)
   anticipate(@Req() req: any, @Param('seriesId') seriesId: string, @Body() dto: AnticipateDto) {
     return this.transactionsService.anticipate(req.user.id, seriesId, dto);
+  }
+
+  // PATCH /transactions/bulk-category — põe vários lançamentos na mesma
+  // categoria. Serve à correção de um lojista classificado errado.
+  //
+  // Esta rota vem ANTES das que começam com `:id`: depois delas, "bulk-category"
+  // seria lido como o id de um lançamento e a chamada morreria em 404.
+  @Patch('bulk-category')
+  reclassificar(@Req() req: any, @Body() dto: BulkCategoryDto) {
+    return this.transactionsService.reclassificarEmLote(req.user.id, dto.ids, dto.categoryId);
   }
 
   // PATCH /transactions/:id/series/shift-invoice — empurra as parcelas

@@ -2,6 +2,9 @@
 // dto/create-transaction.dto.ts
 // ============================================================
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsUUID,
   IsEnum,
   IsNumber,
@@ -227,4 +230,29 @@ export class ListTransactionsQueryDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   includeHidden?: boolean;
+}
+
+/**
+ * Reclassificar vários lançamentos de uma vez.
+ *
+ * Os IDS vêm do cliente, e não um nome de lojista para o servidor casar: a
+ * normalização que descobre o lojista ("MercadolivreEritecha - Parcela 5/12"
+ * → "mercadolivreeritecha") vive no app, e reescrevê-la aqui criaria duas
+ * implementações da mesma regra em linguagens diferentes. Elas divergem com o
+ * tempo, e aí o que a tela mostra deixa de ser o que o servidor muda.
+ *
+ * O servidor confere a posse de cada id — é o que impede o cliente de mandar
+ * um id alheio junto na lista.
+ */
+export const MAX_RECLASSIFICAR = 500;
+
+export class BulkCategoryDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_RECLASSIFICAR)
+  @IsUUID('4', { each: true })
+  ids!: string[];
+
+  @IsUUID()
+  categoryId!: string;
 }
