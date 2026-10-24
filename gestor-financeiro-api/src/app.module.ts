@@ -12,6 +12,7 @@ import { GoalsModule } from './goals/goals.module';
 import { BudgetsModule } from './budgets/budgets.module';
 import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
 import { CategoriesModule } from './categories/categories.module';
+import { CategoryRulesModule } from './category-rules/category-rules.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
 import { ReportsModule } from './reports/reports.module';
 import { SharedExpensesModule } from './shared-expenses/shared-expenses.module';
@@ -34,6 +35,7 @@ import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
     BudgetsModule,
     BankAccountsModule,
     CategoriesModule,
+    CategoryRulesModule,
     CreditCardsModule,
     BillingModule,
     ReportsModule,

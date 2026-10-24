@@ -118,6 +118,7 @@ model User {
   sharedExpenses      SharedExpense[]
   settlements         Settlement[]
   shareLinks          ShareLink[]
+  categoryRules       CategoryRule[]
 
   @@map("users")
 }
@@ -335,6 +336,7 @@ model Category {
   transactions   Transaction[]
   budgetItems    BudgetItem[]
   sharedExpenses SharedExpense[]
+  categoryRules  CategoryRule[]
 
   // Nome único entre IRMÃS (mesmo pai, mesmo tipo), sem diferenciar
   // maiúsculas e acentos — conferido no service. "Moradia > Luz" e
@@ -878,4 +880,37 @@ model ShareLink {
   @@index([userId])
   @@index([personId])
   @@map("share_links")
+}
+
+// ============================================================
+// O que o usuario ensinou sobre um lojista.
+// ============================================================
+// Extrato bancario e repetitivo: o mesmo punhado de lojistas todo mes. Medido
+// num extrato real do Nubank, 44 de 74 linhas eram do mesmo marketplace. Uma
+// regra aprendida cobre 59% do arquivo -- por isso isto e memoria, e nao
+// adivinhacao.
+//
+// `merchant` e a CHAVE do lojista, ja normalizada pelo cliente (minusculas,
+// sem acento e sem pontuacao) e podada do sufixo de parcela. Ela pode ser um
+// PREFIXO: "mercadolivre" casa com "mercadolivreeritecha". Quando mais de uma
+// regra casa, vence a mais longa -- a mais especifica.
+model CategoryRule {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  merchant   String
+  categoryId String   @map("category_id")
+  // Quantas importacoes ja confirmaram a regra. Nao decide nada hoje; existe
+  // para a tela poder dizer de onde veio o palpite.
+  hits       Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  // Um lojista tem uma categoria so. Ensinar de novo troca a que valia, em
+  // vez de empilhar duas regras que brigam.
+  @@unique([userId, merchant])
+  @@index([userId])
+  @@map("category_rules")
 }

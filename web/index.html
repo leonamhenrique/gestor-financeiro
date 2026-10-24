@@ -384,6 +384,36 @@
    * Esconder faria o total não bater com o que se vê, e ninguém entenderia. */
   .imp-linha.repetida .imp-desc, .imp-linha.repetida .imp-val { color: var(--fg-subtle); }
   .imp-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); }
+  /* "você ensinou" não é alerta: é a origem do palpite. Laranja ali diria que
+   * algo precisa de atenção, e é o contrário — esta linha já está resolvida. */
+  .imp-tag--regra { color: var(--fg-subtle); }
+  /* Rótulo de grupo: caixa alta e espaço acima, como manda o princípio. Sem
+   * caixa, sem fundo — o que separa os dois grupos é o vão e a hairline da
+   * primeira linha de cada um. */
+  .imp-grupo-rotulo {
+    margin-top: 18px; padding-bottom: 6px;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--fg-subtle);
+  }
+  /* A dobra é o mesmo rótulo, que também abre. Mesmo desenho de propósito:
+   * são duas peças do mesmo par, e diferenciá-las faria parecer que uma é
+   * outro tipo de coisa. */
+  .imp-dobra {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    margin-top: 18px; padding: 12px 0;
+    border: none; border-top: 1px solid var(--hairline); background: none;
+    font: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--fg-subtle); text-align: left; cursor: pointer;
+  }
+  .imp-dobra:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .imp-dobra svg { width: 12px; height: 12px; flex-shrink: 0; transition: transform 160ms ease-out; }
+  .imp-dobra[aria-expanded="true"] svg { transform: rotate(90deg); }
+  /* O dedo precisa da banda inteira; o ponteiro não, e 44px de rótulo
+   * abririam um buraco na lista. */
+  @media (pointer: coarse) { .imp-dobra { min-height: 44px; } }
+  /* A primeira linha de cada grupo não repete a hairline que o rótulo ou a
+   * dobra já desenharam. */
+  .imp-grupo-rotulo + .imp-linha, #imp-prontas > .imp-linha:first-child { border-top: none; }
   .imp-resumo { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--fg-subtle); }
   .imp-resumo b { font-weight: 500; color: var(--fg); margin-left: 5px; }
 
@@ -3889,6 +3919,10 @@
       // Planejamento também tem lista própria: ele é intenção, e intenção não
       // é lançamento. Nenhum relatório percorre esta lista.
       planejamentos: [],
+      // Regra de categoria por lojista. Nasce vazia de propósito: a primeira
+      // importação não tem o que lembrar, e inventar regras para um extrato
+      // que ainda não existe seria adivinhar.
+      regrasCategoria: [],
       accounts: [
         { id: "a1", nome: "Nubank", tipo: "CHECKING", saldo: 4312.90, saldoInicial: 500.00, cor: "#A98CF0", isActive: true, oculto: false },
         { id: "a2", nome: "Itaú", tipo: "SAVINGS", saldo: 18760.45, saldoInicial: 19370.45, cor: "#F0946E", isActive: true, oculto: false },
@@ -3932,6 +3966,10 @@
   if (!Array.isArray(state.transferencias)) state.transferencias = [];
   if (!Array.isArray(state.objetivos)) state.objetivos = [];
   if (!Array.isArray(state.planejamentos)) state.planejamentos = [];
+  // O que o usuário ensinou sobre cada lojista. Quem já usava o app antes
+  // disto não tem a lista: sem a linha abaixo, a primeira importação quebraria
+  // ao percorrê-la.
+  if (!Array.isArray(state.regrasCategoria)) state.regrasCategoria = [];
   (state.objetivos || []).forEach(function (o) { if (!Array.isArray(o.movimentos)) o.movimentos = []; });
   (state.cards || []).forEach(function (k) { if (!k.pagamentos) k.pagamentos = []; });
   (state.accounts || []).forEach(function (a) {
@@ -5942,6 +5980,13 @@
 
   /** Traz tudo do servidor para o `state`. Conta oculta vem junto: quem
    * esconde da tela é o app, e o saldo oculto continua somando no seu quadro. */
+  /** A regra como o servidor manda. Ele já devolve da mais específica para a
+   * mais genérica — a ordem que `regraDoLojista` precisa para o prefixo mais
+   * longo vencer. */
+  function regraDaApi(r) {
+    return { id: r.id, lojista: r.merchant, categoriaId: r.categoryId, acertos: r.hits };
+  }
+
   async function carregarDoServidor() {
     var partes = await Promise.all([
       api("/bank-accounts?includeInactive=true"),
@@ -5950,7 +5995,8 @@
       api("/transactions?includeHidden=true"),
       api("/transfers"),
       api("/goals"),
-      api("/budgets")
+      api("/budgets"),
+      api("/category-rules")
     ]);
     state.accounts = partes[0].map(contaDaApi);
     state.categories = partes[1].map(categoriaDaApi);
@@ -5959,6 +6005,7 @@
     state.transferencias = partes[4].map(transferenciaDaApi);
     state.objetivos = partes[5].map(objetivoDaApi);
     state.planejamentos = partes[6].map(planejamentoDaApi);
+    state.regrasCategoria = partes[7].map(regraDaApi);
     var pagamentos = await Promise.all(state.cards.map(function (k) {
       return api("/credit-cards/" + k.id + "/payments");
     }));
@@ -7738,6 +7785,102 @@
 
   var RE_PARCELA = /^(.*?)\s*-\s*Parcela\s+(\d+)\/(\d+)$/i;
 
+  /* ================= o lojista =================
+   *
+   * O app tratava o HISTÓRICO como identidade, e histórico não é lojista.
+   * Medido no extrato real: "MercadolivreEritecha - Parcela 5/12" e
+   * "MercadolivreBjgoimpo - Parcela 6/12" são o mesmo marketplace e duas
+   * strings diferentes — e no mês seguinte a parcela muda de número, então
+   * nem a mesma compra se repete igual. Era por isso que "esta categoria para
+   * todos iguais" não achava nada num arquivo com 44 linhas do mesmo lugar.
+   *
+   * Lojista é o que sobra tirando o sufixo de parcela, e a comparação entre
+   * dois lojistas é por COMEÇO, não por igualdade. */
+
+  /** O lojista do histórico. */
+  function lojistaDoHistorico(desc) {
+    var s = String(desc || "").trim();
+    var m = s.match(RE_PARCELA);
+    return (m ? m[1] : s).trim();
+  }
+
+  /** A chave do lojista: normalizada, sem acento e sem pontuação. É ela que
+   * vai para a regra aprendida, e é ela que o servidor valida. */
+  function chaveDeLojista(desc) {
+    return chaveDeTexto(lojistaDoHistorico(desc));
+  }
+
+  /** O começo que duas chaves têm em comum. */
+  function prefixoComum(a, b) {
+    var n = 0;
+    while (n < a.length && n < b.length && a.charAt(n) === b.charAt(n)) n++;
+    return a.slice(0, n);
+  }
+
+  /* Abaixo disto um começo em comum não quer dizer nada: "ca" junta Carrefour
+   * com Casas Bahia. Cinco é curto o bastante para pegar "Uber"+sufixo e longo
+   * o bastante para não juntar lojistas diferentes por acaso. */
+  var MIN_LOJISTA = 5;
+
+  /** O grupo que vale a pena oferecer para a linha `i`.
+   *
+   * Candidatos: o lojista inteiro e cada começo que ele divide com outra
+   * linha do mesmo arquivo. Vence o que cobre MAIS linhas; empatando, o mais
+   * longo — ou seja, o grupo mais amplo que ainda é específico.
+   *
+   * O app não aplica isto sozinho: o grupo vira um botão que diz o tamanho
+   * ("Aplicar a 44 Mercadolivre"). Agrupar errado é possível; agrupar errado
+   * sem o usuário ver o número não é. */
+  function grupoDeLojista(chaves, i) {
+    var alvo = chaves[i] || "";
+    if (alvo.length < MIN_LOJISTA) return null;
+
+    var candidatos = {};
+    candidatos[alvo] = true;
+    chaves.forEach(function (k, j) {
+      if (j === i) return;
+      var p = prefixoComum(alvo, k);
+      if (p.length >= MIN_LOJISTA) candidatos[p] = true;
+    });
+
+    var melhor = null;
+    Object.keys(candidatos).forEach(function (p) {
+      var quantos = chaves.filter(function (k) { return k.indexOf(p) === 0; }).length;
+      if (!melhor || quantos > melhor.quantos ||
+          (quantos === melhor.quantos && p.length > melhor.chave.length)) {
+        melhor = { chave: p, quantos: quantos };
+      }
+    });
+    return melhor;
+  }
+
+  /** O texto original recortado no tamanho de uma chave — é como o prefixo
+   * aparece no botão. A chave de "MercadolivreEritecha" cortada em 12 devolve
+   * "Mercadolivre", e não "mercadolivre": quem lê reconhece o próprio extrato. */
+  function recortarPorChave(texto, n) {
+    var s = String(texto || ""), dentro = 0, i = 0;
+    for (; i < s.length && dentro < n; i++) {
+      if (chaveDeTexto(s.charAt(i))) dentro++;
+    }
+    return s.slice(0, i).trim();
+  }
+
+  /** A regra aprendida que vale para um histórico, ou nada.
+   *
+   * Casa por começo e vence a MAIS LONGA. Duas regras podem casar com a mesma
+   * linha — "mercadolivre" e "mercadolivreoficial" —, e a mais longa é a que
+   * o usuário escreveu sabendo mais. */
+  function regraDoLojista(regras, desc) {
+    var k = chaveDeLojista(desc);
+    if (!k) return null;
+    var melhor = null;
+    (regras || []).forEach(function (r) {
+      if (!r || !r.lojista || k.indexOf(r.lojista) !== 0) return;
+      if (!melhor || r.lojista.length > melhor.lojista.length) melhor = r;
+    });
+    return melhor;
+  }
+
   /** As compras parceladas do extrato, e o que falta delas.
    *
    * O agrupamento é por SÉRIE — lojista mais valor da parcela —, nunca por
@@ -9208,7 +9351,13 @@
     imp.linhas = imp.ofx.lancamentos.map(function (l) {
       var repetida = !!jaTem[chaveDeLancamento(l)];
       var pagamento = ehPagamentoDeFatura(l);
-      var palpite = sugerirCategoria(l.desc);
+      /* A ordem é a regra: o que o USUÁRIO ensinou ganha da lista que vem de
+       * fábrica. A lista é um chute de quem escreveu o app; a regra é a
+       * decisão de quem tem o extrato na mão. Deixar a lista por cima
+       * desfaria, a cada importação, a correção que a pessoa já fez. */
+      var regra = regraDoLojista(state.regrasCategoria, l.desc);
+      var daRegra = regra ? categoriasLancaveis(l.tipo).filter(function (c) { return c.id === regra.categoriaId; })[0] : null;
+      var palpite = daRegra ? "" : sugerirCategoria(l.desc);
       var cat = palpite ? categoriasLancaveis(l.tipo).filter(function (c) { return normalizarNome(c.nome) === normalizarNome(palpite); })[0] : null;
       return {
         base: l, repetida: repetida, pagamento: pagamento,
@@ -9216,8 +9365,16 @@
         // o mesmo dinheiro para dentro duas vezes. Continuam à vista e
         // marcáveis — quem conhece o próprio extrato decide.
         marcada: !repetida && !pagamento,
-        categoriaId: cat ? cat.id : "",
-        criar: cat ? "" : palpite
+        categoriaId: daRegra ? daRegra.id : (cat ? cat.id : ""),
+        criar: daRegra ? "" : (cat ? "" : palpite),
+        // De onde veio o palpite, para a tela poder dizer. "regra" é o que o
+        // usuário ensinou; "pista", a lista de fábrica.
+        origem: daRegra ? "regra" : (cat || palpite ? "pista" : ""),
+        // Só o que o usuário TOCOU vira regra. Aceitar em silêncio um palpite
+        // de fábrica e gravá-lo como ensinamento transformaria um chute num
+        // dado permanente — e ninguém saberia de onde veio.
+        ensinar: false,
+        chaveRegra: ""
       };
     });
     document.getElementById("imp-passo-1").hidden = true;
@@ -9246,25 +9403,72 @@
     return html;
   }
 
+  /** As chaves de lojista da importação, calculadas uma vez por pintura.
+   * `grupoDeLojista` compara cada linha com todas as outras, e recalcular a
+   * chave dentro desse laço normalizaria o mesmo texto milhares de vezes. */
+  function chavesDaImportacao() {
+    return imp.linhas.map(function (l) { return chaveDeLojista(l.base.desc); });
+  }
+
+  function linhaImportacaoHTML(l, i, chaves) {
+    var b = l.base;
+    var g = grupoDeLojista(chaves, i);
+    // O botão só aparece quando há o que ganhar: aplicar a uma linha sozinha
+    // é o mesmo que escolher a categoria nela, que a pessoa acabou de fazer.
+    var rotulo = g && g.quantos > 1 ? recortarPorChave(lojistaDoHistorico(b.desc), g.chave.length) : "";
+    return '<div class="imp-linha' + (l.repetida ? " repetida" : "") + '" data-i="' + i + '">' +
+      '<input type="checkbox" class="imp-marca" ' + (l.marcada ? "checked" : "") +
+        ' aria-label="Importar ' + esc(b.desc) + '">' +
+      '<span class="imp-desc" title="' + esc(b.desc) + '">' + esc(b.desc) + "</span>" +
+      '<span class="imp-val num ' + (b.tipo === "EXPENSE" ? "sai" : "entra") + '">' +
+        (b.tipo === "EXPENSE" ? "−" : "+") + money(b.valor) + "</span>" +
+      '<span class="imp-meta">' +
+        "<span>" + fmtDataBR(b.data) + "</span>" +
+        '<select class="imp-cat" aria-label="Categoria de ' + esc(b.desc) + '">' + opcoesDeCategoria(l) + "</select>" +
+        (l.origem === "regra" ? '<span class="imp-tag imp-tag--regra">você ensinou</span>' : "") +
+        (l.repetida ? '<span class="imp-tag">já existe</span>' : "") +
+        (l.pagamento ? '<span class="imp-tag">pagamento da fatura</span>' : "") +
+        (rotulo ? '<button type="button" class="pill imp-grupo" data-i="' + i + '">Aplicar a ' +
+          g.quantos + " " + esc(rotulo) + "</button>" : "") +
+      "</span>" +
+      "</div>";
+  }
+
+  /** A lista em dois grupos: o que precisa do usuário em cima, o que já está
+   * resolvido recolhido embaixo.
+   *
+   * É o pedido inteiro numa frase: 39 linhas iguais entre si não dizem onde
+   * olhar. Separadas, o trabalho que sobra é o número no rótulo de cima.
+   *
+   * O grupo de cada linha é decidido AQUI, na pintura, e não a cada escolha:
+   * uma linha que saltasse de grupo no instante em que a pessoa escolhe a
+   * categoria sumiria debaixo do cursor. O que anda ao vivo é a contagem no
+   * resumo, que não move nada de lugar. */
   function pintarImportacao() {
-    var lista = document.getElementById("imp-lista");
-    lista.innerHTML = imp.linhas.map(function (l, i) {
-      var b = l.base;
-      return '<div class="imp-linha' + (l.repetida ? " repetida" : "") + '" data-i="' + i + '">' +
-        '<input type="checkbox" class="imp-marca" ' + (l.marcada ? "checked" : "") +
-          ' aria-label="Importar ' + esc(b.desc) + '">' +
-        '<span class="imp-desc" title="' + esc(b.desc) + '">' + esc(b.desc) + "</span>" +
-        '<span class="imp-val num ' + (b.tipo === "EXPENSE" ? "sai" : "entra") + '">' +
-          (b.tipo === "EXPENSE" ? "−" : "+") + money(b.valor) + "</span>" +
-        '<span class="imp-meta">' +
-          "<span>" + fmtDataBR(b.data) + "</span>" +
-          '<select class="imp-cat" aria-label="Categoria de ' + esc(b.desc) + '">' + opcoesDeCategoria(l) + "</select>" +
-          (l.repetida ? '<span class="imp-tag">já existe</span>' : "") +
-          (l.pagamento ? '<span class="imp-tag">pagamento da fatura</span>' : "") +
-          '<button type="button" class="pill imp-igual" data-i="' + i + '">Esta categoria para todos iguais</button>' +
-        "</span>" +
+    var chaves = chavesDaImportacao();
+    var pendentes = [], prontas = [];
+    imp.linhas.forEach(function (l, i) {
+      (l.categoriaId || l.criar ? prontas : pendentes).push(i);
+    });
+
+    var html = "";
+    if (pendentes.length) {
+      html += '<div class="imp-grupo-rotulo">Precisam de você · ' + pendentes.length + "</div>" +
+        pendentes.map(function (i) { return linhaImportacaoHTML(imp.linhas[i], i, chaves); }).join("");
+    }
+    if (prontas.length) {
+      // Fechado quando há pendência, aberto quando não há: sem nada a
+      // resolver, esconder a lista inteira atrás de um clique seria esconder
+      // a única coisa que sobrou para conferir.
+      var aberto = !pendentes.length;
+      html += '<button type="button" class="imp-dobra" aria-expanded="' + aberto + '" aria-controls="imp-prontas">' +
+        '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        "<span>Já classificados · " + prontas.length + "</span></button>" +
+        '<div id="imp-prontas"' + (aberto ? "" : " hidden") + ">" +
+        prontas.map(function (i) { return linhaImportacaoHTML(imp.linhas[i], i, chaves); }).join("") +
         "</div>";
-    }).join("");
+    }
+    document.getElementById("imp-lista").innerHTML = html;
     atualizarResumoDaImportacao();
   }
 
@@ -9285,8 +9489,17 @@
       else { entradas += l.base.valor; if (l.pagamento) pago += l.base.valor; }
     });
     var repetidas = imp.linhas.filter(function (l) { return l.repetida; }).length;
+    /* Quanto falta classificar, contado ao vivo.
+     *
+     * É o número que move enquanto a pessoa trabalha. As linhas ficam no
+     * grupo em que foram pintadas — mexer nelas sob o cursor seria pior —, e
+     * este contador é o que mostra o trabalho diminuindo. Conta só o que está
+     * MARCADO: pedir categoria para uma linha que não vai entrar é pedir
+     * trabalho que não serve para nada. */
+    var semCategoria = marcadas.filter(function (l) { return !l.categoriaId && !l.criar; }).length;
     document.getElementById("imp-resumo").innerHTML =
       "<span>marcados<b>" + marcadas.length + " de " + imp.linhas.length + "</b></span>" +
+      (semCategoria ? "<span>sem categoria<b>" + semCategoria + "</b></span>" : "") +
       "<span>saídas<b class='num'>" + money(saidas) + "</b></span>" +
       (entradas ? "<span>entradas<b class='num'>" + money(entradas) + "</b></span>" : "") +
       "<span>" + (imp.ehCartao ? "fica na fatura" : "resultado") +
@@ -9351,23 +9564,64 @@
       var v = e.target.value;
       if (v.indexOf("novo:") === 0) { l.criar = v.slice(5); l.categoriaId = ""; }
       else { l.categoriaId = v; l.criar = ""; }
+      // Escolheu à mão: isto vira regra, pelo lojista desta linha. Limpar para
+      // "Sem categoria" também conta — é o jeito de desfazer uma regra errada
+      // sem precisar caçá-la numa tela de regras que não existe.
+      l.ensinar = true;
+      l.chaveRegra = chaveDeLojista(l.base.desc);
+      l.origem = "";
     }
   });
 
-  // Repetir a mesma categoria em 44 parcelas do mesmo lojista, uma a uma, é
-  // trabalho que o app pode fazer. O que conta como "igual" é o histórico.
+  // A dobra dos já classificados. Alterna o `hidden` em vez de repintar: a
+  // lista inteira seria remontada só para mostrar o que já está pronto.
   document.getElementById("imp-lista").addEventListener("click", function (e) {
-    var b = e.target.closest(".imp-igual");
+    var b = e.target.closest(".imp-dobra");
     if (!b) return;
-    var origem = imp.linhas[Number(b.getAttribute("data-i"))];
-    var alvo = normalizarNome(origem.base.desc);
+    var abrindo = b.getAttribute("aria-expanded") !== "true";
+    b.setAttribute("aria-expanded", String(abrindo));
+    document.getElementById("imp-prontas").hidden = !abrindo;
+  });
+
+  /* Repetir a mesma categoria em 44 parcelas do mesmo lojista, uma a uma, é
+   * trabalho que o app pode fazer.
+   *
+   * O que conta como "mesmo" é o LOJISTA, não o histórico. Antes era o
+   * histórico inteiro, e por isso o botão não servia justamente onde mais
+   * fazia falta: "MercadolivreEritecha - Parcela 5/12" e
+   * "MercadolivreBjgoimpo - Parcela 6/12" são textos diferentes, e o botão
+   * respondia "nenhum outro lançamento tem este mesmo histórico" com 44
+   * linhas do mesmo marketplace na tela. */
+  document.getElementById("imp-lista").addEventListener("click", function (e) {
+    var b = e.target.closest(".imp-grupo");
+    if (!b) return;
+    var i = Number(b.getAttribute("data-i"));
+    var origem = imp.linhas[i];
+    // Aplicar "sem categoria" a 44 linhas não é o que ninguém quis clicar.
+    if (!origem.categoriaId && !origem.criar) {
+      avisar("Escolha a categoria primeiro", "O botão repete a categoria desta linha nas outras do mesmo lojista.");
+      return;
+    }
+    var g = grupoDeLojista(chavesDaImportacao(), i);
+    if (!g) return;
     var n = 0;
     imp.linhas.forEach(function (l) {
-      if (l === origem || normalizarNome(l.base.desc) !== alvo) return;
-      l.categoriaId = origem.categoriaId; l.criar = origem.criar; n++;
+      if (chaveDeLojista(l.base.desc).indexOf(g.chave) !== 0) return;
+      l.categoriaId = origem.categoriaId;
+      l.criar = origem.criar;
+      l.origem = "";
+      // A regra aprendida fica com o PREFIXO, não com o lojista inteiro: é o
+      // prefixo que a pessoa acabou de confirmar ao ver a contagem no botão,
+      // e é ele que vai pegar o vendedor novo do mês que vem.
+      l.ensinar = true;
+      l.chaveRegra = g.chave;
+      if (l !== origem) n++;
     });
     pintarImportacao();
-    avisar("Categoria repetida", n ? ("Apliquei a mesma categoria a mais " + n + (n === 1 ? " lançamento" : " lançamentos") + " com o mesmo histórico.") : "Nenhum outro lançamento tem este mesmo histórico.");
+    avisar("Categoria aplicada",
+      (n ? "Apliquei a mesma categoria a mais " + n + (n === 1 ? " lançamento" : " lançamentos") + " deste lojista. "
+         : "Nenhum outro lançamento é deste lojista. ") +
+      "Na próxima importação ele já vem classificado.");
   });
 
   ["imp-todos", "imp-nenhum"].forEach(function (id) {
@@ -9377,6 +9631,39 @@
       pintarImportacao();
     });
   });
+
+  /** Guarda o que a importação ensinou, no aparelho e no servidor.
+   *
+   * A lista local é atualizada SEMPRE, inclusive em modo API: ela é o que a
+   * próxima importação lê, e esperar a volta da rede para a pessoa poder
+   * reimportar seria trocar uma memória que funciona por uma que depende de
+   * sinal. O servidor é quem faz a regra atravessar para o outro aparelho, e
+   * a resposta dele — que já vem ordenada — substitui a lista local. */
+  function gravarRegrasDeCategoria(porLojista) {
+    var chaves = Object.keys(porLojista);
+    if (!chaves.length) return;
+
+    chaves.forEach(function (lojista) {
+      var achada = state.regrasCategoria.filter(function (r) { return r.lojista === lojista; })[0];
+      if (achada) { achada.categoriaId = porLojista[lojista]; achada.acertos = (achada.acertos || 1) + 1; }
+      else state.regrasCategoria.push({ id: uid("rg"), lojista: lojista, categoriaId: porLojista[lojista], acertos: 1 });
+    });
+    // A mais longa primeiro: é a ordem que `regraDoLojista` espera, e é a
+    // mesma que o servidor devolve. Mantê-las iguais evita que o palpite mude
+    // conforme o app esteja on-line ou não.
+    state.regrasCategoria.sort(function (a, b) { return b.lojista.length - a.lojista.length; });
+    persist();
+
+    if (!MODO_API) return;
+    // Sem `comServidor`: falhar aqui não pode estragar o aviso da importação,
+    // que já aconteceu. A regra fica no aparelho e sobe na próxima vez que o
+    // usuário ensinar alguma coisa.
+    api("/category-rules", {
+      rules: chaves.map(function (k) { return { merchant: k, categoryId: porLojista[k] }; })
+    }, "PUT").then(function (r) {
+      if (Array.isArray(r)) { state.regrasCategoria = r.map(regraDaApi); persist(); }
+    }).catch(function () {});
+  }
 
   document.getElementById("imp-confirmar").addEventListener("click", function () {
     var marcadas = imp.linhas.filter(function (l) { return l.marcada; });
@@ -9461,6 +9748,25 @@
         projetadas++;
       });
     }
+
+    /* O que esta importação ensinou.
+     *
+     * Só entra o que o usuário TOCOU — escolheu na linha ou aplicou ao
+     * lojista. O palpite de fábrica aceito em silêncio não vira regra: ele
+     * continua sendo um chute do app, e promovê-lo a ensinamento faria o
+     * errado se repetir para sempre, com cara de decisão da pessoa.
+     *
+     * A categoria gravada é a RESOLVIDA, depois de "Criar …" virar uma
+     * categoria de verdade — uma regra apontando para um nome que não existe
+     * não serviria para nada na importação seguinte. */
+    var aprendidas = {};
+    marcadas.forEach(function (l) {
+      if (!l.ensinar || !l.chaveRegra) return;
+      var destino = l.categoriaId || (l.criar ? criadas[l.criar] : "");
+      if (!destino) return;
+      aprendidas[l.chaveRegra] = destino;
+    });
+    gravarRegrasDeCategoria(aprendidas);
 
     persist(); renderAll();
     // Leva para a tela onde o resultado aparece: de nada adianta dizer
