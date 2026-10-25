@@ -59,11 +59,17 @@ services:
         sync: false
       - key: APP_URL
         sync: false
-      # App (pages.dev) e API (onrender.com) são domínios diferentes, e com
-      # SameSite=Strict o navegador não manda o cookie de sessão. Ver
-      # src/auth/session-cookie.ts. Com domínio próprio nos dois, volte a strict.
+      # App em saldonline.com.br e API em api.saldonline.com.br: MESMO domínio
+      # registrável, logo o mesmo site para o navegador. O cookie de sessão é
+      # de primeira parte e `strict` funciona — que é o que queremos, porque
+      # `none` significa "cookie de terceiro", e isso o Safari bloqueia por
+      # padrão e o Chrome vem restringindo. Com `none`, recarregar a página
+      # voltava para o login. Ver src/auth/session-cookie.ts.
+      #
+      # Se um dia a API sair deste domínio, isto precisa voltar para `none` —
+      # e aí a sessão volta a depender de política de cookie de terceiro.
       - key: COOKIE_SAMESITE
-        value: none
+        value: strict
       # Serviço de e-mail. Em NONE a API sobe normalmente e só a recuperação
       # de senha fica desligada, avisando quem tentar.
       #
