@@ -10278,6 +10278,36 @@
     el.textContent = "";
   }
 
+  /**
+   * Aprende o lojista de um lançamento DIGITADO.
+   *
+   * Sem isto, quem nunca importa um extrato não ganha nada: digitaria "Marte
+   * Paes" pela primeira vez, escolheria a categoria, e na vez seguinte o app
+   * não lembraria de nada.
+   *
+   * Só aprende lojista que AINDA NÃO TEM regra. É o que torna seguro gravar
+   * sem perguntar: aprendizado aditivo não contradiz decisão nenhuma. Trocar
+   * uma regra que já existe é outra coisa — muda o que vai acontecer com
+   * tudo daquele lojista daí em diante —, e para isso existe a pergunta na
+   * edição do lançamento, onde ela também oferece arrumar o passado.
+   *
+   * Também não aprende o que o próprio app sugeriu e a pessoa apenas aceitou:
+   * nesse caso a regra já existe, e é ela que está ali.
+   */
+  function deveAprenderDoLancamento(regras, desc, categoriaId) {
+    if (!categoriaId) return false;
+    // O mesmo piso da sugestão: lojista de duas letras não é lojista.
+    if (chaveDeLojista(desc).length < MIN_LOJISTA) return false;
+    return !regraDoLojista(regras, desc);
+  }
+
+  function talvezAprenderDoLancamento(desc, categoriaId) {
+    if (!deveAprenderDoLancamento(state.regrasCategoria, desc, categoriaId)) return;
+    var m = {};
+    m[chaveDeLojista(desc)] = categoriaId;
+    gravarRegrasDeCategoria(m);
+  }
+
   /** Preenche a categoria a partir do que foi digitado na descrição. */
   function sugerirCategoriaDigitando() {
     // Editando, a categoria do lançamento é a verdade: ele já foi
@@ -10951,6 +10981,9 @@
         }
         var resultado = await lancarComFila(corpoNovo, "lançar");
         if (!resultado.ok) return;
+        // Depois do sucesso, nunca antes: aprender de um lançamento que não
+        // chegou a existir ensinaria o lojista de uma compra que não houve.
+        talvezAprenderDoLancamento(desc, categoriaId);
         editandoLancamento = null;
         if (e.submitter && e.submitter.id === "l-lancar-novo") {
           reabrirParaOutroLancamento(destino, cartaoId, contaId, categoriaId, data);
@@ -10992,6 +11025,7 @@
         return api("/transactions", corpo);
       });
       if (!okL) return;
+      if (!alvoL) talvezAprenderDoLancamento(desc, categoriaId);
       editandoLancamento = null;
       if (e.submitter && e.submitter.id === "l-lancar-novo") {
         reabrirParaOutroLancamento(destino, cartaoId, contaId, categoriaId, data);
@@ -11054,6 +11088,7 @@
       if (nova.confirmada) aplicarEfeito(nova, 1);
     }
 
+    if (!editandoLancamento) talvezAprenderDoLancamento(desc, categoriaId);
     persist(); renderAll();
     var editadoAgora = editandoLancamento;
     editandoLancamento = null;
