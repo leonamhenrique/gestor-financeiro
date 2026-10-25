@@ -5950,7 +5950,33 @@
   /** true = sessão renovada; false = o servidor disse que não; "sem-rede" = não
    * cheguei a perguntar. A diferença importa: sessão negada manda para a tela
    * de entrada, rede ausente não — aí o app abre com o que tem no aparelho. */
+  /* Uma renovação por vez, e todo mundo espera a MESMA.
+   *
+   * O token de sessão rotaciona a cada refresh, e reapresentar um já trocado
+   * é, do ponto de vista do servidor, sinal de token roubado: ele derruba o
+   * login inteiro (ver `revogarFamilia` no auth.service). Isso é a defesa
+   * certa contra roubo — e uma armadilha para o próprio app.
+   *
+   * `carregarDoServidor` dispara sete chamadas em paralelo. Se o token de
+   * acesso tiver expirado, as sete levam 401 e as sete chamam esta função:
+   * a primeira rotaciona, as outras seis chegam com o token velho, e a
+   * sessão morre. Medido contra a API: dois refresh simultâneos com o mesmo
+   * cookie dão 200 e 401, e o refresh seguinte já dá 401 — a sessão acabou.
+   *
+   * Com uma promessa só compartilhada, as sete viram um pedido. */
+  var renovacaoEmVoo = null;
+
   async function renovarSessao() {
+    if (renovacaoEmVoo) return renovacaoEmVoo;
+    renovacaoEmVoo = renovarSessaoAgora();
+    try {
+      return await renovacaoEmVoo;
+    } finally {
+      renovacaoEmVoo = null;
+    }
+  }
+
+  async function renovarSessaoAgora() {
     var r;
     try {
       r = await chamarApi("/auth/refresh", {});

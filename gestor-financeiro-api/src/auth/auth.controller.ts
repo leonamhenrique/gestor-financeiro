@@ -11,7 +11,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { AuthService, SessaoEmitida } from './auth.service';
+import { AuthService, SessaoEmitida, RenovacaoEmCorridaException } from './auth.service';
 import { Public } from './public.decorator';
 import {
   ChangePasswordDto,
@@ -70,7 +70,11 @@ export class AuthController {
       return this.entregar(req, res, await this.auth.refresh(token));
     } catch (erro) {
       // Sessão que não vale mais não deve ficar voltando a cada requisição.
-      apagarCookieSessao(res);
+      //
+      // Mas CORRIDA não é sessão encerrada: as abas dividem um cookie só, e a
+      // perdedora apagaria o cookie novo que a vencedora acabou de gravar.
+      // Era isso que matava o login ao recarregar com duas abas abertas.
+      if (!(erro instanceof RenovacaoEmCorridaException)) apagarCookieSessao(res);
       throw erro;
     }
   }

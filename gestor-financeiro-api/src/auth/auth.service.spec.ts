@@ -275,12 +275,32 @@ describe('AuthService', () => {
       await expect(service.refresh(s2.refreshToken)).resolves.toBeDefined();
     });
 
-    it('reusar um token já trocado derruba o login inteiro (sinal de roubo)', async () => {
+    /** Envelhece a revogação de um token, para separar corrida de roubo: a
+     * diferença entre os dois é só há quanto tempo ele foi trocado. */
+    function revogadoHa(ms: number) {
+      const t = prisma._tabelas.refreshToken.filter((x: any) => x.revokedAt).slice(-1)[0];
+      t.revokedAt = new Date(Date.now() - ms);
+    }
+
+    it('reusar um token trocado HÁ MUITO TEMPO derruba o login inteiro (sinal de roubo)', async () => {
       const s1 = await service.register(cadastro);
       const s2 = await service.refresh(s1.refreshToken); // dono legítimo renovou
-      await expect(service.refresh(s1.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException); // cópia roubada
+      revogadoHa(60_000); // a cópia ficou guardada e voltou depois
+      await expect(service.refresh(s1.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
       // …e o token atual do dono também caiu, porque não dá para saber quem é quem.
       await expect(service.refresh(s2.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('duas renovações quase juntas NÃO derrubam a sessão: é corrida, não roubo', async () => {
+      // Duas abas do app, ou o app instalado mais a aba do navegador: as duas
+      // renovam quase ao mesmo tempo e a segunda chega com o token de um
+      // instante antes. Derrubar a família aqui deslogava a pessoa das duas.
+      const s1 = await service.register(cadastro);
+      const s2 = await service.refresh(s1.refreshToken);
+      // a perdedora da corrida falha...
+      await expect(service.refresh(s1.refreshToken)).rejects.toBeInstanceOf(UnauthorizedException);
+      // ...mas a sessão da vencedora continua de pé.
+      await expect(service.refresh(s2.refreshToken)).resolves.toBeDefined();
     });
 
     it('reuso derruba só aquele login, não os outros aparelhos', async () => {

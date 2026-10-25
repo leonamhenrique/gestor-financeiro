@@ -34,6 +34,18 @@ import { MAILER, Mailer } from './mailer.port';
 
 export const ACESSO_SEGUNDOS = 15 * 60;
 export const SESSAO_DIAS = 30;
+
+/**
+ * Esta renovação perdeu uma corrida — a sessão continua viva.
+ *
+ * Existe como tipo próprio, e não como mais um UnauthorizedException, porque
+ * quem chama precisa distinguir: numa sessão de verdade encerrada o cookie
+ * tem de ser apagado; numa corrida, NÃO. As abas do navegador dividem um
+ * cookie só, e apagá-lo aqui jogaria fora o cookie novo que a outra aba
+ * acabou de receber — matando no navegador uma sessão que o servidor manteve
+ * viva. Ver o catch do refresh em auth.controller.ts.
+ */
+export class RenovacaoEmCorridaException extends UnauthorizedException {}
 export const REDEFINICAO_MINUTOS = 30;
 export const TENTATIVAS_ANTES_DO_BLOQUEIO = 5;
 export const BLOQUEIO_MINUTOS = 15;
@@ -149,8 +161,26 @@ export class AuthService {
     if (!atual) throw new UnauthorizedException(MSG_SESSAO);
 
     if (atual.revokedAt) {
-      // Token que já foi trocado voltou a aparecer: alguém guardou uma cópia.
-      // Não dá para saber quem é o dono legítimo, então o login inteiro cai.
+      /* Token já trocado voltou a aparecer. São dois casos bem diferentes, e
+       * tratá-los igual derrubava sessão de gente inocente.
+       *
+       * CORRIDA (segundos atrás): o próprio app pediu duas renovações quase
+       * juntas — duas abas abertas, o app instalado mais a aba do navegador,
+       * ou um reenvio depois de rede ruim. A primeira rotacionou, a segunda
+       * chegou com o token de um instante antes. Aqui o dono é legítimo: a
+       * renovação dele falha, e só. Derrubar a família neste caso significa
+       * que abrir o app em duas abas desloga a pessoa das duas.
+       *
+       * ROUBO (depois da janela): o token ficou guardado e voltou muito
+       * tempo depois. Aí vale a regra original — não dá para saber quem é o
+       * dono, e o login inteiro cai.
+       *
+       * A janela é curta de propósito: ela não abre espaço para reuso real,
+       * porque o token já está revogado e nenhuma das duas pontas consegue
+       * renovar com ele. O que ela muda é só se o RESTO da família morre. */
+      const JANELA_DE_CORRIDA_MS = 30_000;
+      const emCorrida = Date.now() - atual.revokedAt.getTime() <= JANELA_DE_CORRIDA_MS;
+      if (emCorrida) throw new RenovacaoEmCorridaException(MSG_SESSAO);
       await this.revogarFamilia(atual.familyId);
       throw new UnauthorizedException(MSG_SESSAO);
     }
