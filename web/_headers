@@ -1,0 +1,23 @@
+# Cabeçalhos do Cloudflare Pages.
+#
+# O padrão do Pages é 4 horas de cache no navegador para arquivo estático
+# (max-age=14400). Para a maioria dos arquivos isso é bom. Para estes dois é
+# um defeito, e um defeito que já mordeu:
+#
+# config.js diz ONDE está a API. Ao mover a API para api.saldonline.com.br, o
+# navegador continuou servindo a versão de 4 horas atrás por até 4 horas — o
+# app seguia chamando o endereço antigo e a sessão morria a cada recarga, com
+# um 401 no console apontando para um host que já não devia ser usado.
+# Medido, não suposto.
+#
+# sw.js é o que atualiza o app. Preso em cache, ele atrasa a própria entrega
+# da correção seguinte.
+#
+# `no-cache` não quer dizer "não guarde": quer dizer "pergunte antes de usar".
+# Com o ETag que o Pages já manda, a pergunta custa um 304 de alguns bytes.
+
+/config.js
+  Cache-Control: no-cache
+
+/sw.js
+  Cache-Control: no-cache
