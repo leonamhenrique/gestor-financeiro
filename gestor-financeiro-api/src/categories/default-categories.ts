@@ -29,6 +29,17 @@ const DESPESAS = [
   { name: 'Educação', icon: 'graduation-cap', color: '#06B6D4' },
   { name: 'Lazer', icon: 'gamepad-2', color: '#EC4899' },
   { name: 'Compras', icon: 'shopping-bag', color: '#F59E0B' },
+  // Presente existe nos DOIS tipos, e são categorias diferentes: o que se dá
+  // é despesa, o que se recebe é receita. A chave aqui é nome+tipo (ver
+  // `garantirCategoriasPadrao`), então as duas convivem sem colidir — é a
+  // mesma situação de "Outros", que o teste já cobre.
+  //
+  // A cor foi medida, não escolhida no olho: entre os candidatos, este é o
+  // que fica mais longe das 13 despesas que já existem (12,5 em OKLab×100
+  // da vizinha mais próxima, Saúde). O verde empatou e foi descartado —
+  // verde e vermelho são sinal de valor neste app, não identidade de
+  // categoria, e um ponto verde numa despesa leria como entrada.
+  { name: 'Presente', icon: 'gift', color: '#B45309' },
   { name: 'Assinaturas', icon: 'refresh-cw', color: '#6366F1' },
   { name: 'Contas e Serviços', icon: 'file-text', color: '#64748B' },
   { name: 'Cuidados Pessoais', icon: 'sparkles', color: '#D946EF' },
