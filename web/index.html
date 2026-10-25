@@ -3244,6 +3244,10 @@
       </div>
       <div class="field"><label class="lbl" for="l-categoria">Categoria</label>
         <div class="field-data"><select id="l-categoria"></select><button type="button" class="ghost" id="l-nova-cat" title="Nova categoria">+</button></div>
+        <!-- Diz de onde veio a categoria quando o app a preencheu sozinho.
+             Preencher em silêncio seria pedir para a pessoa conferir cada
+             lançamento sem saber o que precisa de conferência. -->
+        <div class="field-help" id="l-cat-origem" hidden></div>
       </div>
       <div class="field">
         <label class="check"><input type="checkbox" id="l-confirmado"> Já confirmado</label>
@@ -7885,6 +7889,39 @@
     return s.slice(0, i).trim();
   }
 
+  /** A regra que serve para o que está sendo DIGITADO num lançamento novo.
+   *
+   * Difere de `regraDoLojista` porque o texto chega pela metade. Na
+   * importação o histórico vem inteiro, e a regra ("martepaes") é um começo
+   * dele ("martepaescomercioltda"). Digitando é o contrário: a pessoa escreveu
+   * "Marte Paes" e a regra guardada pode ser a maior. Então vale nos dois
+   * sentidos.
+   *
+   * Duas salvaguardas, porque aqui o app preenche sozinho:
+   *
+   * - texto curto não conta. Com duas letras, "ma" casaria com meia lista.
+   * - regras que discordam não viram palpite. Se "martepaescomercio" vai para
+   *   Alimentação e "martepaesveiculos" para Transporte, "martepaes" não tem
+   *   uma resposta — e meia resposta preenchida sozinha é pior que nenhuma.
+   */
+  function regraParaDigitado(regras, texto) {
+    var k = chaveDeLojista(texto);
+    if (k.length < MIN_LOJISTA) return null;
+
+    // O texto já contém a regra inteira: é o mesmo casamento da importação, e
+    // a mais específica vence.
+    var pronta = regraDoLojista(regras, texto);
+    if (pronta) return pronta;
+
+    var comecam = (regras || []).filter(function (r) {
+      return r && r.lojista && r.lojista.indexOf(k) === 0;
+    });
+    if (!comecam.length) return null;
+    var categorias = {};
+    comecam.forEach(function (r) { categorias[r.categoriaId] = true; });
+    return Object.keys(categorias).length === 1 ? comecam[0] : null;
+  }
+
   /** Os OUTROS lançamentos do mesmo lojista.
    *
    * Casa pela chave exata, e não pelo prefixo que a importação usa. Lá o
@@ -10220,6 +10257,68 @@
   /* ================= camada: lançamento ================= */
   var editandoLancamento = null;
 
+  /* ================= a categoria que o app já sabe =================
+   *
+   * O que o usuário ensinou na importação serve para o lançamento digitado à
+   * mão também: escrever "Marte Paes" e ter a categoria já preenchida é o
+   * mesmo conhecimento, usado uma tela antes.
+   *
+   * Duas regras, as duas para que isto ajude sem atrapalhar:
+   *
+   * - o app só preenche o que está VAZIO. Escolheu a categoria e depois
+   *   corrigiu a descrição? A escolha fica. Sobrescrever o que a pessoa
+   *   acabou de decidir é o jeito mais rápido de tornar um atalho odioso.
+   * - preenchido por regra, o campo diz de onde veio. */
+  var categoriaEscolhidaAMao = false;
+
+  function limparOrigemDaCategoria() {
+    categoriaEscolhidaAMao = false;
+    var el = document.getElementById("l-cat-origem");
+    el.hidden = true;
+    el.textContent = "";
+  }
+
+  /** Preenche a categoria a partir do que foi digitado na descrição. */
+  function sugerirCategoriaDigitando() {
+    // Editando, a categoria do lançamento é a verdade: ele já foi
+    // classificado uma vez, e trocar isso porque alguém mexeu num acento da
+    // descrição seria reescrever a decisão pelas costas.
+    if (editandoLancamento || categoriaEscolhidaAMao) return;
+
+    var sel = document.getElementById("l-categoria");
+    var aviso = document.getElementById("l-cat-origem");
+    var regra = regraParaDigitado(state.regrasCategoria, document.getElementById("l-desc").value);
+    var cat = regra ? byId(state.categories, regra.categoriaId) : null;
+    // A categoria tem de existir e servir ao tipo: despesa não vai para
+    // categoria de receita, nem com regra mandando.
+    var serve = cat && categoriasLancaveis(tipoAtual()).some(function (c) { return c.id === cat.id; });
+
+    if (!serve) {
+      // Só desfaz o que o próprio app tinha posto, e devolvendo o campo ao
+      // que ele é sem sugestão nenhuma: a PRIMEIRA categoria, que é como o
+      // formulário nasce. Esvaziar deixaria o select num estado que ele não
+      // tem — não existe opção vazia aqui.
+      if (!aviso.hidden) {
+        var primeira = categoriasLancaveis(tipoAtual())[0];
+        sel.value = primeira ? primeira.id : "";
+        aviso.hidden = true;
+        aviso.textContent = "";
+      }
+      return;
+    }
+
+    /* Não há guarda de "campo vazio" aqui, e não é esquecimento: o select de
+     * categoria não tem opção vazia — ele nasce com a primeira da lista
+     * marcada. "Vazio" e "a pessoa escolheu a primeira" seriam o mesmo valor,
+     * e tratá-los como o mesmo faria a sugestão nunca aparecer. Quem protege
+     * a escolha da pessoa é `categoriaEscolhidaAMao`, lá em cima, que só
+     * liga quando ela mexe no select de fato. */
+    sel.value = cat.id;
+    aviso.hidden = false;
+    aviso.textContent = "Categoria de " + nomeCompleto(cat) + ", como você classificou este lojista antes. " +
+      "Trocar aqui vale só para este lançamento.";
+  }
+
   /* ---------- a fatura da parcela e as que vêm depois ----------
    *
    * O caso: a compra parcelada entra na fatura que a data indicaria, mas o
@@ -10695,7 +10794,15 @@
     calLancamento.definir(t ? t.data : (opcoes.data || isoDate(dataDeHoje())), true);
     preencherSelect(document.getElementById("l-conta"), state.accounts.filter(function (a) { return a.isActive; }), t ? t.contaId : (opcoes.contaId || null));
     preencherSelect(document.getElementById("l-cartao"), state.cards, t ? t.cartaoId : opcoes.cartaoId);
+    limparOrigemDaCategoria();
     atualizarCategorias(t ? t.categoriaId : (opcoes.categoriaId || null));
+    // Categoria que veio pronta de fora — hoje, do ditado — conta como
+    // escolha: quem falou "mercado na categoria alimentação" já decidiu, e a
+    // regra do lojista não tem por que passar por cima.
+    if (opcoes.categoriaId) categoriaEscolhidaAMao = true;
+    // Lançamento novo com descrição já preenchida (o ditado também entrega
+    // assim): a sugestão vale desde o começo, sem esperar uma tecla.
+    if (!t) sugerirCategoriaDigitando();
     // `opcoes.confirmada` vem do ditado, que leu o tempo do verbo e sabe mais
     // que qualquer padrão. Sem ela, quem decide é o destino (ver
     // `padraoDeConfirmado`), aplicado no `atualizarDestino()` abaixo.
@@ -10734,6 +10841,22 @@
   });
   document.getElementById("l-rep-qtd").addEventListener("input", atualizarRepetirHelp);
   document.getElementById("l-valor").addEventListener("input", atualizarRepetirHelp);
+  /* Digitar a descrição acende a sugestão. No `input`, e não no `blur`: a
+   * categoria aparecendo enquanto se escreve é o que torna o lançamento mais
+   * rápido — ao sair do campo já seria tarde, a pessoa estaria indo escolher
+   * a categoria na mão. */
+  document.getElementById("l-desc").addEventListener("input", sugerirCategoriaDigitando);
+
+  /* Escolher a categoria à mão desliga a sugestão até o formulário fechar.
+   * Sem isto, continuar escrevendo a descrição desfaria a escolha letra a
+   * letra. */
+  document.getElementById("l-categoria").addEventListener("change", function () {
+    categoriaEscolhidaAMao = true;
+    var aviso = document.getElementById("l-cat-origem");
+    aviso.hidden = true;
+    aviso.textContent = "";
+  });
+
   document.getElementById("l-nova-cat").addEventListener("click", function () {
     if (bloqueado()) return;
     abrirCategoria(null, tipoAtual());
