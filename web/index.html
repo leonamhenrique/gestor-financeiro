@@ -2794,24 +2794,25 @@
         </button>
       </div>
 
+      <!-- Duas telas no mesmo lugar. As categorias e os lojistas tratam do
+           mesmo assunto, mas sao listas diferentes: misturadas, "salario CLT"
+           aparecia entre "mercado livre" e a lista virava um amontoado.
+
+           Pills, e nao um menu novo: e o mesmo par Despesas/Receitas que o
+           relatorio ja usa, e repetir o que existe custa menos a quem le. -->
+      <div class="blk" style="--i:0">
+        <div class="pills" id="g-abas" role="group" aria-label="Ver categorias ou lojistas">
+          <button class="pill on" type="button" data-aba="categorias">Categorias</button>
+          <button class="pill" type="button" data-aba="lojistas" id="g-aba-lojistas-btn">Lojistas</button>
+        </div>
+      </div>
+
+      <div id="g-aba-categorias">
       <div class="split split--par">
         <div class="col-main">
           <div class="blk" style="--i:1">
             <div class="lbl-row"><div class="lbl">Despesas</div><div class="lbl-total num" id="g-t-despesas"></div></div>
             <div class="list" id="g-despesas"></div>
-          </div>
-          <!-- O que o app aprendeu sobre cada lojista. Fica em Categorias
-               porque é disso que trata, e fica DEPOIS das categorias porque é
-               consequência delas: primeiro existem as categorias, depois os
-               lojistas que caem em cada uma.
-
-               Este é o caminho de quem quer auditar. Quem viu um erro conserta
-               no próprio lançamento, que é onde o erro aparece — e lá a
-               pergunta ainda oferece arrumar os anteriores. -->
-          <div class="blk" style="--i:3" id="g-regras-bloco">
-            <div class="lbl-row"><div class="lbl">Lojistas que você ensinou</div><div class="lbl-total num" id="g-t-regras"></div></div>
-            <div class="list" id="g-regras"></div>
-            <div class="field-help" id="g-regras-ajuda"></div>
           </div>
         </div>
         <aside class="rail">
@@ -2822,6 +2823,31 @@
             </div>
           </div>
         </aside>
+      </div>
+      </div>
+
+      <!-- O que o app aprendeu sobre cada lojista.
+           Separado por tipo, do mesmo jeito que as categorias logo acima:
+           uma regra so vale para o tipo da categoria que ela aponta, entao
+           juntar as duas numa lista so misturava o que nunca se encontra. -->
+      <div id="g-aba-lojistas" hidden>
+        <div class="split split--par">
+          <div class="col-main">
+            <div class="blk" style="--i:1">
+              <div class="lbl-row"><div class="lbl">Em despesas</div><div class="lbl-total num" id="g-t-regras-despesas"></div></div>
+              <div class="list" id="g-regras-despesas"></div>
+            </div>
+          </div>
+          <aside class="rail">
+            <div class="rail-fixo">
+              <div class="blk" style="--i:2">
+                <div class="lbl-row"><div class="lbl">Em receitas</div><div class="lbl-total num" id="g-t-regras-receitas"></div></div>
+                <div class="list" id="g-regras-receitas"></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <div class="blk" style="--i:3"><div class="field-help" id="g-regras-ajuda"></div></div>
       </div>
     </section>
 
@@ -8901,49 +8927,105 @@
    * Ordenada pelo ALCANCE: a regra que pega 44 lançamentos importa mais do
    * que a que pega um, e é a que vale a pena conferir primeiro. Alfabética
    * poria em cima o que menos pesa. */
+  /** A linha de uma regra. */
+  function linhaDaRegraHTML(r) {
+    var cat = byId(state.categories, r.categoriaId);
+    var alcance = alcanceDaRegra(state.transactions, r);
+    var rotulo = rotuloDaRegra(state.transactions, r);
+    // A regra aponta para uma categoria apagada: dizer isso é melhor que
+    // mostrar uma linha em branco que ninguém entende.
+    var opcoes = cat
+      ? categoriasLancaveis(cat.tipo).map(function (c) {
+          return '<option value="' + esc(c.id) + '"' + (c.id === cat.id ? " selected" : "") + ">" + esc(nomeCompleto(c)) + "</option>";
+        }).join("")
+      : '<option value="">categoria apagada</option>';
+    return '<div class="row" data-regra="' + esc(r.id) + '">' +
+      '<span class="row-main"><span class="row-title">' +
+      '<span class="row-name">' + esc(rotulo) + "</span></span>" +
+      '<span class="row-meta">' +
+      (alcance ? alcance + (alcance === 1 ? " lançamento" : " lançamentos") : "nenhum lançamento ainda") +
+      (r.acertos > 1 ? " · confirmada " + r.acertos + " vezes" : "") + "</span></span>" +
+      '<select class="regra-cat" aria-label="Categoria de ' + esc(rotulo) + '">' + opcoes + "</select>" +
+      '<span class="row-acoes">' +
+      botaoIcone("trash", "esquecer-regra", r.id, "Esquecer este lojista", "danger") +
+      "</span></div>";
+  }
+
+  /** O tipo de uma regra é o da categoria para onde ela aponta. Não há tipo
+   * gravado na regra: ela nasce de um lançamento, e o lançamento já escolheu
+   * de que lado está. Categoria apagada cai em despesa, que é onde está a
+   * esmagadora maioria — e a linha diz "categoria apagada" de qualquer forma. */
+  function tipoDaRegra(r) {
+    var cat = byId(state.categories, r.categoriaId);
+    return cat ? cat.tipo : "EXPENSE";
+  }
+
+  /** A lista do que o app aprendeu sobre cada lojista, separada por tipo.
+   *
+   * Separada porque uma regra só vale para o tipo da categoria que ela aponta:
+   * a de "salario CLT" nunca vai sugerir nada numa despesa. Numa lista só, as
+   * duas se intercalavam e a tela virava um amontoado — com 17 regras já
+   * estava assim.
+   *
+   * Dentro de cada lado, ordenada pelo ALCANCE: a regra que pega 44 lançamentos
+   * importa mais do que a que pega um, e é a que vale conferir primeiro.
+   * Alfabética poria em cima o que menos pesa. */
   function pintarRegrasDeCategoria() {
     var regras = (state.regrasCategoria || []).slice().sort(function (a, b) {
       return alcanceDaRegra(state.transactions, b) - alcanceDaRegra(state.transactions, a) ||
         a.lojista.localeCompare(b.lojista);
     });
-    document.getElementById("g-t-regras").textContent = regras.length || "";
+
+    var vazio = '<div class="empty">Nada ainda. O app aprende quando você classifica um lojista — ' +
+      "numa importação ou escrevendo a descrição de um lançamento novo.</div>";
+
+    ["EXPENSE", "INCOME"].forEach(function (tipo) {
+      var minhas = regras.filter(function (r) { return tipoDaRegra(r) === tipo; });
+      var sufixo = tipo === "EXPENSE" ? "despesas" : "receitas";
+      document.getElementById("g-t-regras-" + sufixo).textContent = minhas.length || "";
+      document.getElementById("g-regras-" + sufixo).innerHTML =
+        minhas.length ? minhas.map(linhaDaRegraHTML).join("") : vazio;
+    });
+
+    // A contagem na aba é o que diz que há algo lá dentro sem obrigar a abrir.
+    document.getElementById("g-aba-lojistas-btn").textContent =
+      regras.length ? "Lojistas · " + regras.length : "Lojistas";
+
     document.getElementById("g-regras-ajuda").textContent = regras.length
       ? "Trocar a categoria aqui vale para as próximas importações e para os próximos lançamentos; os já gravados ficam como estão. Para mudar os anteriores junto, edite um lançamento do lojista."
       : "";
-
-    if (!regras.length) {
-      document.getElementById("g-regras").innerHTML =
-        '<div class="empty">Nada ainda. O app aprende quando você classifica um lojista — ' +
-        "numa importação ou escrevendo a descrição de um lançamento novo.</div>";
-      return;
-    }
-
-    document.getElementById("g-regras").innerHTML = regras.map(function (r) {
-      var cat = byId(state.categories, r.categoriaId);
-      var alcance = alcanceDaRegra(state.transactions, r);
-      // A regra aponta para uma categoria apagada: dizer isso é melhor que
-      // mostrar uma linha em branco que ninguém entende.
-      var opcoes = cat
-        ? categoriasLancaveis(cat.tipo).map(function (c) {
-            return '<option value="' + esc(c.id) + '"' + (c.id === cat.id ? " selected" : "") + ">" + esc(nomeCompleto(c)) + "</option>";
-          }).join("")
-        : '<option value="">categoria apagada</option>';
-      return '<div class="row" data-regra="' + esc(r.id) + '">' +
-        '<span class="row-main"><span class="row-title">' +
-        '<span class="row-name">' + esc(rotuloDaRegra(state.transactions, r)) + "</span></span>" +
-        '<span class="row-meta">' +
-        (alcance ? alcance + (alcance === 1 ? " lançamento" : " lançamentos") : "nenhum lançamento ainda") +
-        (r.acertos > 1 ? " · confirmada " + r.acertos + " vezes" : "") + "</span></span>" +
-        '<select class="regra-cat" aria-label="Categoria de ' + esc(rotuloDaRegra(state.transactions, r)) + '">' + opcoes + "</select>" +
-        '<span class="row-acoes">' +
-        botaoIcone("trash", "esquecer-regra", r.id, "Esquecer este lojista", "danger") +
-        "</span></div>";
-    }).join("");
   }
+
+  /* A aba vale enquanto a tela estiver aberta, e não fica guardada: quem volta
+   * a Categorias quer as categorias, que é o assunto principal. Lojistas é
+   * consulta, não lugar onde se mora. */
+  function mostrarAbaDeCategorias(aba) {
+    document.querySelectorAll("#g-abas .pill").forEach(function (p) {
+      p.classList.toggle("on", p.dataset.aba === aba);
+      p.setAttribute("aria-pressed", String(p.dataset.aba === aba));
+    });
+    document.getElementById("g-aba-categorias").hidden = aba !== "categorias";
+    document.getElementById("g-aba-lojistas").hidden = aba !== "lojistas";
+    // "Nova categoria" não cria lojista nenhum: fora da aba dele, o botão
+    // prometeria uma coisa e faria outra.
+    document.querySelector('.view[data-view="categorias"] .v-cta').hidden = aba !== "categorias";
+    document.getElementById("g-sub").textContent = aba === "lojistas"
+      ? (state.regrasCategoria || []).length + " lojista(s) com categoria guardada"
+      : state.categories.length + " categorias · " + rotuloMes(resumoMes);
+  }
+
+  document.getElementById("g-abas").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-aba]");
+    if (b) mostrarAbaDeCategorias(b.dataset.aba);
+  });
 
   function renderCategorias() {
     pintarRegrasDeCategoria();
-    document.getElementById("g-sub").textContent = state.categories.length + " categorias · " + rotuloMes(resumoMes);
+    // Repintar MANTÉM a aba aberta. Esta função roda depois de esquecer uma
+    // regra, e trocar a aba debaixo de quem acabou de clicar numa lixeira
+    // seria tirar a tela da mão dela. O subtítulo vem daqui porque ele muda
+    // com a aba.
+    mostrarAbaDeCategorias(document.getElementById("g-aba-lojistas").hidden ? "categorias" : "lojistas");
     ["EXPENSE", "INCOME"].forEach(function (tipo) {
       var host = document.getElementById(tipo === "EXPENSE" ? "g-despesas" : "g-receitas");
       var totalEl = document.getElementById(tipo === "EXPENSE" ? "g-t-despesas" : "g-t-receitas");
@@ -9840,6 +9922,7 @@
     // conforme o app esteja on-line ou não.
     state.regrasCategoria.sort(function (a, b) { return b.lojista.length - a.lojista.length; });
     persist();
+    renderCategorias();
 
     if (!MODO_API) return;
     // Sem `comServidor`: falhar aqui não pode estragar o aviso da importação,
@@ -9848,7 +9931,13 @@
     api("/category-rules", {
       rules: chaves.map(function (k) { return { merchant: k, categoryId: porLojista[k] }; })
     }, "PUT").then(function (r) {
-      if (Array.isArray(r)) { state.regrasCategoria = r.map(regraDaApi); persist(); }
+      if (!Array.isArray(r)) return;
+      state.regrasCategoria = r.map(regraDaApi);
+      persist();
+      // Repinta: a resposta chega DEPOIS, com os ids do servidor no lugar dos
+      // locais. Sem isto a tela de Categorias ficava mostrando a lista de
+      // antes — medido, a contagem da aba dizia 3 e a do subtítulo, 4.
+      renderCategorias();
     }).catch(function () {});
   }
 
@@ -10992,7 +11081,7 @@
   /* Trocar a categoria de uma regra. Vale do próximo lançamento em diante:
    * os já gravados não se mexem. Mudar o passado é a pergunta que mora na
    * edição do lançamento, onde ela mostra quantos são antes de mexer. */
-  document.getElementById("g-regras").addEventListener("change", function (e) {
+  document.getElementById("g-aba-lojistas").addEventListener("change", function (e) {
     var sel = e.target.closest(".regra-cat");
     if (!sel || !sel.value) return;
     var linha = sel.closest("[data-regra]");
@@ -11007,7 +11096,7 @@
       ". Os lançamentos já gravados ficam onde estão.");
   });
 
-  document.getElementById("g-regras").addEventListener("click", function (e) {
+  document.getElementById("g-aba-lojistas").addEventListener("click", function (e) {
     var b = e.target.closest("[data-esquecer-regra]");
     if (!b) return;
     var id = b.getAttribute("data-esquecer-regra");
