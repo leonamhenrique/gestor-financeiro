@@ -701,6 +701,21 @@
   .entrada-marca svg { width: auto; height: 26px; color: var(--fg); }
   .entrada-titulo { font-size: 24px; font-weight: 500; letter-spacing: -0.01em; }
   .entrada-ctx { font-size: 13px; color: var(--fg-muted); margin-top: -12px; }
+  /* A conferência de sessão. Sem caixa e sem fundo, como o resto: o que a
+   * distingue é o ponto pulsando ao lado, que diz "está acontecendo algo". */
+  .entrada-conferindo {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--fg-muted); min-height: 44px;
+  }
+  .entrada-conferindo-ponto {
+    width: 8px; height: 8px; flex-shrink: 0;
+    border-radius: var(--r-pill); background: var(--accent);
+    animation: pulsoDaEspera 1200ms ease-in-out infinite;
+  }
+  @keyframes pulsoDaEspera { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  /* Quem pediu menos movimento não precisa de um ponto piscando para saber
+   * que o app está esperando — o texto já diz. */
+  @media (prefers-reduced-motion: reduce) { .entrada-conferindo-ponto { animation: none; } }
   #form-entrada { display: flex; flex-direction: column; gap: 16px; }
   .link-ghost {
     /* Parece texto, mas é alvo de toque: 44px de altura como qualquer botão. */
@@ -2073,6 +2088,16 @@
   <div class="banner" id="entrada-espera" hidden>
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/></svg>
     <span>Acordando o servidor. A primeira conexão depois de um tempo parado pode levar até um minuto.</span>
+  </div>
+
+  <!-- Enquanto o app confere a sessão com o servidor, é ISTO que aparece — e
+       não o formulário. Mostrar "Entrar na sua conta" durante a conferência
+       diz à pessoa que ela foi deslogada, e ela acredita: foi exatamente o
+       que aconteceu. Numa instância que hiberna, a conferência leva segundos,
+       e o formulário ficava na tela esse tempo todo parecendo um logout. -->
+  <div class="entrada-conferindo" id="entrada-conferindo" hidden>
+    <span class="entrada-conferindo-ponto" aria-hidden="true"></span>
+    <span>Conferindo sua sessão…</span>
   </div>
 
   <div class="pills" id="ent-modo" role="group" aria-label="Entrar ou criar conta">
@@ -5785,6 +5810,31 @@
     document.getElementById("entrada").hidden = entrou;
     document.querySelector(".shell").hidden = !entrou;
     document.querySelector(".fab-wrap").hidden = !entrou;
+  }
+
+  /* A tela de entrada tem dois estados, e confundi-los custou caro.
+   *
+   * CONFERINDO: o app sabe que esta pessoa estava dentro e está perguntando
+   * ao servidor se a sessão ainda vale. Mostrar o formulário aqui AFIRMA que
+   * ela foi deslogada — e ela acredita. Numa instância que hiberna a
+   * conferência leva segundos, e foi assim que um app funcionando passou a
+   * parecer que derrubava a sessão a cada recarga.
+   *
+   * ENTRAR: a conferência terminou e disse que não há sessão. Aí sim o
+   * formulário, que é o que resolve.
+   *
+   * Quem nunca entrou neste aparelho vai direto ao formulário: não há sessão
+   * para conferir, e uma espera inventada seria pior que nenhuma. */
+  function mostrarConferindoSessao(ligar) {
+    document.getElementById("entrada-conferindo").hidden = !ligar;
+    ["ent-modo", "form-entrada", "ent-esqueci"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.hidden = ligar;
+    });
+    document.getElementById("ent-titulo").textContent = ligar ? "Um instante" : "Entrar na sua conta";
+    document.getElementById("ent-ctx").textContent = ligar
+      ? "Estou conferindo se a sua sessão ainda vale."
+      : "Use o e-mail e a senha que você cadastrou.";
   }
   /** Três modos na mesma tela: entrar, criar conta e redefinir — este último é
    * onde o link do e-mail cai. Ele não pede e-mail: quem prova quem é você é o
@@ -15542,7 +15592,11 @@
           else sairDaConta("Sua sessão expirou enquanto você estava sem conexão. Entre de novo.");
         });
       });
-    } else renovarSessao().then(function (ok) {
+    } else {
+      // Só para quem estava dentro: o formulário fica escondido enquanto a
+      // resposta não chega.
+      if (jaEstavaLogado) mostrarConferindoSessao(true);
+      renovarSessao().then(function (ok) {
       // Servidor fora do ar ou dormindo (o plano grátis do Render demora a
       // acordar) não é o mesmo que sessão inválida: com dados no aparelho, o
       // app abre com eles em vez de exigir um login que nem sairia.
@@ -15552,6 +15606,9 @@
         return;
       }
       if (!ok) {
+        // A conferência terminou e não há sessão: agora o formulário é o que
+        // resolve, e ele volta.
+        mostrarConferindoSessao(false);
         document.getElementById("ent-email").value = state.perfil.email || "";
         // Só para quem ESTAVA dentro: numa primeira visita não há sessão para
         // ter expirado, e o recado seria um susto sem motivo.
@@ -15562,7 +15619,15 @@
       }
       state.sessao = { entrou: true };
       entrarComServidor();
-    });
+      }).catch(function (e) {
+        // A conferência quebrou por algo imprevisto. Sem este catch a tela
+        // ficava em "Conferindo sua sessão…" para sempre, sem erro à vista e
+        // sem jeito de entrar.
+        mostrarConferindoSessao(false);
+        document.getElementById("ent-erro").textContent =
+          "Não consegui conferir a sessão. Entre de novo.";
+      });
+    }
   } else {
     aplicarSessao();
     // Na primeira abertura, o convite para liberar o microfone — depois da
