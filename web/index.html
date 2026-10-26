@@ -1908,6 +1908,13 @@
     /* Mesma regra, mesmo motivo: sem ela o formulário de importar ia para a
      * coluna da direita, ao lado do título, em vez de ocupar a linha. */
     .view[data-view="importar"] > .blk:not(.v-head):not(.v-cta) { grid-column: 1 / -1; }
+    /* Categorias, pelo mesmo motivo e com uma causa a mais: as abas puseram o
+     * conteúdo dentro de um `div`, e o `.split` deixou de ser filho direto da
+     * grade — a regra `.split { grid-column: 1 / -1 }` parou de alcançá-lo.
+     * Sem isto os pills ficavam na coluna da esquerda e as listas na da
+     * direita, com um vão enorme entre as duas. */
+    .view[data-view="categorias"] > .blk:not(.v-head):not(.v-cta),
+    .view[data-view="categorias"] > div[id^="g-aba-"] { grid-column: 1 / -1; }
 
     .split {
       display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
