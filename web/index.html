@@ -6672,11 +6672,15 @@
   }
 
   /* ================= primeiros passos (onboarding) ================= */
-  /** Os cinco cadastros que abrem o app inteiro. O estado de cada um é
+  /** Os quatro cadastros que abrem o app inteiro. O estado de cada um é
    * **derivado dos dados**, nunca de um flag salvo: apagar a única conta faz o
-   * passo voltar a pendente, que é a verdade da tela. "Criar categoria" olha
-   * por categoria não-padrão — as que já vêm no app não contam, senão o passo
-   * nasceria feito e o usuário nunca veria como criar a sua. */
+   * passo voltar a pendente, que é a verdade da tela.
+   *
+   * "Criar uma categoria" saiu daqui. O app já nasce com vinte categorias
+   * padrão, então pedir mais uma era trabalho inventado: um passo que ninguém
+   * precisa cumprir para usar o app, segurando o painel aberto e contando
+   * "falta 1 passo" para quem já tinha tudo o que precisava. Criar categoria
+   * continua existindo na tela de Categorias, para quem quiser. */
   var PASSOS_INICIAIS = [
     { id: "conta", nome: "Cadastrar uma conta", meta: "Onde o dinheiro entra e sai", acao: "Criar conta",
       feito: function () { return state.accounts.length > 0; } },
@@ -6684,8 +6688,6 @@
     // ficou de fora vive no metadado, que tem a linha inteira.
     { id: "cartao", nome: "Cadastrar um cartão", meta: "Fatura, fechamento e limite", acao: "Criar cartão",
       feito: function () { return state.cards.length > 0; } },
-    { id: "categoria", nome: "Criar uma categoria", meta: "Além das que já vêm", acao: "Criar categoria",
-      feito: function () { return state.categories.some(function (c) { return !c.padrao; }); } },
     { id: "despesa", nome: "Lançar uma despesa", meta: "Na conta ou no cartão", acao: "Lançar despesa",
       feito: function () {
         return state.transactions.some(function (t) { return t.tipo === "EXPENSE" && !t.pagamentoFaturaCartaoId; });
@@ -6714,8 +6716,10 @@
 
     document.getElementById("ob-contador").textContent = prontos + " de " + passos.length;
     document.getElementById("ob-barra").style.width = (prontos / passos.length * 100).toFixed(0) + "%";
+    // O número sai da lista, não de um texto fixo: escrito à mão, ele mentiu
+    // assim que um passo saiu da lista — dizia "cinco" com quatro na tela.
     document.getElementById("ob-ctx").textContent = prontos === 0
-      ? "Cinco cadastros para o app começar a trabalhar por você."
+      ? passos.length + " cadastros para o app começar a trabalhar por você."
       : "Falta " + (passos.length - prontos) + (passos.length - prontos === 1 ? " passo." : " passos.");
     document.getElementById("ob-lista").innerHTML = passos.map(function (p) {
       return '<div class="row' + (p.feito ? " feito" : "") + '">' +
@@ -6762,7 +6766,6 @@
   function abrirPasso(id) {
     if (id === "conta") return abrirConta();
     if (id === "cartao") return abrirCartao();
-    if (id === "categoria") return abrirCategoria(null, "EXPENSE");
     // Lançar sem ter onde lançar só levaria o usuário a um formulário que não
     // fecha. Melhor dizer o que falta e mandar para o passo anterior.
     if (!state.accounts.length && !state.cards.length) {
