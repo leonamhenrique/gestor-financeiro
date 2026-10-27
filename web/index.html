@@ -2522,7 +2522,7 @@
 
     <!-- ================= LANÇAMENTOS ================= -->
     <section class="view" data-view="lancamentos">
-      <div class="blk v-head" style="--i:0"><h1>Lançamentos</h1><div class="sub" id="l-sub"></div>
+      <div class="blk v-head" style="--i:0"><h1>Extrato</h1><div class="sub" id="l-sub"></div>
         <!-- Só aparece quando os relatórios estão por data da compra: aí esta
              tela e o Resumo mostram números diferentes para o mesmo mês, e
              isso precisa estar dito, não descoberto. -->
@@ -6759,7 +6759,7 @@
       // demais de apertar sem querer. O caminho é excluir o que não serve.
       avisar("Isso é do modo demonstração",
         "Com seus dados no servidor, não existe um botão que apague tudo de uma vez. " +
-        "Exclua o que não quiser mais pelas telas de Contas, Cartões, Categorias e Lançamentos — " +
+        "Exclua o que não quiser mais pelas telas de Contas, Cartões, Categorias e Extrato — " +
         "conta com histórico é arquivada em vez de excluída, para o passado continuar fazendo sentido.");
       return;
     }
@@ -6896,7 +6896,7 @@
     return dias < 0 ? "há " + (-dias) + " dias" : "em " + dias + " dias";
   }
 
-  /** A linha traz as MESMAS ações da tela de Lançamentos, pelos mesmos
+  /** A linha traz as MESMAS ações da tela de Extrato, pelos mesmos
    * `data-*`: quem trata o clique é o `acoesDeLista` de sempre, ouvindo em
    * `.content`, que já cobre esta tela. Duplicar os handlers aqui criaria duas
    * verdades sobre o que "confirmar" faz.
