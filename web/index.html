@@ -3585,10 +3585,18 @@
       <div class="field" id="cpd-fatura-campo" hidden><label class="lbl" for="cpd-fatura">Fatura de destino</label><select id="cpd-fatura"></select>
         <div class="field-help" id="cpd-fatura-help"></div>
       </div>
-      <div class="field" id="cpd-categoria-campo"><label class="lbl" for="cpd-categoria">Categoria</label><select id="cpd-categoria"></select></div>
+      <div class="field" id="cpd-categoria-campo"><label class="lbl" for="cpd-categoria">Categoria</label><select id="cpd-categoria"></select>
+        <div class="field-help" id="cpd-cat-origem" hidden></div>
+      </div>
       <div class="field-help" id="cpd-fora-ajuda" hidden>Quem pagou foi a outra pessoa, então nada sai de conta ou cartão seu: este gasto não entra no seu mês nem em nenhum relatório. O que ele cria é a sua dívida com ela.</div>
 
-      <div class="field"><label class="lbl" for="cpd-pessoa">Dividir com</label><select id="cpd-pessoa"></select></div>
+      <div class="field"><label class="lbl" for="cpd-pessoa">Dividir com</label>
+        <!-- Mesmo desenho do "+" de nova categoria no lançamento avulso.
+             Sem ele, dividir com alguém ainda não cadastrado obrigava a sair
+             do formulário, ir em Compartilhadas, criar a pessoa e recomeçar o
+             lançamento do zero. -->
+        <div class="field-data"><select id="cpd-pessoa"></select><button type="button" class="ghost" id="cpd-nova-pessoa" title="Nova pessoa" aria-label="Nova pessoa">+</button></div>
+      </div>
       <div class="field">
         <div class="lbl">Como dividir</div>
         <div class="pills" id="cpd-modos">
@@ -10672,6 +10680,26 @@
       "Trocar aqui vale só para este lançamento.";
   }
 
+  /** A mesma sugestão, para qualquer formulário que tenha descrição e
+   * categoria. O lançamento avulso tem o seu caminho próprio acima, com as
+   * travas dele (edição, escolha à mão); aqui ficam os outros.
+   *
+   * Devolve true quando preencheu, para quem chama poder dizer de onde veio. */
+  function aplicarRegraNoCampo(idDesc, idCat, tipo, jaEscolhida) {
+    if (jaEscolhida) return false;
+    var sel = document.getElementById(idCat);
+    var regra = regraParaDigitado(state.regrasCategoria, document.getElementById(idDesc).value);
+    var cat = regra ? byId(state.categories, regra.categoriaId) : null;
+    // Tem de existir e servir ao tipo: despesa não vai para categoria de
+    // receita, nem com regra mandando.
+    if (!cat || !categoriasLancaveis(tipo).some(function (c) { return c.id === cat.id; })) return false;
+    // E tem de estar entre as opções do select — ele pode listar menos que a
+    // árvore inteira.
+    if (!Array.prototype.some.call(sel.options, function (o) { return o.value === cat.id; })) return false;
+    sel.value = cat.id;
+    return true;
+  }
+
   /* ---------- a fatura da parcela e as que vêm depois ----------
    *
    * O caso: a compra parcelada entra na fatura que a data indicaria, mas o
@@ -14893,9 +14921,15 @@
   // ---------- pessoas ----------
 
   var editandoPessoa = null;
+  /* Quando a pessoa é criada DE DENTRO da despesa compartilhada, ela precisa
+   * voltar escolhida — senão o atalho economiza a ida ao menu e cobra de volta
+   * a escolha no select. */
+  var pessoaNovaParaDespesa = false;
 
   function abrirDialogoPessoa(id) {
     editandoPessoa = id || null;
+    // Editar pessoa nunca volta para a despesa: só o "+" marca isso.
+    if (id) pessoaNovaParaDespesa = false;
     var p = id ? cpPessoa(id) : null;
     document.getElementById("pes-titulo").textContent = p ? "Editar pessoa" : "Nova pessoa";
     document.getElementById("pes-submit").textContent = p ? "Salvar" : "Criar pessoa";
@@ -14928,6 +14962,25 @@
    * `cpdFaturaTocada` guarda se a pessoa escolheu à mão: mexer na data depois
    * disso não pode desfazer a escolha dela. */
   var cpdFaturaTocada = false;
+  /* Como no lançamento avulso: escolher a categoria à mão desliga a sugestão
+   * até o formulário fechar. Sem isto, continuar escrevendo a descrição
+   * desfaria a escolha letra a letra. */
+  var cpdCategoriaEscolhidaAMao = false;
+
+  function cpdSugerirCategoria() {
+    // Editando, a categoria do gasto é a verdade: ele já foi classificado uma
+    // vez, e mexer na descrição não pode reescrever isso pelas costas.
+    if (editandoDespesa || cpdCategoriaEscolhidaAMao || !cpdEuPaguei()) return;
+    var aviso = document.getElementById("cpd-cat-origem");
+    if (!aplicarRegraNoCampo("cpd-desc", "cpd-categoria", "EXPENSE", false)) {
+      if (!aviso.hidden) { aviso.hidden = true; aviso.textContent = ""; }
+      return;
+    }
+    var cat = byId(state.categories, document.getElementById("cpd-categoria").value);
+    aviso.hidden = false;
+    aviso.textContent = "Categoria de " + nomeCompleto(cat) + ", como você classificou este lojista antes. " +
+      "Trocar aqui vale só para este gasto.";
+  }
 
   function cpdAtualizarFatura() {
     var onde = String(document.getElementById("cpd-pago-com").value || "").split(":");
@@ -15098,6 +15151,7 @@
     var origemEdit = !txEdit ? "" : txEdit.creditCardId ? "cartao:" + txEdit.creditCardId
       : txEdit.bankAccountId ? "conta:" + txEdit.bankAccountId : "";
     if (origemEdit) document.getElementById("cpd-pago-com").value = origemEdit;
+    if (txEdit && txEdit.categoryId) document.getElementById("cpd-categoria").value = txEdit.categoryId;
     document.getElementById("cpd-pago-com").disabled = !!despesa;
     document.getElementById("cpd-fatura").disabled = !!despesa;
 
@@ -15105,9 +15159,14 @@
     var quando = !despesa ? null
       : String((despesa.transaction ? despesa.transaction.transactionDate : despesa.expenseDate) || "").slice(0, 10);
     calCompartilhada.definir(quando || isoDate(dataDeHoje()), true);
-    // Formulário novo começa com a sugestão valendo.
+    // Formulário novo começa com as sugestões valendo.
     cpdFaturaTocada = false;
+    cpdCategoriaEscolhidaAMao = false;
+    document.getElementById("cpd-cat-origem").hidden = true;
     cpdDesenhar();
+    // Descrição já preenchida (gasto vindo de outro lugar): a sugestão vale
+    // desde o começo, sem esperar uma tecla.
+    if (!despesa) cpdSugerirCategoria();
     // Editando: a fatura que já está gravada é a verdade, não a sugestão.
     var mkGravado = despesa && despesa.transaction && despesa.transaction.invoiceMonthOverride
       ? String(despesa.transaction.invoiceMonthOverride).slice(0, 7) : "";
@@ -15358,10 +15417,23 @@
     var pix = document.getElementById("pes-pix").value.trim();
     if (!nome) return;
     try {
+      var criada = null;
+      // Lido ANTES do `fechar`: fechar a camada dispara o `close`, que apaga a
+      // marca. Sem esta cópia, a pessoa nova nunca voltava escolhida.
+      var voltarParaDespesa = pessoaNovaParaDespesa;
       if (editandoPessoa) await api("/shared/people/" + editandoPessoa, { name: nome, pixKey: pix }, "PATCH");
-      else await api("/shared/people", { name: nome, pixKey: pix });
+      else criada = await api("/shared/people", { name: nome, pixKey: pix });
       fechar("dlg-pessoa");
       await cpRecarregar();
+      // Veio do "+" da despesa: a nova entra na lista e já fica escolhida.
+      if (voltarParaDespesa && criada && criada.id) {
+        var sel = document.getElementById("cpd-pessoa");
+        sel.innerHTML = cpAtivas().map(function (p) {
+          return '<option value="' + esc(p.id) + '">' + esc(p.name) + "</option>";
+        }).join("");
+        sel.value = criada.id;
+        cpdDesenhar();
+      }
     } catch (err) {
       document.getElementById("pes-erro").textContent = err.message;
     }
@@ -15430,6 +15502,24 @@
   // Escolher a fatura à mão trava a sugestão: mexer na data depois disso não
   // pode desfazer o que a pessoa decidiu.
   document.getElementById("cpd-fatura").addEventListener("change", function () { cpdFaturaTocada = true; });
+  document.getElementById("cpd-nova-pessoa").addEventListener("click", function () {
+    pessoaNovaParaDespesa = true;
+    abrirDialogoPessoa(null);
+  });
+  /* Fechar a camada de pessoa sem criar nada apaga a marca. Sem isto, abrir o
+   * "+", desistir e criar uma pessoa pelo menu depois faria ela aparecer
+   * escolhida numa despesa que não tem nada a ver. */
+  document.getElementById("dlg-pessoa").addEventListener("close", function () {
+    pessoaNovaParaDespesa = false;
+  });
+  // A descrição acende a sugestão de categoria, como no lançamento avulso.
+  document.getElementById("cpd-desc").addEventListener("input", cpdSugerirCategoria);
+  document.getElementById("cpd-categoria").addEventListener("change", function () {
+    cpdCategoriaEscolhidaAMao = true;
+    var aviso = document.getElementById("cpd-cat-origem");
+    aviso.hidden = true;
+    aviso.textContent = "";
+  });
 
   document.getElementById("cpd-repetir").addEventListener("change", function () {
     document.getElementById("cpd-repetir-wrap").style.display = this.checked ? "flex" : "none";
