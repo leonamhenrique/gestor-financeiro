@@ -73,6 +73,9 @@ export interface CreateTransactionInput {
   // O lote de importação, quando o lançamento vem de um extrato.
   importBatchId?: string;
   importedAt?: Date;
+  // A série a que ele pertence, quando quem cria já a montou.
+  seriesId?: string;
+  seriesIndex?: number;
 }
 
 interface RepeatInput {
@@ -196,21 +199,59 @@ export class TransactionsService {
   async criarEmLote(
     userId: string,
     batchId: string,
-    itens: Omit<CreateTransactionInput, 'userId' | 'clientKey' | 'importBatchId' | 'importedAt'>[],
+    itens: (Omit<
+      CreateTransactionInput,
+      'userId' | 'clientKey' | 'importBatchId' | 'importedAt' | 'seriesId'
+    > & {
+      /** Grupo a que esta linha pertence, decidido pelo cliente. Linhas com o
+       * mesmo `seriesRef` viram uma série só. */
+      seriesRef?: string;
+      /** Quantas parcelas a compra tem AO TODO — o "12" de "6/12". Pode ser
+       * maior que o número de linhas do arquivo. */
+      seriesCount?: number;
+    })[],
   ) {
     const importedAt = new Date();
 
     return this.prisma.$transaction(
       async (tx) => {
+        /* As parcelas da mesma compra viram uma SÉRIE.
+         *
+         * Sem isto o extrato produzia doze lançamentos independentes que só
+         * se pareciam por um texto na descrição, e o app não tinha como
+         * oferecer "excluir todos", editar em série ou antecipar — nada disso
+         * olha descrição, tudo olha `seriesId`.
+         *
+         * O agrupamento vem do cliente, que já o calcula para saber quais
+         * parcelas faltam criar. Decidir de novo aqui seria uma segunda regra
+         * de agrupamento, e duas regras divergem. */
+        const series = new Map<string, string>();
+        for (const item of itens) {
+          if (!item.seriesRef || series.has(item.seriesRef)) continue;
+          const criada = await tx.transactionSeries.create({
+            data: {
+              userId,
+              kind: SeriesKind.INSTALLMENT,
+              frequency: SeriesFrequency.MONTHLY,
+              // O total da COMPRA, não o número de linhas: é o "12" de "6/12",
+              // e é dele que a etiqueta da parcela sai.
+              count: item.seriesCount ?? 0,
+            },
+          });
+          series.set(item.seriesRef, criada.id);
+        }
+
         const criados = [];
         for (let i = 0; i < itens.length; i++) {
+          const { seriesRef, seriesCount: _fora, ...linha } = itens[i];
           criados.push(
             await this.criarEm(tx, {
-              ...itens[i],
+              ...linha,
               userId,
               clientKey: `${batchId}:${i}`,
               importBatchId: batchId,
               importedAt,
+              seriesId: seriesRef ? series.get(seriesRef) : undefined,
             }),
           );
         }
@@ -1057,6 +1098,8 @@ export class TransactionsService {
       clientKey: input.clientKey ?? null,
       importBatchId: input.importBatchId ?? null,
       importedAt: input.importedAt ?? null,
+      seriesId: input.seriesId ?? null,
+      seriesIndex: input.seriesIndex ?? null,
     };
   }
 

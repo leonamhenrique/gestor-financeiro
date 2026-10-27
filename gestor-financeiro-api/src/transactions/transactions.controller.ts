@@ -44,6 +44,9 @@ function linhaDoExtrato(dto: ImportItemDto) {
     creditCardId: dto.creditCardId,
     isConfirmed: dto.isConfirmed,
     invoiceMonth: dto.invoiceMonth,
+    seriesRef: dto.seriesRef,
+    seriesIndex: dto.seriesIndex,
+    seriesCount: dto.seriesCount,
   };
 }
 

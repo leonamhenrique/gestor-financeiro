@@ -18,6 +18,7 @@ describe('TransactionsService — importar extrato', () => {
   let service: TransactionsService;
   let prisma: any;
   let transacoes: Map<string, any>;
+  let series: any[];
   let saldo: number;
   let seq: number;
   let abortou: boolean;
@@ -32,6 +33,7 @@ describe('TransactionsService — importar extrato', () => {
 
   beforeEach(() => {
     transacoes = new Map();
+    series = [];
     saldo = 1000;
     seq = 0;
     abortou = false;
@@ -51,6 +53,13 @@ describe('TransactionsService — importar extrato', () => {
           throw e;
         }
       }),
+      transactionSeries: {
+        create: jest.fn(async ({ data }: any) => {
+          const sr = { id: 's' + ++seq, ...data };
+          series.push(sr);
+          return { ...sr };
+        }),
+      },
       transaction: {
         create: jest.fn(async ({ data }: any) => {
           const t = { id: 't' + ++seq, invoiceMonthOverride: null, ...data };
@@ -199,5 +208,58 @@ describe('TransactionsService — importar extrato', () => {
 
   it('desfazer lote inexistente da 404', async () => {
     await expect(service.desfazerImportacao('user-1', 'imp-nao-existe')).rejects.toThrow(NotFoundException);
+  });
+
+  describe('parcelas viram serie', () => {
+    const parcela = (ref: string, i: number, total: number, amount = 34.36) =>
+      ({ ...linha(amount), seriesRef: ref, seriesIndex: i, seriesCount: total });
+
+    it('as parcelas da mesma compra entram na MESMA serie', async () => {
+      // Sem isto o extrato produzia linhas independentes, e "excluir todos",
+      // editar em serie e antecipar nao tinham como existir: tudo isso olha
+      // seriesId, nada olha descricao.
+      await service.criarEmLote('user-1', 'imp-abc123', [
+        parcela('ml|34.36|EXPENSE', 5, 12),
+        parcela('ml|34.36|EXPENSE', 6, 12),
+      ]);
+      expect(series).toHaveLength(1);
+      const ids = [...transacoes.values()].map((t) => t.seriesId);
+      expect(new Set(ids).size).toBe(1);
+      expect(ids[0]).toBe(series[0].id);
+    });
+
+    it('compras diferentes ganham series diferentes', async () => {
+      await service.criarEmLote('user-1', 'imp-abc123', [
+        parcela('ml|34.36|EXPENSE', 0, 3),
+        parcela('outra|99.90|EXPENSE', 0, 6, 99.9),
+      ]);
+      expect(series).toHaveLength(2);
+    });
+
+    it('a serie guarda o total da COMPRA, nao o numero de linhas', async () => {
+      // O extrato traz so parte das parcelas. E o "12" de "6/12" que faz a
+      // etiqueta ler certo, nao a contagem do que veio no arquivo.
+      await service.criarEmLote('user-1', 'imp-abc123', [
+        parcela('ml|34.36|EXPENSE', 5, 12),
+        parcela('ml|34.36|EXPENSE', 6, 12),
+      ]);
+      expect(series[0].count).toBe(12);
+      expect(transacoes.size).toBe(2);
+    });
+
+    it('a posicao de cada parcela e preservada', async () => {
+      await service.criarEmLote('user-1', 'imp-abc123', [
+        parcela('ml|34.36|EXPENSE', 5, 12),
+        parcela('ml|34.36|EXPENSE', 6, 12),
+      ]);
+      expect([...transacoes.values()].map((t) => t.seriesIndex).sort()).toEqual([5, 6]);
+    });
+
+    it('linha sem serie continua solta', async () => {
+      await service.criarEmLote('user-1', 'imp-abc123', [linha(10), parcela('ml|34.36|EXPENSE', 0, 2)]);
+      expect(series).toHaveLength(1);
+      const soltas = [...transacoes.values()].filter((t) => !t.seriesId);
+      expect(soltas).toHaveLength(1);
+    });
   });
 });

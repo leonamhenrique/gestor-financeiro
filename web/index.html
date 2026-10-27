@@ -7919,8 +7919,21 @@
   function chaveDeTexto(s) {
     return normalizarNome(s).replace(/[^a-z0-9]+/g, "");
   }
+  /** O texto de um lançamento para COMPARAÇÃO, com a parcela junto.
+   *
+   * A parcela mora em dois lugares conforme a origem: na descrição, quando é
+   * uma linha recém-lida do arquivo ("Lojista - Parcela 6/12"); na série,
+   * quando já está gravada (desde que a importação passou a criar séries).
+   * Comparar só a descrição faria a linha do arquivo nunca casar com o
+   * lançamento que ela mesma criou — e o app reimportaria tudo como novo. */
+  function textoComparavel(t) {
+    var m = String(t.desc || "").match(RE_PARCELA);
+    if (m) return m[1] + " " + m[2] + "/" + m[3];
+    var p = parcelaDoLancamento(t);
+    return (t.desc || "") + (p ? " " + p : "");
+  }
   function chaveDeLancamento(t) {
-    return t.data + "|" + Number(t.valor).toFixed(2) + "|" + chaveDeTexto(t.desc || "");
+    return t.data + "|" + Number(t.valor).toFixed(2) + "|" + chaveDeTexto(textoComparavel(t));
   }
 
   /** Palavras que denunciam a categoria. Lista curta e explícita: adivinhar
@@ -10108,13 +10121,46 @@
    * aparelho ou no servidor, a partir da MESMA lista. Duas montagens
    * diferentes acabariam divergindo, e o extrato ficaria diferente conforme
    * houvesse internet. */
+  /** O grupo de parcelas a que uma linha pertence, e a posição dela nele.
+   *
+   * O extrato escreve "Lojista - Parcela 6/12". Isso é UMA compra repartida,
+   * e o app modela compra repartida como SÉRIE — é `seriesId` que faz as três
+   * opções de excluir, a edição em série e a antecipação existirem. Sem série,
+   * doze linhas que só se parecem por um texto não têm como ser tratadas
+   * juntas.
+   *
+   * A chave do grupo é a mesma de `seriesDeParcelas`, que a importação já usa
+   * para saber quais parcelas faltam: lojista + valor + tipo. Uma segunda
+   * regra de agrupamento divergiria da primeira. */
+  function serieDaLinhaImportada(desc, valor, tipo) {
+    var m = String(desc || "").match(RE_PARCELA);
+    if (!m) return null;
+    var n = Number(m[2]), total = Number(m[3]);
+    if (!n || !total || n > total) return null;
+    return {
+      ref: normalizarNome(m[1]) + "|" + Number(valor).toFixed(2) + "|" + tipo,
+      lojista: m[1].trim(),
+      indice: n - 1,
+      total: total
+    };
+  }
+
   function montarLinhasDaImportacao(marcadas, criadas, loteId, agora, criarParcelas) {
     var chaveFatura = imp.ehCartao ? monthKey(imp.fatura) : null;
     var linhas = marcadas.map(function (l) {
+      var serie = serieDaLinhaImportada(l.base.desc, l.base.valor, l.base.tipo);
       return {
         id: uid("t"), tipo: l.base.tipo, valor: l.base.valor,
         categoriaId: l.categoriaId || (l.criar ? criadas[l.criar] : "") || null,
-        desc: l.base.desc, data: l.base.data,
+        // A descrição guarda o LOJISTA; o "6/12" passa a sair da série, como
+        // no parcelamento feito à mão. Deixá-lo nos dois lugares produziria
+        // "Lojista - Parcela 6/12 (Parcela 6/12)" — ver `rotuloLancamento`.
+        desc: serie ? serie.lojista : l.base.desc,
+        serieRef: serie ? serie.ref : null,
+        serieIndex: serie ? serie.indice : null,
+        serieTotal: serie ? serie.total : null,
+        serieTipo: serie ? "INSTALLMENT" : null,
+        data: l.base.data,
         contaId: imp.ehCartao ? null : imp.destinoId,
         cartaoId: imp.ehCartao ? imp.destinoId : null,
         confirmada: true,
@@ -10153,7 +10199,13 @@
         var nova = {
           id: uid("t"), tipo: s.tipo, valor: s.valor,
           categoriaId: (origem && (origem.categoriaId || (origem.criar ? criadas[origem.criar] : ""))) || null,
-          desc: s.lojista + " - Parcela " + d.n + "/" + s.total,
+          // Entra na MESMA série das parcelas que vieram no arquivo: é a
+          // mesma compra, e é por isso que ela existe.
+          desc: s.lojista,
+          serieRef: normalizarNome(s.lojista) + "|" + Number(s.valor).toFixed(2) + "|" + s.tipo,
+          serieIndex: d.n - 1,
+          serieTotal: s.total,
+          serieTipo: "INSTALLMENT",
           data: isoDate(fut), contaId: null, cartaoId: imp.destinoId,
           confirmada: true,
           faturaMesOverride: monthKey(d.vm),
@@ -10171,7 +10223,7 @@
 
   /** Uma linha da importação no formato que a API espera. */
   function linhaParaApi(t) {
-    return {
+    var e = {
       type: t.tipo, amount: t.valor, categoryId: t.categoriaId,
       description: t.desc, transactionDate: t.data,
       bankAccountId: t.contaId || undefined,
@@ -10179,6 +10231,13 @@
       isConfirmed: t.confirmada,
       invoiceMonth: t.cartaoId && t.faturaMesOverride ? t.faturaMesOverride : undefined
     };
+    // A compra parcelada: o servidor cria uma série por `seriesRef`.
+    if (t.serieRef) {
+      e.seriesRef = t.serieRef;
+      e.seriesIndex = t.serieIndex;
+      e.seriesCount = t.serieTotal;
+    }
+    return e;
   }
 
   document.getElementById("imp-confirmar").addEventListener("click", async function () {

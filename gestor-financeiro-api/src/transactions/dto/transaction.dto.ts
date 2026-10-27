@@ -16,6 +16,7 @@ import {
   IsIn,
   IsInt,
   Length,
+  MaxLength,
   Matches,
   Min,
   Max,
@@ -268,6 +269,10 @@ export class BulkCategoryDto {
  */
 export const MAX_LOTE_IMPORTACAO = 500;
 
+/** Teto da numeração de parcelas. O mesmo MAX_OCORRENCIAS das séries do app:
+ * "parcela 900/900" não é compra, é dado quebrado. */
+export const MAX_OCORRENCIAS_IMPORT = 60;
+
 /**
  * Uma linha do extrato. É o mesmo lançamento de sempre, sem o que não faz
  * sentido aqui: `repeat` (a série de uma compra parcelada é montada pelo app,
@@ -307,6 +312,34 @@ export class ImportItemDto {
   @IsOptional()
   @Matches(MES, { message: MES_MSG })
   invoiceMonth?: string;
+
+  /* A compra parcelada a que esta linha pertence.
+   *
+   * `seriesRef` é um apelido do CLIENTE — linhas com o mesmo apelido viram
+   * uma série só. Ele não é um id de banco e não sai daqui: serve apenas para
+   * agrupar dentro deste lote. O agrupamento vem do cliente porque ele já o
+   * faz para saber quais parcelas faltam criar, e uma segunda regra aqui
+   * divergiria da primeira.
+   *
+   * `seriesIndex` é a posição (o 6 de "6/12", menos um) e `seriesCount` é o
+   * total da COMPRA — que pode ser maior que o número de linhas do arquivo,
+   * porque o extrato costuma trazer só parte das parcelas. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  seriesRef?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_OCORRENCIAS_IMPORT)
+  seriesIndex?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(2)
+  @Max(MAX_OCORRENCIAS_IMPORT)
+  seriesCount?: number;
 
   // XOR conferido no service, como no lançamento avulso.
   @ValidateIf((o) => !o.creditCardId)
