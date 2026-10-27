@@ -3579,6 +3579,12 @@
       <div class="field"><label class="lbl" for="cpd-quem">Quem pagou</label><select id="cpd-quem"></select></div>
 
       <div class="field" id="cpd-pago-com-campo"><label class="lbl" for="cpd-pago-com">Pago com</label><select id="cpd-pago-com"></select></div>
+      <!-- Só aparece com cartão, como no lançamento avulso. Sem ele, um gasto
+           compartilhado de outubro lançado em novembro ia para a fatura de
+           novembro sem alternativa, e a fatura certa ficava sem ele. -->
+      <div class="field" id="cpd-fatura-campo" hidden><label class="lbl" for="cpd-fatura">Fatura de destino</label><select id="cpd-fatura"></select>
+        <div class="field-help" id="cpd-fatura-help"></div>
+      </div>
       <div class="field" id="cpd-categoria-campo"><label class="lbl" for="cpd-categoria">Categoria</label><select id="cpd-categoria"></select></div>
       <div class="field-help" id="cpd-fora-ajuda" hidden>Quem pagou foi a outra pessoa, então nada sai de conta ou cartão seu: este gasto não entra no seu mês nem em nenhum relatório. O que ele cria é a sua dívida com ela.</div>
 
@@ -14914,12 +14920,51 @@
     return document.getElementById("cpd-quem").value === "EU";
   }
 
+  /* A fatura da despesa compartilhada. Mesma peça do lançamento avulso, pelo
+   * mesmo motivo: a data da compra não decide sozinha em que fatura ela cai, e
+   * um gasto de outubro lançado em novembro precisa poder voltar para a fatura
+   * de outubro. Sem isto ele ia para a de novembro sem alternativa.
+   *
+   * `cpdFaturaTocada` guarda se a pessoa escolheu à mão: mexer na data depois
+   * disso não pode desfazer a escolha dela. */
+  var cpdFaturaTocada = false;
+
+  function cpdAtualizarFatura() {
+    var onde = String(document.getElementById("cpd-pago-com").value || "").split(":");
+    var card = onde[0] === "cartao" ? byId(state.cards, onde[1]) : null;
+    var campo = document.getElementById("cpd-fatura-campo");
+    // Só cartão tem fatura. Conta não, e oferecer o campo ali seria prometer
+    // uma escolha que o servidor recusa.
+    campo.hidden = !card || !cpdEuPaguei();
+    if (campo.hidden) return;
+
+    var dataIso = (calCompartilhada && calCompartilhada.obter()) || isoDate(dataDeHoje());
+    var sugerido = faturaSugerida(dataIso, card);
+    var base = new Date(sugerido.y, sugerido.m, 1);
+    var opcoes = [];
+    for (var i = -2; i <= 6; i++) {
+      var d = adicionarMeses(base, i);
+      opcoes.push({ id: monthKey({ y: d.getFullYear(), m: d.getMonth() }), nome: rotuloMes({ y: d.getFullYear(), m: d.getMonth() }) });
+    }
+    var atual = cpdFaturaTocada ? document.getElementById("cpd-fatura").value : monthKey(sugerido);
+    preencherSelect(document.getElementById("cpd-fatura"), opcoes, atual);
+
+    var dia = new Date(dataIso + "T00:00:00").getDate();
+    document.getElementById("cpd-fatura-help").textContent =
+      dia === card.fechamento
+        ? "Esta é a data de fechamento (dia " + card.fechamento + "): o gasto vai para a fatura seguinte."
+        : dia > card.fechamento
+        ? "A data cai depois do fechamento (dia " + card.fechamento + "), então a sugestão é a fatura seguinte."
+        : "Fatura sugerida pela data; troque se quiser lançar em outra.";
+  }
+
   function cpdDesenhar() {
     var nome = primeiroNome((cpPessoa(cpdPessoaEscolhida()) || {}).name || "ela");
     var euPaguei = cpdEuPaguei();
 
     document.getElementById("cpd-pago-com-campo").hidden = !euPaguei;
     document.getElementById("cpd-categoria-campo").hidden = !euPaguei;
+    cpdAtualizarFatura();
     document.getElementById("cpd-fora-ajuda").hidden = euPaguei;
 
     // Repetir só existe para gasto MEU e lançamento novo: dividir um que já
@@ -15042,11 +15087,43 @@
       state.categories.filter(function (c) { return c.tipo === "EXPENSE"; })
         .map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.nome) + "</option>"; }).join("");
 
-    if (!calCompartilhada) calCompartilhada = montarCalendario(document.getElementById("cpd-data-cal"), {});
+    /* Editando, "pago com" mostrava sempre a primeira opção da lista: um gasto
+     * no cartão abria dizendo "Conta". O dado nunca correu risco — o PATCH de
+     * despesa compartilhada não aceita trocar o destino —, mas a tela afirmava
+     * uma coisa falsa sobre um gasto que já existe.
+     *
+     * Agora ela mostra o destino real e fica DESABILITADA na edição, que é a
+     * verdade: isto não se troca aqui. O mesmo vale para a fatura. */
+    var txEdit = despesa && despesa.transaction;
+    var origemEdit = !txEdit ? "" : txEdit.creditCardId ? "cartao:" + txEdit.creditCardId
+      : txEdit.bankAccountId ? "conta:" + txEdit.bankAccountId : "";
+    if (origemEdit) document.getElementById("cpd-pago-com").value = origemEdit;
+    document.getElementById("cpd-pago-com").disabled = !!despesa;
+    document.getElementById("cpd-fatura").disabled = !!despesa;
+
+    if (!calCompartilhada) calCompartilhada = montarCalendario(document.getElementById("cpd-data-cal"), { aoMudar: cpdAtualizarFatura });
     var quando = !despesa ? null
       : String((despesa.transaction ? despesa.transaction.transactionDate : despesa.expenseDate) || "").slice(0, 10);
     calCompartilhada.definir(quando || isoDate(dataDeHoje()), true);
+    // Formulário novo começa com a sugestão valendo.
+    cpdFaturaTocada = false;
     cpdDesenhar();
+    // Editando: a fatura que já está gravada é a verdade, não a sugestão.
+    var mkGravado = despesa && despesa.transaction && despesa.transaction.invoiceMonthOverride
+      ? String(despesa.transaction.invoiceMonthOverride).slice(0, 7) : "";
+    if (despesa) {
+      document.getElementById("cpd-fatura-help").textContent =
+        "A fatura foi definida quando o gasto entrou e não muda por aqui.";
+    }
+    if (mkGravado && !document.getElementById("cpd-fatura-campo").hidden) {
+      cpdFaturaTocada = true;
+      var sel = document.getElementById("cpd-fatura");
+      if (!Array.prototype.some.call(sel.options, function (o) { return o.value === mkGravado; })) {
+        sel.insertAdjacentHTML("afterbegin",
+          '<option value="' + esc(mkGravado) + '">' + esc(rotuloMes(parseMonthKey(mkGravado))) + "</option>");
+      }
+      sel.value = mkGravado;
+    }
     abrir("dlg-compartilhada");
   }
 
@@ -15344,6 +15421,15 @@
     document.getElementById(id).addEventListener("input", cpdDesenhar);
     document.getElementById(id).addEventListener("change", cpdDesenhar);
   });
+  // Trocar de cartão refaz a lista de faturas pela data: a sugestão depende do
+  // dia de fechamento, que é de cada cartão.
+  document.getElementById("cpd-pago-com").addEventListener("change", function () {
+    cpdFaturaTocada = false;
+    cpdAtualizarFatura();
+  });
+  // Escolher a fatura à mão trava a sugestão: mexer na data depois disso não
+  // pode desfazer o que a pessoa decidiu.
+  document.getElementById("cpd-fatura").addEventListener("change", function () { cpdFaturaTocada = true; });
 
   document.getElementById("cpd-repetir").addEventListener("change", function () {
     document.getElementById("cpd-repetir-wrap").style.display = this.checked ? "flex" : "none";
@@ -15391,8 +15477,11 @@
       corpo.categoryId = document.getElementById("cpd-categoria").value || undefined;
     } else if (euPaguei) {
       var onde = document.getElementById("cpd-pago-com").value.split(":");
-      if (onde[0] === "cartao") corpo.creditCardId = onde[1];
-      else corpo.bankAccountId = onde[1];
+      if (onde[0] === "cartao") {
+        corpo.creditCardId = onde[1];
+        var mkFatura = document.getElementById("cpd-fatura").value;
+        if (mkFatura) corpo.invoiceMonth = mkFatura;
+      } else corpo.bankAccountId = onde[1];
       corpo.categoryId = document.getElementById("cpd-categoria").value;
     } else {
       corpo.paidByPersonId = document.getElementById("cpd-quem").value;
