@@ -5,6 +5,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  IsOptional,
   ArrayMinSize,
   IsArray,
   IsString,
@@ -31,6 +32,13 @@ export class CategoryRuleItemDto {
     message: 'merchant deve vir normalizado: só letras minúsculas e números',
   })
   merchant!: string;
+
+  /** O nome como o extrato escreveu. Opcional: cliente antigo não manda, e a
+   * tela cai no nome derivado dos lançamentos. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  label?: string;
 
   @IsUUID()
   categoryId!: string;

@@ -6138,7 +6138,8 @@
    * mais genérica — a ordem que `regraDoLojista` precisa para o prefixo mais
    * longo vencer. */
   function regraDaApi(r) {
-    return { id: r.id, lojista: r.merchant, categoriaId: r.categoryId, acertos: r.hits };
+    return { id: r.id, lojista: r.merchant, rotulo: r.label || "",
+      categoriaId: r.categoryId, acertos: r.hits };
   }
 
   async function carregarDoServidor() {
@@ -8069,6 +8070,10 @@
    * que nunca existiu. */
   function rotuloDaRegra(lista, regra) {
     if (!regra || !regra.lojista) return "";
+    // O nome gravado com a regra vem primeiro: é o que o extrato escreveu, e
+    // vale mesmo que o lançamento de origem já não exista.
+    if (regra.rotulo) return regra.rotulo;
+    // Sem ele — regra anterior a esta coluna —, deriva de um lançamento.
     var achado = (lista || []).filter(function (t) {
       return chaveDeLojista(t.desc).indexOf(regra.lojista) === 0;
     })[0];
@@ -9994,14 +9999,30 @@
    * reimportar seria trocar uma memória que funciona por uma que depende de
    * sinal. O servidor é quem faz a regra atravessar para o outro aparelho, e
    * a resposta dele — que já vem ordenada — substitui a lista local. */
+  /** Cada entrada e {categoriaId, rotulo}. O ROTULO e o nome como o extrato
+   * escreveu — "Marte Paes", e nao "martepaes".
+   *
+   * Ele e gravado junto porque a chave nao serve para ler: ela e normalizada
+   * de proposito, e e isso que faz "MARTE PAES" e "marte paes" serem o mesmo
+   * lojista. Antes o nome era derivado dos lancamentos; funcionava ate os
+   * lancamentos nao existirem, e ai a lista mostrava a chave crua. */
   function gravarRegrasDeCategoria(porLojista) {
     var chaves = Object.keys(porLojista);
     if (!chaves.length) return;
 
     chaves.forEach(function (lojista) {
+      var nova = porLojista[lojista];
       var achada = state.regrasCategoria.filter(function (r) { return r.lojista === lojista; })[0];
-      if (achada) { achada.categoriaId = porLojista[lojista]; achada.acertos = (achada.acertos || 1) + 1; }
-      else state.regrasCategoria.push({ id: uid("rg"), lojista: lojista, categoriaId: porLojista[lojista], acertos: 1 });
+      if (achada) {
+        achada.categoriaId = nova.categoriaId;
+        achada.acertos = (achada.acertos || 1) + 1;
+        // Só sobrescreve o nome quando vem um: ensinar de novo a partir de um
+        // lançamento sem descrição não pode apagar o nome bom que já estava.
+        if (nova.rotulo) achada.rotulo = nova.rotulo;
+      } else {
+        state.regrasCategoria.push({ id: uid("rg"), lojista: lojista,
+          rotulo: nova.rotulo || "", categoriaId: nova.categoriaId, acertos: 1 });
+      }
     });
     // A mais longa primeiro: é a ordem que `regraDoLojista` espera, e é a
     // mesma que o servidor devolve. Mantê-las iguais evita que o palpite mude
@@ -10015,7 +10036,11 @@
     // que já aconteceu. A regra fica no aparelho e sobe na próxima vez que o
     // usuário ensinar alguma coisa.
     api("/category-rules", {
-      rules: chaves.map(function (k) { return { merchant: k, categoryId: porLojista[k] }; })
+      rules: chaves.map(function (k) {
+        var e = { merchant: k, categoryId: porLojista[k].categoriaId };
+        if (porLojista[k].rotulo) e.label = porLojista[k].rotulo;
+        return e;
+      })
     }, "PUT").then(function (r) {
       if (!Array.isArray(r)) return;
       state.regrasCategoria = r.map(regraDaApi);
@@ -10211,7 +10236,10 @@
       if (!l.ensinar || !l.chaveRegra) return;
       var destino = l.categoriaId || (l.criar ? criadas[l.criar] : "");
       if (!destino) return;
-      aprendidas[l.chaveRegra] = destino;
+      // O nome como o extrato escreveu, recortado no tamanho da chave: regra
+      // por prefixo guarda "Mercadolivre", não "MercadolivreEritecha".
+      aprendidas[l.chaveRegra] = { categoriaId: destino,
+        rotulo: recortarPorChave(lojistaDoHistorico(l.base.desc), l.chaveRegra.length) };
     });
     gravarRegrasDeCategoria(aprendidas);
 
@@ -10593,7 +10621,7 @@
   function talvezAprenderDoLancamento(desc, categoriaId) {
     if (!deveAprenderDoLancamento(state.regrasCategoria, desc, categoriaId)) return;
     var m = {};
-    m[chaveDeLojista(desc)] = categoriaId;
+    m[chaveDeLojista(desc)] = { categoriaId: categoriaId, rotulo: lojistaDoHistorico(desc) };
     gravarRegrasDeCategoria(m);
   }
 
@@ -10860,7 +10888,11 @@
 
       // A regra passa a valer para as próximas importações, nas duas opções
       // que sobraram. É o que o usuário acabou de ensinar.
-      gravarRegrasDeCategoria((function () { var m = {}; m[lojista] = destino; return m; })());
+      gravarRegrasDeCategoria((function () {
+        var m = {};
+        m[lojista] = { categoriaId: destino, rotulo: lojistaDoHistorico(t.desc) };
+        return m;
+      })());
 
       if (escolha !== "TODOS" || !irmaos.length) {
         avisar("Combinado", "A próxima importação deste lojista já vem com a categoria certa.");
@@ -11173,8 +11205,10 @@
     var linha = sel.closest("[data-regra]");
     var regra = (state.regrasCategoria || []).filter(function (r) { return r.id === linha.dataset.regra; })[0];
     if (!regra) return;
+    // Sem rótulo: aqui só a categoria muda, e mandar um nome vazio apagaria
+    // o que já está gravado.
     var m = {};
-    m[regra.lojista] = sel.value;
+    m[regra.lojista] = { categoriaId: sel.value };
     gravarRegrasDeCategoria(m);
     var cat = byId(state.categories, sel.value);
     avisar("Lojista reclassificado",

@@ -41,6 +41,7 @@ describe('CategoryRulesService', () => {
           );
           if (achada) {
             if (update.categoryId !== undefined) achada.categoryId = update.categoryId;
+            if (update.label !== undefined) achada.label = update.label;
             if (update.hits?.increment) achada.hits += update.hits.increment;
             return { ...achada };
           }
@@ -69,8 +70,8 @@ describe('CategoryRulesService', () => {
     service = new CategoryRulesService(prismaMock);
   });
 
-  const ensinar = (merchant: string, categoryId = 'cat-compras') =>
-    service.upsert('user-1', [{ merchant, categoryId }]);
+  const ensinar = (merchant: string, categoryId = 'cat-compras', label?: string) =>
+    service.upsert('user-1', [{ merchant, categoryId, label }]);
 
   it('ensina um lojista e devolve a regra', async () => {
     const lista = await ensinar('mercadolivre');
@@ -155,6 +156,25 @@ describe('CategoryRulesService', () => {
       ]),
     ).rejects.toThrow(BadRequestException);
     expect(regras).toEqual([]);
+  });
+
+  it('guarda o nome como o extrato escreveu', async () => {
+    // A chave e normalizada de proposito; o NOME e o que se mostra na tela.
+    const lista = await ensinar('eddacai', 'cat-compras', 'Edd Acai');
+    expect(lista[0]).toMatchObject({ merchant: 'eddacai', label: 'Edd Acai' });
+  });
+
+  it('ensinar sem nome nao apaga o nome que ja estava', async () => {
+    // Trocar so a categoria pela lista de lojistas manda regra sem rotulo.
+    await ensinar('eddacai', 'cat-compras', 'Edd Acai');
+    const lista = await ensinar('eddacai', 'cat-alimentacao');
+    expect(lista[0]).toMatchObject({ label: 'Edd Acai', categoryId: 'cat-alimentacao' });
+  });
+
+  it('ensinar com nome novo corrige o antigo', async () => {
+    await ensinar('eddacai', 'cat-compras', 'eddacai');
+    const lista = await ensinar('eddacai', 'cat-compras', 'Edd Acai');
+    expect(lista[0].label).toBe('Edd Acai');
   });
 
   it('remover apaga a regra', async () => {

@@ -909,6 +909,20 @@ model CategoryRule {
   id         String   @id @default(uuid())
   userId     String   @map("user_id")
   merchant   String
+  // O nome como o extrato escreveu: "Marte Paes", "Edd Acai".
+  //
+  // `merchant` e a chave e precisa ser normalizada -- e o que faz "MARTE
+  // PAES" e "marte paes" serem o mesmo lojista. Mas chave nao se mostra a
+  // ninguem: "martepaes" na tela e o app devolvendo ao usuario o jeito como
+  // ele guarda, nao o jeito como a pessoa escreveu.
+  //
+  // Antes o nome era DERIVADO dos lancamentos do usuario. Funcionava ate os
+  // lancamentos nao existirem -- regra importada cujo lote se perdeu, ou
+  // lancamentos apagados -- e ai a lista mostrava a chave crua.
+  //
+  // Nula nas regras gravadas antes desta coluna: a tela cai no nome derivado
+  // e, sem ele, na chave. Ensinar o lojista de novo preenche.
+  label      String?
   categoryId String   @map("category_id")
   // Quantas importacoes ja confirmaram a regra. Nao decide nada hoje; existe
   // para a tela poder dizer de onde veio o palpite.

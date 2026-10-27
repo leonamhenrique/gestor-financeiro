@@ -26,7 +26,7 @@ export class CategoryRulesService {
   async listar(userId: string) {
     const regras = await this.prisma.categoryRule.findMany({
       where: { userId },
-      select: { id: true, merchant: true, categoryId: true, hits: true, updatedAt: true },
+      select: { id: true, merchant: true, label: true, categoryId: true, hits: true, updatedAt: true },
     });
     return regras.sort(
       (a, b) => b.merchant.length - a.merchant.length || a.merchant.localeCompare(b.merchant),
@@ -62,8 +62,15 @@ export class CategoryRulesService {
       unicas.map((r) =>
         this.prisma.categoryRule.upsert({
           where: { userId_merchant: { userId, merchant: r.merchant } },
-          create: { userId, merchant: r.merchant, categoryId: r.categoryId },
-          update: { categoryId: r.categoryId, hits: { increment: 1 } },
+          create: { userId, merchant: r.merchant, label: r.label ?? null, categoryId: r.categoryId },
+          // O nome só é sobrescrito quando vem um: ensinar de novo a partir
+          // de um lançamento sem descrição não pode apagar o nome bom que já
+          // estava gravado.
+          update: {
+            categoryId: r.categoryId,
+            hits: { increment: 1 },
+            ...(r.label ? { label: r.label } : {}),
+          },
         }),
       ),
     );
