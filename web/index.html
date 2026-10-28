@@ -5637,6 +5637,129 @@
     return { forma: null };
   }
 
+  /* Palavras que fazem a frase ANDAR sem dizer o que foi comprado: o tipo, a
+   * forma de pagamento, a data, a fatura. Cada uma delas o app já leu num
+   * campo próprio, e repetir qualquer uma na descrição seria guardar duas
+   * vezes o que a pessoa disse uma só. */
+  var COMANDO_DA_FALA = [
+    // o ato de lançar
+    "lancamento", "lancamentos", "lancar", "lanca", "lance", "registrar", "registra",
+    "registro", "anotar", "anota", "adicionar", "adiciona",
+    // despesa e receita, nos tempos em que se fala delas
+    "despesa", "despesas", "gasto", "gastos", "gastei", "gastar", "gastarei",
+    "receita", "receitas", "recebi", "receber", "recebimento", "receberei",
+    "ganhei", "ganhar", "paguei", "pagar", "pago", "paga", "pagamento", "pagarei",
+    "quitei", "quitar", "comprei", "comprar", "compra", "compras", "compro",
+    "transferi", "transferir", "transferencia", "transfiro", "transferido", "transferida",
+    "vou", "vamos", "vai", "vao", "sera",
+    // situação
+    "previsto", "prevista", "previstos", "previstas", "agendado", "agendada",
+    "confirmado", "confirmada", "confirmar", "debitado", "creditado", "depositado",
+    "depositaram", "caiu", "entrou", "saiu", "vence", "vencimento", "vencer",
+    // onde o dinheiro entra ou sai
+    "cartao", "cartoes", "credito", "debito", "pix", "dinheiro", "especie",
+    "boleto", "ted", "doc", "conta", "contas", "banco", "bancos", "corrente", "poupanca",
+    "fatura", "faturas", "parcela", "parcelas", "parcelado", "parcelada", "vezes",
+    // os rótulos que a própria frase usa
+    "categoria", "categorias", "descricao", "valor", "quantia", "total",
+    "reais", "real", "brl", "conto", "contos", "pila",
+    // tempo
+    "hoje", "ontem", "anteontem", "amanha", "dia", "dias", "semana", "semanas",
+    "mes", "meses", "ano", "anos", "proxima", "proximo", "passada", "passado",
+    "ultima", "ultimo", "fim", "final", "inicio", "comeco", "daqui", "dentro", "vem"
+  ];
+
+  /* Ligações não cortam a descrição — elas vivem no meio de qualquer nome,
+   * "pao de queijo" —, mas também não a começam nem a terminam. */
+  var LIGACAO_DA_FALA = [
+    "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "ao", "aos",
+    "a", "o", "os", "as", "um", "uma", "uns", "umas", "e", "com", "por", "pelo",
+    "pela", "para", "pra", "pro", "que"
+  ];
+
+  /* As palavras que anunciam o destino. O que vem logo depois de uma delas
+   * é o nome de um banco, de uma conta ou de um cartão — e não o nome do
+   * que foi comprado. */
+  var FORMA_DA_FALA = [
+    "cartao", "cartoes", "credito", "debito", "pix", "conta", "contas", "banco", "bancos"
+  ];
+
+  /** Tira pontuação das PONTAS, sem mexer em acento nem em caixa: o que vai
+   * para a descrição é a palavra como a pessoa falou. */
+  function semPontuacao(s) {
+    return String(s || "").replace(/^[^0-9A-Za-zÀ-ÿ]+/, "").replace(/[^0-9A-Za-zÀ-ÿ]+$/, "");
+  }
+
+  /** As palavras de cadastro que a frase citou — de TODOS eles, não só do que
+   * ganhou. Quem diz "no crédito do Nubank" cita a conta Nubank e o cartão
+   * Nubank Roxinho; o app escolhe um dos dois, mas a palavra foi gasta pelos
+   * dois, e é isso que impede "Nubank" de virar o nome da compra. */
+  function palavrasDeCadastroNaFala(texto) {
+    var fora = {};
+    [state.accounts || [], state.cards || [], state.categories || []].forEach(function (lista) {
+      lista.forEach(function (item) {
+        var nome = normalizarFala(item.nome || "");
+        if (!nome) return;
+        var inteiro = posicaoDaPalavra(texto, nome) >= 0;
+        nome.split(/\s+/).forEach(function (p) {
+          if (p && (inteiro || (p.length >= 4 && posicaoDaPalavra(texto, p) >= 0))) fora[p] = true;
+        });
+      });
+    });
+    return fora;
+  }
+
+  /** O que sobra da frase depois de tudo que o app já entendeu é a descrição:
+   * "despesa 10 sorvete alimentação crédito nubank" guarda "Sorvete". Sem
+   * isto o lançamento nascia sem nome, e no extrato ele aparecia só com a
+   * categoria — a pessoa tinha dito o que comprou e o app jogava fora.
+   *
+   * Vale o maior TRECHO SEGUIDO que restou, e não as palavras soltas: juntar
+   * pedaços de dois cantos da frase escreveria uma descrição que ninguém
+   * falou. */
+  function descricaoDaFala(frase, texto, semDestino) {
+    var doCadastro = palavrasDeCadastroNaFala(texto);
+    var trechos = [], atual = null, aposForma = false;
+    String(frase || "").split(/\s+/).forEach(function (bruta) {
+      var palavra = semPontuacao(bruta);
+      var chave = normalizarFala(palavra);
+      var usada = !chave || /\d/.test(chave) || doCadastro[chave] === true ||
+        COMANDO_DA_FALA.indexOf(chave) >= 0 || mesPorNome(chave) >= 0 ||
+        DIAS_SEMANA[chave] !== undefined;
+      if (usada) {
+        if (atual) trechos.push(atual);
+        atual = null;
+        aposForma = FORMA_DA_FALA.indexOf(chave) >= 0;
+        return;
+      }
+      if (!atual) atual = { palavras: [], aposForma: aposForma };
+      atual.palavras.push({ palavra: palavra, chave: chave });
+    });
+    if (atual) trechos.push(atual);
+
+    var melhor = null;
+    trechos.forEach(function (trecho) {
+      // "no crédito do Fulano" com Fulano fora do cadastro: o destino ficou
+      // "não identificado", e essa palavra é o banco que a pessoa disse — não
+      // o que ela comprou. Chamá-la de descrição guardaria o erro com nome de
+      // compra. Com o destino achado a mesma palavra já saiu por outro
+      // caminho, e este corte não tem o que cortar.
+      if (semDestino && trecho.aposForma) return;
+      var lista = trecho.palavras;
+      var i = 0, f = lista.length;
+      while (i < f && LIGACAO_DA_FALA.indexOf(lista[i].chave) >= 0) i++;
+      while (f > i && LIGACAO_DA_FALA.indexOf(lista[f - 1].chave) >= 0) f--;
+      var corte = lista.slice(i, f);
+      // Uma letra solta não é o nome de nada, e "ok" no meio da frase também
+      // não: sem este piso, qualquer ruído do microfone viraria descrição.
+      if (!corte.some(function (x) { return x.chave.length >= 3; })) return;
+      if (!melhor || corte.length > melhor.length) melhor = corte;
+    });
+    if (!melhor) return "";
+    var desc = melhor.map(function (x) { return x.palavra; }).join(" ").slice(0, 60).trim();
+    return desc ? desc.charAt(0).toUpperCase() + desc.slice(1) : "";
+  }
+
   /** Interpreta a frase ditada e devolve o lançamento que ela descreve, mais a
    * lista do que faltou. Nunca lança sozinho: o que sai daqui vai para a tela
    * de conferência e para o formulário. */
@@ -5666,8 +5789,10 @@
     if (FUTURO.test(texto)) r.confirmada = false;
     if (r.data > isoDate(hoje)) r.confirmada = false;
 
+    // "descrição X" manda, por ser o pedido explícito; sem ele, o que sobrou
+    // da frase vira a descrição.
     var mDescT = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
-    if (mDescT) r.desc = mDescT[1].trim().slice(0, 60);
+    r.desc = mDescT ? mDescT[1].trim().slice(0, 60) : descricaoDaFala(frase, texto);
     return r;
   }
 
@@ -5730,8 +5855,11 @@
     // previsto, mesmo numa frase como "pago no pix amanhã".
     if (r.data > isoDate(hoje)) r.confirmada = false;
 
+    // Quem diz "descrição X" está ditando a descrição, e esse pedido ganha de
+    // qualquer leitura do resto.
     var mDesc = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
-    if (mDesc) r.desc = mDesc[1].trim().slice(0, 60);
+    r.desc = mDesc ? mDesc[1].trim().slice(0, 60)
+      : descricaoDaFala(frase, texto, !r.contaId && !r.cartaoId);
 
     return r;
   }
@@ -5749,6 +5877,7 @@
       var temConta = state.accounts.some(function (a) { return a.isActive !== false; });
       linhas.push({ rotulo: "Tipo", valor: "Transferência", ok: true });
       linhas.push({ rotulo: "Valor", valor: r.valor ? brl(r.valor) : "não identificado", ok: !!r.valor });
+      linhas.push({ rotulo: "Descrição", valor: r.desc || "—", ok: true });
       linhas.push({ rotulo: "Sai de", valor: de || (temConta ? "não identificada" : "nada cadastrado ainda"), ok: !!de });
       linhas.push({ rotulo: "Entra em", valor: para || (temConta ? "não identificada" : "nada cadastrado ainda"), ok: !!para });
       linhas.push({ rotulo: "Data", valor: fmtDataBR(r.data), ok: true });
@@ -5757,6 +5886,10 @@
     }
     linhas.push({ rotulo: "Tipo", valor: r.tipo === "INCOME" ? "Receita" : "Despesa", ok: true });
     linhas.push({ rotulo: "Valor", valor: r.valor ? brl(r.valor) : "não identificado", ok: !!r.valor });
+    // A descrição aparece mesmo vazia. Ela é opcional, então não entra no que
+    // "faltou"; mas sem a linha a pessoa não tem como saber se o app guardou
+    // o que ela comprou ou se deixou passar.
+    linhas.push({ rotulo: "Descrição", valor: r.desc || "—", ok: true });
     var destino = r.cartaoId ? (byId(state.cards, r.cartaoId) || {}).nome
       : (r.contaId ? (byId(state.accounts, r.contaId) || {}).nome : null);
     // "Não identificado" é ambíguo: pode ser que eu não entendi, ou que não há
@@ -11933,6 +12066,11 @@
       if (r.cartaoId && r.faturaMes) corpoVoz.invoiceMonth = r.faturaMes;
       var resVoz = await lancarComFila(corpoVoz, "lançar");
       if (!resVoz.ok) return;
+      // Depois do sucesso, como no formulário: ditar "sorvete alimentação"
+      // ensina o mesmo lojista que digitar as duas coisas ensinaria. Sem esta
+      // linha o app aprendia ou não conforme o caminho, e a pessoa não tem
+      // como saber que o microfone esquece o que o teclado guarda.
+      talvezAprenderDoLancamento(r.desc, r.categoriaId);
       fechar("dlg-voz");
       if (resVoz.pendente) {
         avisar("Sem conexão agora", "O lançamento ficou guardado no aparelho, marcado como pendente, e sobe sozinho quando a internet voltar.");
@@ -11946,6 +12084,7 @@
     };
     state.transactions.push(nova);
     if (nova.confirmada) aplicarEfeito(nova, 1);
+    talvezAprenderDoLancamento(r.desc, r.categoriaId);
     persist(); renderAll(); fechar("dlg-voz");
   });
 
