@@ -2315,7 +2315,7 @@
                pendente: bloco vazio com título é pior que ausência. -->
           <div class="blk" id="r-pendencias-bloco" style="--i:4" hidden>
             <div class="lbl">Falta pagar e receber</div>
-            <div class="seg">
+            <div class="seg" id="r-pend-seg">
               <button type="button" class="seg-cell seg-cell--aviso" id="r-pend-a-vencer">
                 <div class="seg-cab"><span class="lbl">A vencer</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                 <div class="seg-val num" id="r-pend-av-val"></div>
@@ -2330,6 +2330,23 @@
                 <div class="seg-meta" id="r-pend-ve-n"></div>
                 <div class="seg-subs" id="r-pend-ve-subs" hidden>
                   <div class="seg-sub"><span>a receber</span><span class="num" id="r-pend-ve-rec"></span></div>
+                </div>
+              </button>
+              <!-- A dívida com outra pessoa é dinheiro que vai sair da conta, e
+                   ficava só na tela Compartilhadas: quem olhava aqui para saber
+                   o que falta pagar não a via.
+
+                   Ela NÃO vira lançamento, de propósito. Lançamento precisa de
+                   conta ou cartão, e no momento em que a outra pessoa paga
+                   ainda não se sabe como o acerto vai ser feito — conta
+                   chutada estragaria o saldo projetado dela. Aqui ela aparece
+                   como o que é: dívida, até o dinheiro andar. -->
+              <button type="button" class="seg-cell seg-cell--despesa" id="r-pend-pessoas" hidden>
+                <div class="seg-cab"><span class="lbl">Com pessoas</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <div class="seg-val num" id="r-pend-pe-val"></div>
+                <div class="seg-meta" id="r-pend-pe-n"></div>
+                <div class="seg-subs" id="r-pend-pe-subs" hidden>
+                  <div class="seg-sub"><span>a receber</span><span class="num" id="r-pend-pe-rec"></span></div>
                 </div>
               </button>
             </div>
@@ -6966,10 +6983,35 @@
    * detalhe abre a tela de Pendências. */
   function renderPendencias() {
     var p = pendenciasDoMesUmaVez(resumoMes);
-    document.getElementById("r-pendencias-bloco").hidden = p.total === 0;
-    if (!p.total) return;
+    // O que está em aberto com outras pessoas. Vem do resumo das
+    // compartilhadas, não dos lançamentos: é dívida, não lançamento.
+    var aPagarPessoas = Number((cpResumo && cpResumo.aPagar) || 0);
+    var aReceberPessoas = Number((cpResumo && cpResumo.aReceber) || 0);
+    var temPessoas = aPagarPessoas > 0 || aReceberPessoas > 0;
+
+    // O bloco só some quando NÃO HÁ NADA — nem lançamento pendente, nem
+    // dívida. Antes ele olhava só os lançamentos, e quem devia a alguém sem
+    // ter nenhuma conta a vencer via a tela dizer que não faltava nada.
+    document.getElementById("r-pendencias-bloco").hidden = p.total === 0 && !temPessoas;
+    document.getElementById("r-pend-pessoas").hidden = !temPessoas;
+    document.getElementById("r-pend-seg").classList.toggle("seg--3", temPessoas);
+    if (p.total === 0 && !temPessoas) return;
+
     celulaPendencia("av", p.aVencer, "nada a vencer");
     celulaPendencia("ve", p.vencidas, "nada vencido");
+
+    if (temPessoas) {
+      var val = document.getElementById("r-pend-pe-val");
+      val.textContent = aPagarPessoas ? brl(aPagarPessoas) : "—";
+      val.classList.toggle("vazio", !aPagarPessoas);
+      var quantas = ((cpResumo && cpResumo.pessoas) || []).filter(function (x) {
+        return Number(x.saldo || 0) !== 0;
+      }).length;
+      document.getElementById("r-pend-pe-n").textContent =
+        aPagarPessoas ? contagem(quantas, "pessoa") : "você não deve nada";
+      document.getElementById("r-pend-pe-subs").hidden = !aReceberPessoas;
+      document.getElementById("r-pend-pe-rec").textContent = "+" + money(aReceberPessoas);
+    }
   }
 
   /** Uma célula do par. O número grande é o que falta PAGAR — é ele que cobra
@@ -14084,6 +14126,9 @@
   document.getElementById("p-voltar").addEventListener("click", function () { irPara("resumo"); });
   document.getElementById("r-pend-a-vencer").addEventListener("click", function () { irPara("pendencias"); });
   document.getElementById("r-pend-vencidas").addEventListener("click", function () { irPara("pendencias"); });
+  // A dívida com pessoas não está em Pendências — ela não é lançamento. Quem
+  // clica aqui quer a tela onde ela mora e onde se acerta.
+  document.getElementById("r-pend-pessoas").addEventListener("click", function () { irPara("compartilhadas"); });
   /* As seis telas. O Resumo e Pendências dividem `resumoMes`, então os dois
    * rótulos chamam o mesmo caminho — o que já valia para as setas deles. */
   ligarSeletorDeMes("r-mes-label", function () { return resumoMes; }, function (vm) { mudarMesDoResumo(0, vm); });
