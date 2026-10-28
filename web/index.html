@@ -2332,23 +2332,6 @@
                   <div class="seg-sub"><span>a receber</span><span class="num" id="r-pend-ve-rec"></span></div>
                 </div>
               </button>
-              <!-- A dívida com outra pessoa é dinheiro que vai sair da conta, e
-                   ficava só na tela Compartilhadas: quem olhava aqui para saber
-                   o que falta pagar não a via.
-
-                   Ela NÃO vira lançamento, de propósito. Lançamento precisa de
-                   conta ou cartão, e no momento em que a outra pessoa paga
-                   ainda não se sabe como o acerto vai ser feito — conta
-                   chutada estragaria o saldo projetado dela. Aqui ela aparece
-                   como o que é: dívida, até o dinheiro andar. -->
-              <button type="button" class="seg-cell seg-cell--despesa" id="r-pend-pessoas" hidden>
-                <div class="seg-cab"><span class="lbl">Com pessoas</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                <div class="seg-val num" id="r-pend-pe-val"></div>
-                <div class="seg-meta" id="r-pend-pe-n"></div>
-                <div class="seg-subs" id="r-pend-pe-subs" hidden>
-                  <div class="seg-sub"><span>a receber</span><span class="num" id="r-pend-pe-rec"></span></div>
-                </div>
-              </button>
             </div>
           </div>
 
@@ -6983,54 +6966,71 @@
    * detalhe abre a tela de Pendências. */
   function renderPendencias() {
     var p = pendenciasDoMesUmaVez(resumoMes);
-    // O que está em aberto com outras pessoas. Vem do resumo das
-    // compartilhadas, não dos lançamentos: é dívida, não lançamento.
-    var aPagarPessoas = Number((cpResumo && cpResumo.aPagar) || 0);
-    var aReceberPessoas = Number((cpResumo && cpResumo.aReceber) || 0);
-    var temPessoas = aPagarPessoas > 0 || aReceberPessoas > 0;
 
-    // O bloco só some quando NÃO HÁ NADA — nem lançamento pendente, nem
-    // dívida. Antes ele olhava só os lançamentos, e quem devia a alguém sem
-    // ter nenhuma conta a vencer via a tela dizer que não faltava nada.
-    document.getElementById("r-pendencias-bloco").hidden = p.total === 0 && !temPessoas;
-    document.getElementById("r-pend-pessoas").hidden = !temPessoas;
-    document.getElementById("r-pend-seg").classList.toggle("seg--3", temPessoas);
-    if (p.total === 0 && !temPessoas) return;
+    /* O que está em aberto com outras pessoas entra NAS MESMAS duas células.
+     *
+     * Uma terceira coluna "Com pessoas" seria uma coluna a mais na tela de
+     * quem nunca divide gasto nenhum. E o que se quer saber aqui é um número
+     * só: quanto falta pagar. De onde ele vem — conta, fatura ou uma dívida
+     * com a Larissa — é detalhe de quem clica.
+     *
+     * Dívida vai para A VENCER, nunca para vencidas: entre duas pessoas não
+     * há vencimento combinado, e chamar de "vencida" uma dívida de ontem
+     * inventaria um atraso que ninguém acordou.
+     *
+     * NÃO entra o que já tem acerto agendado: aquele valor já está nestas
+     * mesmas células, como lançamento previsto, e contá-lo duas vezes faria
+     * o painel pedir o dobro do que se deve. */
+    var pessoas = dividaNaoAgendada();
 
-    celulaPendencia("av", p.aVencer, "nada a vencer");
-    celulaPendencia("ve", p.vencidas, "nada vencido");
+    document.getElementById("r-pendencias-bloco").hidden = p.total === 0 && !pessoas.pagar && !pessoas.receber;
+    if (p.total === 0 && !pessoas.pagar && !pessoas.receber) return;
 
-    if (temPessoas) {
-      var val = document.getElementById("r-pend-pe-val");
-      val.textContent = aPagarPessoas ? brl(aPagarPessoas) : "—";
-      val.classList.toggle("vazio", !aPagarPessoas);
-      var quantas = ((cpResumo && cpResumo.pessoas) || []).filter(function (x) {
-        return Number(x.saldo || 0) !== 0;
-      }).length;
-      document.getElementById("r-pend-pe-n").textContent =
-        aPagarPessoas ? contagem(quantas, "pessoa") : "você não deve nada";
-      document.getElementById("r-pend-pe-subs").hidden = !aReceberPessoas;
-      document.getElementById("r-pend-pe-rec").textContent = "+" + money(aReceberPessoas);
-    }
+    celulaPendencia("av", p.aVencer, "nada a vencer", pessoas);
+    celulaPendencia("ve", p.vencidas, "nada vencido", null);
+  }
+
+  /** A dívida com pessoas que ainda NÃO virou lançamento.
+   *
+   * O acerto agendado já criou um previsto, e ele aparece nas pendências por
+   * conta própria. O que sobra aqui é a dívida crua — a que ainda não tem
+   * data nem destino decididos. */
+  function dividaNaoAgendada() {
+    return {
+      pagar: Number((cpResumo && cpResumo.aPagarEmAberto) || 0),
+      receber: Number((cpResumo && cpResumo.aReceberEmAberto) || 0),
+      pessoas: ((cpResumo && cpResumo.pessoas) || []).filter(function (x) {
+        return Number(x.saldoEmAberto || 0) !== 0;
+      }).length
+    };
   }
 
   /** Uma célula do par. O número grande é o que falta PAGAR — é ele que cobra
    * uma ação. O que há a receber desce para a linha de baixo em vez de se
    * misturar num líquido: receber 450 não quita uma fatura de 845, e um número
    * só esconderia as duas obrigações. Sem nada a receber, a linha nem aparece. */
-  function celulaPendencia(pref, lista, vazio) {
+  function celulaPendencia(pref, lista, vazio, pessoas) {
     var t = somaPendencias(lista);
+    // A dívida com pessoas soma aqui dentro, não ao lado.
+    var pagar = t.pagar + ((pessoas && pessoas.pagar) || 0);
+    var receber = t.receber + ((pessoas && pessoas.receber) || 0);
+    var temAlgo = lista.length > 0 || !!(pessoas && (pessoas.pagar || pessoas.receber));
     var val = document.getElementById("r-pend-" + pref + "-val");
     // Lado vazio não vira "R$ 0,00": mesma regra da faixa de meses — zero é um
     // resultado, "não há nada" é outro, e aqui o segundo é uma boa notícia que
     // merece ser lida como tal. A célula fica, porque o par não pode encolher
     // e mudar o desenho do bloco conforme o mês.
-    val.textContent = lista.length ? brl(t.pagar) : "—";
-    val.classList.toggle("vazio", !lista.length);
-    document.getElementById("r-pend-" + pref + "-n").textContent =
-      lista.length ? contagem(lista.length, "lançamento") : vazio;
-    document.getElementById("r-pend-" + pref + "-subs").hidden = !t.receber;
-    document.getElementById("r-pend-" + pref + "-rec").textContent = "+" + money(t.receber);
+    val.textContent = temAlgo ? brl(pagar) : "—";
+    val.classList.toggle("vazio", !temAlgo);
+    // A contagem diz as duas origens quando as duas existem: "2 lançamentos ·
+    // 1 pessoa". Sem isso, um total que inclui dívida pareceria não bater com
+    // a lista que o clique abre.
+    var partes = [];
+    if (lista.length) partes.push(contagem(lista.length, "lançamento"));
+    if (pessoas && pessoas.pessoas) partes.push(contagem(pessoas.pessoas, "pessoa"));
+    document.getElementById("r-pend-" + pref + "-n").textContent = partes.join(" · ") || vazio;
+    document.getElementById("r-pend-" + pref + "-subs").hidden = !receber;
+    document.getElementById("r-pend-" + pref + "-rec").textContent = "+" + money(receber);
   }
 
   function somaPendencias(lista) {
@@ -7057,11 +7057,42 @@
   function renderTelaPendencias() {
     var p = pendenciasDoMesUmaVez(resumoMes);
     pintarMes("p-mes-label", resumoMes);
-    document.getElementById("p-sub").textContent = p.total
-      ? contagem(p.total, "lançamento") + " sem confirmação até " + rotuloMes(resumoMes).toLowerCase() + "."
+    // As dívidas entram em "A vencer" junto com os lançamentos, pelo mesmo
+    // motivo do Resumo: o total da célula lá tem de fechar com a lista aqui.
+    var dividas = linhasDeDivida();
+    document.getElementById("p-sub").textContent = p.total || dividas.length
+      ? [p.total ? contagem(p.total, "lançamento") : null,
+         dividas.length ? contagem(dividas.length, "dívida") : null].filter(Boolean).join(" e ") +
+        " em aberto até " + rotuloMes(resumoMes).toLowerCase() + "."
       : "Nada em aberto até " + rotuloMes(resumoMes).toLowerCase() + ".";
-    secaoPendencia("p-a-vencer", "p-av-total", p.aVencer, "Nada a vencer neste mês.");
-    secaoPendencia("p-vencidas", "p-ve-total", p.vencidas, "Nada vencido — em dia até aqui.");
+    secaoPendencia("p-a-vencer", "p-av-total", p.aVencer, "Nada a vencer neste mês.", dividas);
+    secaoPendencia("p-vencidas", "p-ve-total", p.vencidas, "Nada vencido — em dia até aqui.", []);
+  }
+
+  /** Uma linha por pessoa com saldo em aberto.
+   *
+   * Dívida não é lançamento: não tem data de vencimento, não mexe em saldo e
+   * não se confirma. A linha diz isso e leva para a tela onde ela se resolve,
+   * em vez de oferecer ações que não existem aqui. */
+  function linhasDeDivida() {
+    return ((cpResumo && cpResumo.pessoas) || [])
+      .filter(function (x) { return Number(x.saldoEmAberto || 0) !== 0; })
+      .map(function (x) {
+        // O saldo EM ABERTO: o que já tem acerto agendado aparece como
+        // lançamento previsto logo acima, e listar os dois pediria o mesmo
+        // dinheiro duas vezes.
+        var saldo = Number(x.saldoEmAberto);
+        var devo = saldo < 0;
+        return {
+          html: '<div class="row clickable" data-divida="' + esc(x.personId) + '">' +
+            '<span class="row-main"><span class="row-title">' +
+            '<span class="row-name">' + esc(x.name) + '</span>' +
+            '<span class="tag">' + (devo ? "você deve" : "te deve") + '</span></span>' +
+            '<span class="row-meta">dívida de despesa compartilhada · sem vencimento</span></span>' +
+            '<span class="row-val num ' + (devo ? "neg" : "pos") + '">' +
+            (devo ? "−" : "+") + money(Math.abs(saldo)) + "</span></div>"
+        };
+      });
   }
 
   /** Teto de linhas por seção. A lista olha do mês escolhido para trás, então
@@ -7074,14 +7105,16 @@
    * mente: o total do cabeçalho e a contagem do subtítulo seguem somando tudo. */
   var TETO_DE_PENDENCIAS = 50;
 
-  function secaoPendencia(idLista, idTotal, lista, vazio) {
+  function secaoPendencia(idLista, idTotal, lista, vazio, dividas) {
+    dividas = dividas || [];
     document.getElementById(idTotal).textContent = lista.length ? totalPendencia(lista) : "";
     var mostradas = lista.slice(0, TETO_DE_PENDENCIAS);
     var sobraram = lista.length - mostradas.length;
-    document.getElementById(idLista).innerHTML = lista.length
-      ? mostradas.map(linhaPendenciaHTML).join("") +
-        (sobraram ? '<div class="empty">' + esc(recadoDoTeto(sobraram)) + '</div>' : "")
-      : '<div class="empty">' + esc(vazio) + '</div>';
+    var html = mostradas.map(linhaPendenciaHTML).join("") +
+      (sobraram ? '<div class="empty">' + esc(recadoDoTeto(sobraram)) + '</div>' : "") +
+      dividas.map(function (d) { return d.html; }).join("");
+    document.getElementById(idLista).innerHTML =
+      html || '<div class="empty">' + esc(vazio) + '</div>';
   }
 
   function recadoDoTeto(sobraram) {
@@ -8933,8 +8966,10 @@
       return '<div class="row row--livre clickable" data-acerto-extrato="' + esc(l.id) + '">' +
         '<span class="row-main">' +
         '<span class="row-title"><span class="row-name">' + esc(l.description) + '</span>' +
-        '<span class="tag">acerto</span></span>' +
-        '<span class="row-meta">' + data + ' · não conta como receita nem despesa</span></span>' +
+        '<span class="tag' + (l.agendado ? " tag-previsto" : "") + '">' +
+        (l.agendado ? "acerto agendado" : "acerto") + '</span></span>' +
+        '<span class="row-meta">' + data +
+        (l.agendado ? " · ainda não aconteceu" : " · não conta como receita nem despesa") + '</span></span>' +
         '<span class="row-val num' + (recebi ? " pos" : " neg") + '">' + sinal(l.valor) + '</span></div>';
     }
 
@@ -14126,9 +14161,18 @@
   document.getElementById("p-voltar").addEventListener("click", function () { irPara("resumo"); });
   document.getElementById("r-pend-a-vencer").addEventListener("click", function () { irPara("pendencias"); });
   document.getElementById("r-pend-vencidas").addEventListener("click", function () { irPara("pendencias"); });
+  /* Clicar numa dívida leva ao extrato da pessoa — onde ela se resolve. As
+   * ações da pendência (confirmar, editar) não existem para dívida: não há
+   * lançamento para confirmar. */
+  document.getElementById("p-a-vencer").addEventListener("click", function (e) {
+    var el = e.target.closest("[data-divida]");
+    if (!el) return;
+    cpPessoaAberta = el.getAttribute("data-divida");
+    irPara("compartilhada-pessoa");
+  });
   // A dívida com pessoas não está em Pendências — ela não é lançamento. Quem
   // clica aqui quer a tela onde ela mora e onde se acerta.
-  document.getElementById("r-pend-pessoas").addEventListener("click", function () { irPara("compartilhadas"); });
+
   /* As seis telas. O Resumo e Pendências dividem `resumoMes`, então os dois
    * rótulos chamam o mesmo caminho — o que já valia para as setas deles. */
   ligarSeletorDeMes("r-mes-label", function () { return resumoMes; }, function (vm) { mudarMesDoResumo(0, vm); });
@@ -14989,6 +15033,9 @@
 
     (cpExtrato.acertos || []).forEach(function (a) {
       var recebi = a.direction === "RECEIVED";
+      // Acerto agendado nasceu como lançamento previsto: ele ainda não
+      // abateu nada, e a linha precisa dizer isso.
+      var agendado = !!(a.transaction && a.transaction.isConfirmed === false);
       linhas.push({
         data: a.settledAt,
         // Clicável como a despesa: sem isto, um acerto lançado por engano
@@ -14998,9 +15045,14 @@
           '<span class="row-main">' +
           '<span class="row-title"><span class="row-name">' +
           esc(a.description || (recebi ? "Recebido de " + primeiro : "Pago a " + primeiro)) +
-          '</span><span class="tag">acerto</span></span>' +
+          '</span><span class="tag' + (agendado ? " tag-previsto" : "") + '">' +
+          (agendado ? "acerto agendado" : "acerto") + '</span></span>' +
           '<span class="row-meta">' + fmtDataBR(String(a.settledAt).slice(0, 10)) +
-          (a.transactionId
+          (agendado
+            // Dito em letras porque a dívida continua de pé: o dinheiro não
+            // andou, e a tela não pode sugerir que andou.
+            ? " · ainda não aconteceu — confirme no extrato quando pagar"
+            : a.transactionId
             ? " · entra no extrato como " + (recebi ? "reembolso" : "despesa")
             : " · não conta como receita nem despesa") + '</span></span>' +
           '<span class="row-val num ' + (recebi ? "pos" : "neg") + '">' +

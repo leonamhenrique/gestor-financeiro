@@ -68,7 +68,10 @@ export class SharedSummaryService {
     const [pessoas, despesas, acertos] = await Promise.all([
       this.prisma.person.findMany({ where: { userId, isActive: true }, orderBy: { sortOrder: 'asc' } }),
       this.prisma.sharedExpense.findMany({ where: { userId }, include: COM_TUDO }),
-      this.prisma.settlement.findMany({ where: { userId } }),
+      this.prisma.settlement.findMany({
+        where: { userId },
+        include: { transaction: { select: { isConfirmed: true } } },
+      }),
     ]);
 
     const linhas = pessoas.map((pessoa) => {
@@ -78,6 +81,19 @@ export class SharedSummaryService {
         personId: pessoa.id,
         name: pessoa.name,
         saldo: saldoDaPessoa(dela.paraSaldo, this.paraSaldo(acertosDela)),
+        /* O que ainda vai sobrar DEPOIS que os acertos agendados acontecerem.
+         *
+         * `saldo` é a dívida de hoje: ela ignora o que está agendado, porque
+         * o dinheiro não andou. Este aqui conta os agendados como se já
+         * tivessem acontecido, e por isso é o que falta DECIDIR.
+         *
+         * A diferença existe para quem soma: o acerto agendado já virou um
+         * lançamento previsto e já aparece em "a vencer". Somar a dívida
+         * cheia ali pediria o mesmo dinheiro duas vezes. */
+        saldoEmAberto: saldoDaPessoa(
+          dela.paraSaldo,
+          acertosDela.map((x: any) => ({ direction: x.direction, amount: Number(x.amount) })),
+        ),
         lancamentos: dela.paraSaldo.length,
         acertos: acertosDela.length,
       };
@@ -89,11 +105,21 @@ export class SharedSummaryService {
     const aReceber = linhas.filter((l) => l.saldo > 0).reduce((s, l) => s + emCentavos(l.saldo), 0);
     const aPagar = linhas.filter((l) => l.saldo < 0).reduce((s, l) => s - emCentavos(l.saldo), 0);
 
+    const aReceberEmAberto = linhas
+      .filter((l) => l.saldoEmAberto > 0)
+      .reduce((s2, l) => s2 + emCentavos(l.saldoEmAberto), 0);
+    const aPagarEmAberto = linhas
+      .filter((l) => l.saldoEmAberto < 0)
+      .reduce((s2, l) => s2 - emCentavos(l.saldoEmAberto), 0);
+
     return {
       pessoas: linhas,
       liquido: emReais(centavos),
       aReceber: emReais(aReceber),
       aPagar: emReais(aPagar),
+      // O que ainda não tem acerto nem agendado — ver `saldoEmAberto`.
+      aReceberEmAberto: emReais(aReceberEmAberto),
+      aPagarEmAberto: emReais(aPagarEmAberto),
     };
   }
 
@@ -161,7 +187,10 @@ export class SharedSummaryService {
   async extratoGeral(userId: string, mes?: string, por: ModoDeData = 'fatura') {
     const [despesas, acertos] = await Promise.all([
       this.prisma.sharedExpense.findMany({ where: { userId }, include: COM_TUDO }),
-      this.prisma.settlement.findMany({ where: { userId }, include: { person: true } }),
+      this.prisma.settlement.findMany({
+        where: { userId },
+        include: { person: true, transaction: { select: { isConfirmed: true } } },
+      }),
     ]);
 
     // Mesmo critério de mês do extrato por pessoa. Duas telas do MESMO módulo
@@ -217,6 +246,9 @@ export class SharedSummaryService {
         // nem despesa, e a tela precisa dizer isso em letras.
         valor: a.direction === 'RECEIVED' ? Number(a.amount) : -Number(a.amount),
         contaComoReceita: false,
+        // Agendado: o lançamento dele ainda é previsto, e a dívida continua
+        // de pé. A tela diz isso em letras.
+        agendado: !!a.transaction && a.transaction.isConfirmed === false,
         // A tela precisa destes dois para dizer, na confirmacao, o que apagar
         // vai desfazer: saldo de conta e lancamento no extrato.
         bankAccountId: a.bankAccountId ?? null,
@@ -326,8 +358,22 @@ export class SharedSummaryService {
     return { linhas, paraSaldo };
   }
 
+  /**
+   * Os acertos que de fato mexeram na dívida.
+   *
+   * Acerto AGENDADO não abate nada. Ele nasce como lançamento previsto — o
+   * dinheiro ainda não saiu —, e contá-lo aqui produzia uma contradição que o
+   * usuário leu na tela: a pessoa aparecia quite enquanto o extrato dizia que
+   * o pagamento não havia acontecido. Dívida se quita com dinheiro, não com
+   * intenção.
+   *
+   * Acerto sem lançamento (dinheiro vivo) conta na hora: ali não há nada a
+   * confirmar depois, o dinheiro passou de mão e pronto.
+   */
   private paraSaldo(acertos: any[]): AcertoParaSaldo[] {
-    return acertos.map((a) => ({ direction: a.direction, amount: Number(a.amount) }));
+    return acertos
+      .filter((a) => !a.transaction || a.transaction.isConfirmed !== false)
+      .map((a) => ({ direction: a.direction, amount: Number(a.amount) }));
   }
 
   /** A data que vale para a despesa, nas duas formas dela. */
