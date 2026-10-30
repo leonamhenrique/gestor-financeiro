@@ -50,6 +50,22 @@ services:
       # vinculos, e quem usava o WhatsApp pareia de novo pela tela.
       - key: WHATSAPP_PHONE_PEPPER
         generateValue: true
+      # O que a Meta devolve no aperto de mao do webhook. Quem escolhe o
+      # valor e voce: o Render gera, e o mesmo valor vai digitado no painel
+      # da Meta ao cadastrar o webhook.
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+      # Preencher no painel do Render, copiando do painel da Meta:
+      # WHATSAPP_APP_SECRET → App Secret do app da Meta. E com ele que a API
+      #                 confere a assinatura do corpo de cada mensagem. SEM
+      #                 ELE NENHUMA MENSAGEM E ACEITA (falha fechada).
+      # WHATSAPP_TOKEN → token permanente do System User, com as permissoes
+      #                 whatsapp_business_messaging e _management. E o que
+      #                 permite RESPONDER.
+      # WHATSAPP_PHONE_ID → id do numero remetente (Phone Number ID).
+      #
+      # Sem WHATSAPP_TOKEN e WHATSAPP_PHONE_ID a API le a mensagem e nao
+      # responde: e o estado de desenvolvimento, mudo de proposito.
       # Preencher no painel do Render (Environment):
       # DATABASE_URL  → connection string do Neon, a POOLED (tem "-pooler" no host)
       # DIRECT_URL    → a mesma do Neon, mas a DIRETA (sem "-pooler"): as
