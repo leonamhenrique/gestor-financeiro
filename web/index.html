@@ -5915,7 +5915,11 @@
     r.data = dataDaFala(texto, hoje) || isoDate(hoje);
 
     // Fatura de destino: "fatura de setembro", "fatura de setembro/2026".
-    var mFat = texto.match(/fatura(?:\s*d[eo])?(?:\s*mes)?(?:\s*d[eo])?\s*([a-z]+)\s*(?:de\s*|\/)?\s*(20\d{2})?/);
+    // O `` em cada pedaço opcional não é enfeite: sem ele, o "de" de
+    // "fatura de DEzembro" era comido como se fosse a preposição, e sobrava
+    // "zembro" para procurar na lista de meses. Dezembro era o único mês com
+    // esse problema, e caía calado — a fatura só não aparecia no resumo.
+    var mFat = texto.match(/fatura(?:\s*d[eo]\b)?(?:\s*mes\b)?(?:\s*d[eo]\b)?\s*([a-z]+)\s*(?:de\s*|\/)?\s*(20\d{2})?/);
     if (r.cartaoId && mFat) {
       var mf = mesPorNome(mFat[1]);
       if (mf >= 0) r.faturaMes = monthKey({ y: mFat[2] ? parseInt(mFat[2], 10) : hoje.getFullYear(), m: mf });
