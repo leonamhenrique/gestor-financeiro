@@ -16,6 +16,7 @@ import { CategoryRulesModule } from './category-rules/category-rules.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
 import { ReportsModule } from './reports/reports.module';
 import { SharedExpensesModule } from './shared-expenses/shared-expenses.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { BillingModule } from './billing/billing.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
@@ -40,6 +41,7 @@ import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
     BillingModule,
     ReportsModule,
     SharedExpensesModule,
+    WhatsappModule,
   ],
   controllers: [AppController],
   providers: [

@@ -3863,6 +3863,13 @@
         <span class="opt-meta" id="pf-plano"></span>
       </button>
       <button type="button" class="opt" data-perfil="instalar" hidden>Instalar no aparelho<span class="opt-meta" id="pf-instalar-meta">Abre em janela própria, com ícone na tela inicial.</span></button>
+      <!-- Só aparece onde há número para falar: ver GF_WHATSAPP_NUMERO em
+           config.js. Sem número, uma tela que promete mandar mensagem para
+           lugar nenhum é pior do que uma opção a menos. -->
+      <button type="button" class="opt" data-perfil="whatsapp" hidden>
+        <span class="opt-linha">WhatsApp<span class="tag" id="pf-wa-tag" hidden></span></span>
+        <span class="opt-meta" id="pf-wa-meta">Lançar mandando mensagem.</span>
+      </button>
       <button type="button" class="opt" data-perfil="config">Configurações<span class="opt-meta" id="pf-config-meta">Em que data os relatórios contam o cartão.</span></button>
       <button type="button" class="opt" data-perfil="zerar">Começar do zero<span class="opt-meta">Apaga contas, cartões e lançamentos e refaz os primeiros passos.</span></button>
       <button type="button" class="opt" data-perfil="suporte">Suporte<span class="opt-meta">Relatar um problema.</span></button>
@@ -3995,6 +4002,20 @@
   <div class="layer-body"><div class="calor" id="cc-mapa"></div></div>
 </dialog>
 
+</dialog>
+
+<dialog id="dlg-whatsapp">
+  <div class="layer-head"><h3>Lançar pelo WhatsApp</h3><div class="ctx">Mande o lançamento por mensagem</div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-body">
+    <div class="field-help" id="wa-ajuda">Conectando o seu número, você manda "gastei 40 no mercado pelo débito" e o app entende o lançamento.</div>
+    <div class="list" id="wa-resumo"></div>
+    <div class="field-error" id="wa-erro"></div>
+  </div>
+  <div class="layer-foot">
+    <button type="button" class="ghost esquerda" id="wa-desligar" hidden>Desligar</button>
+    <button type="button" class="ghost" id="wa-conferir" hidden>Já mandei</button>
+    <button type="button" class="primary" id="wa-conectar">Conectar meu número</button>
+  </div>
 </dialog>
 
 <dialog id="dlg-mensagem">
@@ -14460,6 +14481,7 @@
     pill.className = "tag " + (bloq ? "danger" : "ok");
     document.getElementById("pf-plano").textContent = rotuloDaAssinatura();
     atualizarConvitesDeInstalacao();
+    aplicarWhatsappNoMenu();
     abrir("dlg-perfil");
   }
 
@@ -14668,12 +14690,185 @@
     document.getElementById("ms-texto").value = "";
   });
 
+  /* ================= camada: WhatsApp =================
+   * Conectar o número é o que separa "qualquer um manda mensagem para a API"
+   * de "esta mensagem é sua". O código nasce aqui dentro, numa tela que já
+   * exige sessão aberta — é exatamente isso que ele prova do outro lado.
+   *
+   * A opção só existe com `GF_WHATSAPP_NUMERO` preenchido e com API: sem
+   * número não há para onde mandar o código, e em modo demonstração não há
+   * servidor para guardar vínculo nenhum. */
+  var WHATSAPP_NUMERO = String(window.GF_WHATSAPP_NUMERO || "").replace(/\D/g, "");
+  var waEstado = null;
+  var waCodigo = null;
+
+  function whatsappDisponivel() { return MODO_API && !!WHATSAPP_NUMERO; }
+
+  function aplicarWhatsappNoMenu() {
+    var opt = document.querySelector('[data-perfil="whatsapp"]');
+    if (!opt) return;
+    opt.hidden = !whatsappDisponivel();
+    var tag = document.getElementById("pf-wa-tag");
+    var ligado = !!(waEstado && waEstado.vinculado);
+    tag.hidden = !ligado;
+    tag.textContent = ligado ? "ligado" : "";
+    document.getElementById("pf-wa-meta").textContent = ligado
+      ? "Ligado ao número que termina em " + waEstado.ultimos4 + "."
+      : "Lançar mandando mensagem.";
+  }
+
+  function linhaWa(rotulo, valor, meta) {
+    return '<div class="row"><span class="row-main"><span class="row-title">' +
+      '<span class="row-name">' + esc(rotulo) + '</span></span>' +
+      (meta ? '<span class="row-meta">' + esc(meta) + '</span>' : "") + '</span>' +
+      '<span class="row-val">' + esc(valor) + '</span></div>';
+  }
+
+  function pintarWhatsapp() {
+    var lista = document.getElementById("wa-resumo");
+    var btConectar = document.getElementById("wa-conectar");
+    var btDesligar = document.getElementById("wa-desligar");
+    var btConferir = document.getElementById("wa-conferir");
+    var ajuda = document.getElementById("wa-ajuda");
+
+    if (!waEstado) {
+      lista.innerHTML = '<div class="empty">Consultando…</div>';
+      btConectar.hidden = true; btDesligar.hidden = true; btConferir.hidden = true;
+      return;
+    }
+
+    if (waEstado.vinculado) {
+      lista.innerHTML =
+        linhaWa("Número", "termina em " + waEstado.ultimos4,
+          "o número inteiro não fica guardado") +
+        linhaWa("Ligado desde", fmtDataBR(isoDoServidor(waEstado.desde)), "") +
+        linhaWa("Última mensagem", waEstado.ultimoUso
+          ? fmtDataBR(isoDoServidor(waEstado.ultimoUso)) : "nenhuma ainda", "");
+      ajuda.textContent = "Mande a frase do lançamento para o WhatsApp do app. " +
+        "Ele responde com o que entendeu, e só grava depois que você confirmar.";
+      btConectar.hidden = true;
+      btConferir.hidden = true;
+      btDesligar.hidden = false;
+      return;
+    }
+
+    if (waCodigo) {
+      lista.innerHTML =
+        linhaWa("Código", waCodigo.codigo, "vale por 15 minutos, uma vez só") +
+        linhaWa("Para onde", "WhatsApp do app", "mande o código de lá");
+      ajuda.textContent = "Abra o WhatsApp com o botão e mande a mensagem como ela vier escrita. " +
+        "Depois volte aqui e toque em “Já mandei”.";
+      btConectar.textContent = "Abrir o WhatsApp";
+      btConectar.hidden = false;
+      btConferir.hidden = false;
+      btDesligar.hidden = true;
+      return;
+    }
+
+    lista.innerHTML = '<div class="empty">Nenhum número ligado a esta conta.</div>';
+    ajuda.textContent = "Conectando o seu número, você manda “gastei 40 no mercado pelo débito” " +
+      "e o app entende o lançamento. Só o número que você conectar consegue lançar aqui.";
+    btConectar.textContent = "Conectar meu número";
+    btConectar.hidden = false;
+    btConferir.hidden = true;
+    btDesligar.hidden = true;
+  }
+
+  /** O servidor manda data ISO completa; a tela só mostra o dia. */
+  function isoDoServidor(valor) {
+    return String(valor || "").slice(0, 10);
+  }
+
+  async function carregarWhatsapp() {
+    try {
+      waEstado = await api("/whatsapp");
+      document.getElementById("wa-erro").textContent = "";
+    } catch (e) {
+      waEstado = null;
+      document.getElementById("wa-erro").textContent = e.message;
+    }
+    pintarWhatsapp();
+    aplicarWhatsappNoMenu();
+  }
+
+  function abrirWhatsapp() {
+    waEstado = null;
+    waCodigo = null;
+    document.getElementById("wa-erro").textContent = "";
+    pintarWhatsapp();
+    abrir("dlg-whatsapp");
+    carregarWhatsapp();
+  }
+
+  document.getElementById("wa-conectar").addEventListener("click", async function () {
+    // Segundo toque: o código já existe, e o que falta é abrir o WhatsApp.
+    if (waCodigo) { abrirConversaDoCodigo(); return; }
+    var bt = this;
+    bt.disabled = true;
+    try {
+      waCodigo = await api("/whatsapp/pairing", {}, "POST");
+      document.getElementById("wa-erro").textContent = "";
+      pintarWhatsapp();
+      abrirConversaDoCodigo();
+    } catch (e) {
+      document.getElementById("wa-erro").textContent = e.message;
+    } finally {
+      bt.disabled = false;
+    }
+  });
+
+  /* Abre a conversa com a mensagem já escrita. A pessoa não digita o código:
+   * copiar oito caracteres de uma tela para outra é onde ela erraria, e um
+   * erro aqui parece "o app não funciona". */
+  function abrirConversaDoCodigo() {
+    if (!waCodigo) return;
+    var url = "https://wa.me/" + WHATSAPP_NUMERO + "?text=" + encodeURIComponent(waCodigo.mensagem);
+    window.open(url, "_blank", "noopener");
+  }
+
+  document.getElementById("wa-conferir").addEventListener("click", async function () {
+    var bt = this;
+    bt.disabled = true;
+    await carregarWhatsapp();
+    bt.disabled = false;
+    if (waEstado && waEstado.vinculado) {
+      waCodigo = null;
+      pintarWhatsapp();
+      avisar("WhatsApp conectado", "O número que termina em " + waEstado.ultimos4 +
+        " já pode lançar nesta conta.");
+      return;
+    }
+    document.getElementById("wa-erro").textContent =
+      "Ainda não chegou. Confira se a mensagem saiu e tente de novo em alguns segundos.";
+  });
+
+  document.getElementById("wa-desligar").addEventListener("click", function () {
+    // Pergunta antes: desligar aqui é a pessoa perder o caminho que ela usa
+    // todo dia, e o gesto é um toque só.
+    pedirConfirmacao({
+      titulo: "Desligar o WhatsApp?",
+      detalhe: "O número que termina em " + (waEstado ? waEstado.ultimos4 : "") +
+        " para de lançar nesta conta. Nenhum lançamento é apagado, e dá para conectar de novo quando quiser.",
+      acao: "Desligar",
+      destrutivo: true
+    }, async function () {
+      try {
+        await api("/whatsapp", null, "DELETE");
+        waCodigo = null;
+        await carregarWhatsapp();
+      } catch (e) {
+        document.getElementById("wa-erro").textContent = e.message;
+      }
+    });
+  });
+
   document.getElementById("dlg-perfil").addEventListener("click", function (e) {
     var b = e.target.closest("[data-perfil]");
     if (!b) return;
     fechar("dlg-perfil");
     var acao = b.dataset.perfil;
     if (acao === "config") abrirConfig();
+    if (acao === "whatsapp") abrirWhatsapp();
     if (acao === "meu") abrirMeuPerfil();
     if (acao === "assinatura") abrirAssinatura();
     if (acao === "instalar") instalarApp();

@@ -41,6 +41,15 @@ services:
       # Ninguém precisa digitar, ver ou colar esse valor em lugar nenhum.
       - key: JWT_SECRET
         generateValue: true
+      # Segredo que entra no hash do telefone do WhatsApp (HMAC). Gerado pelo
+      # Render, como o de cima, e pelo mesmo motivo: ninguem precisa ver.
+      #
+      # Telefone tem pouca entropia, e um SHA-256 puro dele se reverte por
+      # forca bruta; com este segredo, quem levar so o banco nao descobre
+      # numero nenhum. Trocar ou perder o valor nao quebra o app: invalida os
+      # vinculos, e quem usava o WhatsApp pareia de novo pela tela.
+      - key: WHATSAPP_PHONE_PEPPER
+        generateValue: true
       # Preencher no painel do Render (Environment):
       # DATABASE_URL  → connection string do Neon, a POOLED (tem "-pooler" no host)
       # DIRECT_URL    → a mesma do Neon, mas a DIRETA (sem "-pooler"): as

@@ -119,6 +119,8 @@ model User {
   settlements         Settlement[]
   shareLinks          ShareLink[]
   categoryRules       CategoryRule[]
+  whatsappLink        WhatsappLink?
+  whatsappPairings    WhatsappPairing[]
 
   @@map("users")
 }
@@ -415,9 +417,6 @@ model Transaction {
   sharedExpense SharedExpense?
   settlement    Settlement?
 
-  // Desfazer uma importação busca todos os lançamentos de um lote.
-  @@index([userId, importBatchId])
-
   // Uma transação deve pertencer a UMA conta OU a UM cartão, nunca nenhum ou os dois.
   // Essa regra é validada na camada de aplicação (Prisma não suporta CHECK constraints
   // condicionais nativamente sem raw SQL / migration customizada).
@@ -425,6 +424,8 @@ model Transaction {
   // Por usuário, não global: a chave nasce no aparelho de cada um, e duas
   // pessoas podem gerar a mesma sem nunca terem se visto.
   @@unique([userId, clientKey])
+  // Desfazer uma importação busca todos os lançamentos de um lote.
+  @@index([userId, importBatchId])
   @@index([userId, transactionDate])
   @@index([bankAccountId])
   @@index([creditCardId])
@@ -938,4 +939,63 @@ model CategoryRule {
   @@unique([userId, merchant])
   @@index([userId])
   @@map("category_rules")
+}
+
+// ============================================================
+// O numero de WhatsApp que pode lancar nesta conta.
+// ============================================================
+// O webhook recebe uma mensagem e precisa saber de QUEM ela e antes de
+// qualquer outra coisa. Numero nao pareado nao lanca nada: qualquer pessoa
+// pode mandar mensagem para o numero da API, e sem este vinculo a primeira
+// delas estaria escrevendo no extrato de alguem.
+//
+// O telefone NAO e guardado em claro. Telefone tem pouca entropia -- um
+// celular brasileiro cabe em 10^11 tentativas --, e um SHA-256 puro disso se
+// reverte por forca bruta em minutos. Por isso `phoneHash` e um HMAC com um
+// segredo do servidor (WHATSAPP_PHONE_PEPPER): quem levar so o banco nao tem
+// como descobrir os numeros. Trocar ou perder o segredo invalida os vinculos
+// e todo mundo pareia de novo -- e o preco de nao guardar o numero legivel.
+//
+// `phoneLast4` existe para a tela poder dizer QUAL numero esta ligado sem
+// mostrar o numero inteiro: "termina em 4321". E o mesmo acordo do cartao,
+// onde o app guarda bandeira e ultimos quatro e nunca o PAN.
+model WhatsappLink {
+  id         String    @id @default(uuid())
+  // Um vinculo por usuario: a pessoa fala de um numero so.
+  userId     String    @unique @map("user_id")
+  // E um usuario por numero: sem isto, uma mensagem resolveria para dois
+  // donos e o lancamento cairia na conta errada.
+  phoneHash  String    @unique @map("phone_hash")
+  phoneLast4 String    @map("phone_last4")
+  linkedAt   DateTime  @default(now()) @map("linked_at")
+  // Ultima mensagem aceita deste numero. Serve a tela ("em uso desde..."), e
+  // a nada mais: nao e historico de conversa, que este app nao guarda.
+  lastSeenAt DateTime? @map("last_seen_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_links")
+}
+
+// O codigo que liga um numero a uma conta, uma vez so.
+//
+// Nasce na tela do app, ja logada -- e por isso que ele prova que quem mandou
+// a mensagem e o dono da conta. Vai para o WhatsApp pela mao do usuario e
+// morre no primeiro uso.
+//
+// Guardado como SHA-256, como todo token deste schema. Aqui o hash puro basta
+// porque o codigo e aleatorio de verdade (8 caracteres de um alfabeto de 32,
+// ~10^12 combinacoes), e nao um numero de telefone.
+model WhatsappPairing {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  codeHash  String    @unique @map("code_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("whatsapp_pairings")
 }

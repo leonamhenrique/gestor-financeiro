@@ -14,3 +14,11 @@
 // ser de primeira parte e deixa de depender de política de terceiros. É o que
 // permite COOKIE_SAMESITE=strict no servidor (ver src/auth/session-cookie.ts).
 window.GF_API_URL = "https://api.saldonline.com.br";
+
+// O numero de WhatsApp da API, so digitos com DDI: "5531988887777".
+//
+// Vazio = a conexao com o WhatsApp nem aparece no app. E de proposito: sem
+// numero nao ha para onde mandar o codigo, e uma tela que promete o que nao
+// existe e pior do que uma tela a menos. Preenchido aqui, a opcao nasce no
+// menu do perfil sem precisar de outro deploy da API.
+window.GF_WHATSAPP_NUMERO = "";
