@@ -21,4 +21,4 @@ window.GF_API_URL = "https://api.saldonline.com.br";
 // numero nao ha para onde mandar o codigo, e uma tela que promete o que nao
 // existe e pior do que uma tela a menos. Preenchido aqui, a opcao nasce no
 // menu do perfil sem precisar de outro deploy da API.
-window.GF_WHATSAPP_NUMERO = "";
+window.GF_WHATSAPP_NUMERO = "15552056796";

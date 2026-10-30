@@ -14705,6 +14705,7 @@
   var WHATSAPP_NUMERO = String(window.GF_WHATSAPP_NUMERO || "").replace(/\D/g, "");
   var waEstado = null;
   var waCodigo = null;
+  var waFalhou = false;
 
   function whatsappDisponivel() { return MODO_API && !!WHATSAPP_NUMERO; }
 
@@ -14734,6 +14735,16 @@
     var btDesligar = document.getElementById("wa-desligar");
     var btConferir = document.getElementById("wa-conferir");
     var ajuda = document.getElementById("wa-ajuda");
+
+    // Falhou a consulta: a tela precisa de uma saída. Sem isto ela ficava em
+    // "Consultando…" para sempre, com o recado de erro embaixo e nenhum botão
+    // — a pessoa tinha de fechar e abrir de novo para tentar outra vez.
+    if (waFalhou) {
+      lista.innerHTML = '<div class="empty">Não consegui falar com o servidor agora.</div>';
+      btConectar.textContent = "Tentar de novo";
+      btConectar.hidden = false; btDesligar.hidden = true; btConferir.hidden = true;
+      return;
+    }
 
     if (!waEstado) {
       lista.innerHTML = '<div class="empty">Consultando…</div>';
@@ -14786,9 +14797,11 @@
   async function carregarWhatsapp() {
     try {
       waEstado = await api("/whatsapp");
+      waFalhou = false;
       document.getElementById("wa-erro").textContent = "";
     } catch (e) {
       waEstado = null;
+      waFalhou = true;
       document.getElementById("wa-erro").textContent = e.message;
     }
     pintarWhatsapp();
@@ -14798,6 +14811,7 @@
   function abrirWhatsapp() {
     waEstado = null;
     waCodigo = null;
+    waFalhou = false;
     document.getElementById("wa-erro").textContent = "";
     pintarWhatsapp();
     abrir("dlg-whatsapp");
@@ -14805,6 +14819,8 @@
   }
 
   document.getElementById("wa-conectar").addEventListener("click", async function () {
+    // Depois de uma falha, este botão é o "tentar de novo".
+    if (waFalhou) { carregarWhatsapp(); return; }
     // Segundo toque: o código já existe, e o que falta é abrir o WhatsApp.
     if (waCodigo) { abrirConversaDoCodigo(); return; }
     var bt = this;
