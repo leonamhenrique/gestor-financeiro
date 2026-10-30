@@ -4484,8 +4484,15 @@
   function normalizarNome(s) {
     return String(s || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   }
-  function filhasDe(id) { return state.categories.filter(function (c) { return c.paiId === id; }); }
-  function temFilhas(id) { return filhasDe(id).length > 0; }
+  /* A lista entra por parâmetro, com `state` de padrão, porque estas três
+   * são lidas também fora da tela: o ditado roda no servidor para a frase
+   * que chega pelo WhatsApp, e lá as categorias são as do usuário daquela
+   * mensagem — não há `state` nenhum para consultar. Quem já chamava com um
+   * argumento só continua igual. */
+  function filhasDe(id, categorias) {
+    return (categorias || state.categories).filter(function (c) { return c.paiId === id; });
+  }
+  function temFilhas(id, categorias) { return filhasDe(id, categorias).length > 0; }
   function raizesDe(tipo) { return state.categories.filter(function (c) { return c.tipo === tipo && !c.paiId; }); }
 
   /** Nome repetido dentro do mesmo pai é proibido: duas irmãs com o mesmo
@@ -4502,8 +4509,9 @@
 
   /** Só folha recebe lançamento. Quando um pai ganha filhas, o lançamento
    * desce para a filha — mas os que já apontavam para ele continuam válidos. */
-  function categoriasLancaveis(tipo) {
-    return state.categories.filter(function (c) { return c.tipo === tipo && !temFilhas(c.id); });
+  function categoriasLancaveis(tipo, categorias) {
+    var lista = categorias || state.categories;
+    return lista.filter(function (c) { return c.tipo === tipo && !temFilhas(c.id, lista); });
   }
   function nomeCompleto(c) {
     if (!c) return "";
@@ -5326,6 +5334,30 @@
   }
 
   /* ================= ditado: frase → lançamento ================= */
+  /** O que ler uma frase exige saber do usuário: as listas onde se procuram
+   * nomes, as regras de lojista que o app lembra, e que dia é hoje.
+   *
+   * Existe para a leitura não depender de `state`. Na tela, `state` é a
+   * verdade e o contexto sai dele. No servidor — lendo a frase que chegou
+   * pelo WhatsApp — a verdade está no banco, é a do dono daquela mensagem, e
+   * `state` não existe. As duas pontas passam a ler a mesma frase com o
+   * mesmo código, que é o que impede a leitura de divergir entre elas:
+   * reescrever esta gramática num prompt, ou num segundo arquivo, daria duas
+   * respostas diferentes para a mesma frase — e a pessoa veria uma na tela e
+   * outra no WhatsApp.
+   *
+   * As listas vão CRUAS, sem filtro. Cada função daqui filtra do seu jeito
+   * — "conta ativa" não quer dizer o mesmo em todas elas — e peneirar na
+   * entrada apagaria essa diferença sem ninguém notar. */
+  function contextoDaFala() {
+    return {
+      contas: state.accounts || [],
+      cartoes: state.cards || [],
+      categorias: state.categories || [],
+      regras: state.regrasCategoria || [],
+      hoje: dataDeHoje()
+    };
+  }
   /** Tira acento e caixa para comparar texto falado com nome cadastrado:
    * quem dita "alimentacao" e quem dita "Alimentação" querem a mesma coisa. */
   function normalizarFala(s) {
@@ -5582,8 +5614,9 @@
    * banco, para, dinheiro), senão "da CONTA Nubank" casaria com qualquer
    * conta cujo nome tenha a palavra "conta". */
   var PALAVRAS_DE_ESTRUTURA = ["conta", "contas", "banco", "para", "dinheiro", "valor", "saldo", "corrente"];
-  function contasNaOrdemDaFala(texto) {
-    var contas = state.accounts.filter(function (a) { return a.isActive !== false; });
+  function contasNaOrdemDaFala(texto, ctx) {
+    ctx = ctx || contextoDaFala();
+    var contas = ctx.contas.filter(function (a) { return a.isActive !== false; });
     var achados = [];
     var jaTem = function (id) { return achados.some(function (x) { return x.conta.id === id; }); };
 
@@ -5612,16 +5645,17 @@
       .map(function (x) { return x.conta; });
   }
 
-  function destinoDaFala(texto) {
-    var contasAtivas = state.accounts.filter(function (a) { return a.isActive; });
-    var cartao = acharPorNome(state.cards, texto);
+  function destinoDaFala(texto, ctx) {
+    ctx = ctx || contextoDaFala();
+    var contasAtivas = ctx.contas.filter(function (a) { return a.isActive; });
+    var cartao = acharPorNome(ctx.cartoes, texto);
     var conta = acharPorNome(contasAtivas, texto);
     var forma = formaDePagamentoDaFala(texto);
 
     if (forma === "cartao") {
       var k = cartao ||
-        (conta ? state.cards.filter(function (x) { return x.contaId === conta.id; })[0] : null) ||
-        (!cartao && !conta && state.cards.length === 1 ? state.cards[0] : null);
+        (conta ? ctx.cartoes.filter(function (x) { return x.contaId === conta.id; })[0] : null) ||
+        (!cartao && !conta && ctx.cartoes.length === 1 ? ctx.cartoes[0] : null);
       return k ? { forma: forma, cartaoId: k.id } : { forma: forma };
     }
     if (forma === "conta") {
@@ -5694,9 +5728,10 @@
    * ganhou. Quem diz "no crédito do Nubank" cita a conta Nubank e o cartão
    * Nubank Roxinho; o app escolhe um dos dois, mas a palavra foi gasta pelos
    * dois, e é isso que impede "Nubank" de virar o nome da compra. */
-  function palavrasDeCadastroNaFala(texto) {
+  function palavrasDeCadastroNaFala(texto, ctx) {
+    ctx = ctx || contextoDaFala();
     var fora = {};
-    [state.accounts || [], state.cards || [], state.categories || []].forEach(function (lista) {
+    [ctx.contas, ctx.cartoes, ctx.categorias].forEach(function (lista) {
       lista.forEach(function (item) {
         var nome = normalizarFala(item.nome || "");
         if (!nome) return;
@@ -5717,8 +5752,9 @@
    * Vale o maior TRECHO SEGUIDO que restou, e não as palavras soltas: juntar
    * pedaços de dois cantos da frase escreveria uma descrição que ninguém
    * falou. */
-  function descricaoDaFala(frase, texto, semDestino) {
-    var doCadastro = palavrasDeCadastroNaFala(texto);
+  function descricaoDaFala(frase, texto, ctx, semDestino) {
+    ctx = ctx || contextoDaFala();
+    var doCadastro = palavrasDeCadastroNaFala(texto, ctx);
     var trechos = [], atual = null, aposForma = false;
     String(frase || "").split(/\s+/).forEach(function (bruta) {
       var palavra = semPontuacao(bruta);
@@ -5766,7 +5802,8 @@
   /** A frase disse "transferência". Daqui em diante a leitura é outra: duas
    * contas na ordem em que foram ditas, valor, data e situação. Sem categoria
    * — transferência não tem, e cobrá-la aqui seria pedir o que não existe. */
-  function transferenciaDaFala(texto, frase, r) {
+  function transferenciaDaFala(texto, frase, r, ctx) {
+    ctx = ctx || contextoDaFala();
     r.transferencia = true;
     r.tipo = "TRANSFER";
     r.categoriaId = null;
@@ -5777,13 +5814,13 @@
     r.valor = valorDaFala(texto);
     if (!r.valor) r.faltando.push("valor");
 
-    var contas = contasNaOrdemDaFala(texto);
+    var contas = contasNaOrdemDaFala(texto, ctx);
     r.deId = contas[0] ? contas[0].id : null;
     r.paraId = contas[1] ? contas[1].id : null;
     if (!r.deId) r.faltando.push("conta de origem");
     if (!r.paraId) r.faltando.push("conta de destino");
 
-    var hoje = dataDeHoje();
+    var hoje = ctx.hoje;
     r.data = dataDaFala(texto, hoje) || isoDate(hoje);
     if (PASSADO.test(texto)) r.confirmada = true;
     if (FUTURO.test(texto)) r.confirmada = false;
@@ -5792,11 +5829,12 @@
     // "descrição X" manda, por ser o pedido explícito; sem ele, o que sobrou
     // da frase vira a descrição.
     var mDescT = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
-    r.desc = mDescT ? mDescT[1].trim().slice(0, 60) : descricaoDaFala(frase, texto);
+    r.desc = mDescT ? mDescT[1].trim().slice(0, 60) : descricaoDaFala(frase, texto, ctx);
     return r;
   }
 
-  function interpretarFala(frase) {
+  function interpretarFala(frase, ctx) {
+    ctx = ctx || contextoDaFala();
     var texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
     var r = { frase: frase, tipo: "EXPENSE", valor: null, categoriaId: null, contaId: null,
       cartaoId: null, faturaMes: null, data: null, confirmada: false, desc: "", faltando: [] };
@@ -5804,7 +5842,7 @@
 
     // Transferência é outro tipo de lançamento, e sai por outro caminho: não
     // tem categoria, não tem cartão, e o que importa é a ORDEM das contas.
-    if (TRANSFERENCIA.test(texto)) return transferenciaDaFala(texto, frase, r);
+    if (TRANSFERENCIA.test(texto)) return transferenciaDaFala(texto, frase, r, ctx);
 
     if (ENTRADA.test(texto)) r.tipo = "INCOME";
     if (/despesa|gastei|paguei|comprei|pagamento de|gasto/.test(texto) && !ENTRADA.test(texto)) r.tipo = "EXPENSE";
@@ -5813,7 +5851,7 @@
     if (!r.valor) r.faltando.push("valor");
 
     // Destino: cartão pelo nome, ou a forma de pagamento (débito, pix, dinheiro).
-    var destino = destinoDaFala(texto);
+    var destino = destinoDaFala(texto, ctx);
     r.forma = destino.forma;
     r.contaId = destino.contaId || null;
     r.cartaoId = destino.cartaoId || null;
@@ -5829,7 +5867,7 @@
     // qualquer leitura do resto.
     var mDesc = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
     r.desc = mDesc ? mDesc[1].trim().slice(0, 60)
-      : descricaoDaFala(frase, texto, !r.contaId && !r.cartaoId);
+      : descricaoDaFala(frase, texto, ctx, !r.contaId && !r.cartaoId);
 
     // Categoria, em duas tentativas. Primeiro o nome dito: quem fala
     // "alimentação" está classificando agora, e isso manda em qualquer
@@ -5837,14 +5875,14 @@
     // formulário consulta quando se digita a descrição. Na ordem contrária,
     // dizer a categoria em voz alta não adiantaria nada num lojista já
     // conhecido.
-    var cat = acharPorNome(categoriasLancaveis(r.tipo), texto);
+    var cat = acharPorNome(categoriasLancaveis(r.tipo, ctx.categorias), texto);
     if (!cat && r.desc) {
-      var regra = regraParaDigitado(state.regrasCategoria, r.desc);
-      var daRegra = regra ? byId(state.categories, regra.categoriaId) : null;
+      var regra = regraParaDigitado(ctx.regras, r.desc);
+      var daRegra = regra ? byId(ctx.categorias, regra.categoriaId) : null;
       // A categoria lembrada tem de servir ao tipo: despesa não vai para
       // categoria de receita, nem com regra mandando. Mesma guarda do
       // formulário.
-      var serve = daRegra && categoriasLancaveis(r.tipo).some(function (c) { return c.id === daRegra.id; });
+      var serve = daRegra && categoriasLancaveis(r.tipo, ctx.categorias).some(function (c) { return c.id === daRegra.id; });
       if (serve) { cat = daRegra; r.categoriaDoLojista = true; }
     }
     if (cat) r.categoriaId = cat.id;
@@ -5852,7 +5890,7 @@
 
     // Data: hoje, ontem, amanhã, depois de amanhã, "dia 12", "12 de setembro",
     // "em 3 dias", "semana que vem", "próxima sexta", "fim do mês".
-    var hoje = dataDeHoje();
+    var hoje = ctx.hoje;
     r.data = dataDaFala(texto, hoje) || isoDate(hoje);
 
     // Fatura de destino: "fatura de setembro", "fatura de setembro/2026".
