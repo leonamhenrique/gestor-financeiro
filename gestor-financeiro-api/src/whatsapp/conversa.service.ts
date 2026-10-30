@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
+import { AudioService } from './audio.service';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fala = require('../fala/fala.js');
@@ -49,6 +50,7 @@ export class ConversaService {
     private readonly prisma: PrismaService,
     private readonly transactions: TransactionsService,
     private readonly whatsapp: WhatsappService,
+    private readonly audio: AudioService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -63,16 +65,34 @@ export class ConversaService {
 
     await this.whatsapp.registrarUso(userId);
 
+    // Áudio vira texto e segue pelo MESMO caminho da frase digitada. Nada
+    // abaixo daqui sabe se a pessoa falou ou escreveu — e é isso que faz o
+    // recado de voz responder igualzinho ao que ela veria no app.
     if (m.audioId) {
-      return (
-        'Ainda não consigo ouvir áudio — isso vem no próximo passo. ' +
-        'Por enquanto, escreva a frase: "gastei 40 no mercado pelo débito".'
-      );
+      if (!this.audio.disponivel()) {
+        return (
+          'Ainda não escuto áudio por aqui. ' +
+          'Escreva a frase: "gastei 40 no mercado pelo débito".'
+        );
+      }
+      const ouvido = await this.audio.ouvir(m.audioId);
+      if (!ouvido) {
+        return 'Não consegui entender o áudio. Mande de novo, mais perto do microfone, ou escreva a frase.';
+      }
+      // O que foi ouvido vem ANTES do resumo, sempre. Metade dos enganos de
+      // voz é o transcritor trocando uma palavra, e a pessoa só descobre se
+      // a resposta disser o que ele achou que ouviu.
+      const resposta = await this.lerFrase(userId, ouvido);
+      return resposta ? 'Ouvi: “' + ouvido + '”\n\n' + resposta : null;
     }
 
     const texto = (m.texto || '').trim();
     if (!texto) return null;
+    return this.lerFrase(userId, texto);
+  }
 
+  /** Daqui para baixo tanto faz se a frase foi falada ou digitada. */
+  private async lerFrase(userId: string, texto: string): Promise<string | null> {
     const rascunho = this.rascunhoDe(userId);
     if (rascunho && SIM.test(texto)) return this.gravar(userId, rascunho);
     if (rascunho && NAO.test(texto)) {

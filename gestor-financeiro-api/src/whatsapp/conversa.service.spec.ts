@@ -20,12 +20,15 @@ describe('ConversaService', () => {
   let prisma: any;
   let transactions: any;
   let whatsapp: any;
+  let audio: any;
   let criados: any[];
   let dono: string | null;
+  let ouvido: string | null;
 
   beforeEach(() => {
     criados = [];
     dono = 'user-1';
+    ouvido = null;
 
     prisma = {
       bankAccount: {
@@ -64,7 +67,14 @@ describe('ConversaService', () => {
       vincularPorCodigo: jest.fn(async () => null),
     };
 
-    service = new ConversaService(prisma, transactions, whatsapp);
+    // O transcritor entra por fora: aqui ele é uma função, e nenhum byte
+    // sai para lugar nenhum.
+    audio = {
+      disponivel: jest.fn(() => ouvido !== null),
+      ouvir: jest.fn(async () => ouvido),
+    };
+
+    service = new ConversaService(prisma, transactions, whatsapp, audio);
   });
 
   describe('quem ainda nao conectou', () => {
@@ -145,10 +155,51 @@ describe('ConversaService', () => {
     expect(criados).toHaveLength(0);
   });
 
-  it('audio ainda nao, e diz isso', async () => {
-    const r = await service.responderA({ de: DE, texto: '', id: 'm9', audioId: 'a1' });
-    expect(r).toMatch(/ouvir áudio/i);
-    expect(criados).toHaveLength(0);
+  describe('recado de voz', () => {
+    it('sem transcritor configurado, diz que nao escuta', async () => {
+      ouvido = null;
+      const r = await service.responderA({ de: DE, texto: '', id: 'm9', audioId: 'a1' });
+      expect(r).toMatch(/não escuto áudio/i);
+      expect(audio.ouvir).not.toHaveBeenCalled();
+      expect(criados).toHaveLength(0);
+    });
+
+    it('o audio segue o MESMO caminho da frase digitada', async () => {
+      ouvido = 'gastei 40 reais no mercado pelo debito da conta Nubank categoria alimentacao';
+      const r = await service.responderA({ de: DE, texto: '', id: 'm9', audioId: 'a1' });
+      // O que foi ouvido vem antes do resumo: e assim que a pessoa pega o
+      // transcritor trocando uma palavra.
+      expect(r).toMatch(/^Ouvi: /);
+      expect(r).toContain('R$ 40,00');
+      expect(r).toContain('Mercado');
+      expect(r).toMatch(/Confirma\?/);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('e o sim depois do audio grava, como no texto', async () => {
+      ouvido = 'gastei 40 reais no mercado pelo debito da conta Nubank categoria alimentacao';
+      await service.responderA({ de: DE, texto: '', id: 'm9', audioId: 'a1' });
+      await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(1);
+      expect(criados[0]).toMatchObject({ amount: 40, description: 'Mercado' });
+    });
+
+    it('audio que nao deu para entender pede de novo, sem inventar nada', async () => {
+      ouvido = '';
+      audio.disponivel = jest.fn(() => true);
+      audio.ouvir = jest.fn(async () => null);
+      const r = await service.responderA({ de: DE, texto: '', id: 'm9', audioId: 'a1' });
+      expect(r).toMatch(/não consegui entender o áudio/i);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('falar "sim" tambem confirma', async () => {
+      ouvido = 'gastei 40 no debito da conta Nubank categoria alimentacao';
+      await service.responderA({ de: DE, texto: '', id: 'm1', audioId: 'a1' });
+      ouvido = 'sim';
+      await service.responderA({ de: DE, texto: '', id: 'm2', audioId: 'a2' });
+      expect(criados).toHaveLength(1);
+    });
   });
 
   it('transferencia nao vai por aqui', async () => {

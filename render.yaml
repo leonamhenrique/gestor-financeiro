@@ -64,6 +64,16 @@ services:
       #                 permite RESPONDER.
       # WHATSAPP_PHONE_ID → id do numero remetente (Phone Number ID).
       #
+      #
+      # TRANSCRICAO DE AUDIO (recado de voz no WhatsApp). Preencher no
+      # painel so quando for usar -- enquanto estiverem vazias, a API diz
+      # que nao escuta audio e NENHUM BYTE sai daqui. O padrao e mudo de
+      # proposito: o audio vai para um terceiro, e isso tem de ser uma
+      # escolha, nao um efeito colateral de um deploy.
+      # STT_PROVIDER  → hoje so "openai" (Whisper). Trocar de servico e
+      #                 trocar um metodo em audio.service.ts.
+      # STT_API_KEY   → a chave do servico escolhido.
+      # STT_MODEL     → opcional; o padrao e whisper-1.
       # Sem WHATSAPP_TOKEN e WHATSAPP_PHONE_ID a API le a mensagem e nao
       # responde: e o estado de desenvolvimento, mudo de proposito.
       # Preencher no painel do Render (Environment):
