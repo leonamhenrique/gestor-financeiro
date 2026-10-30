@@ -17,7 +17,7 @@
   </div>
 
   <h1>Política de Privacidade</h1>
-  <p class="data">Última atualização: 12 de outubro de 2026</p>
+  <p class="data">Última atualização: 30 de outubro de 2026</p>
   <p>
     Esta política explica o que o saldonline guarda sobre você, por que guarda,
     com quem compartilha e como você apaga tudo. Está escrita para ser lida, não para
@@ -69,6 +69,32 @@
     gravados.</strong>
   </p>
 
+  <h3>Seu número, só se você conectar o WhatsApp</h3>
+  <p>
+    O app permite lançar mandando mensagem para o nosso número de WhatsApp. Para saber
+    de quem é cada mensagem, precisamos ligar o seu número à sua conta — e isso só
+    acontece se <strong>você</strong> conectar, pelo menu Perfil → WhatsApp.
+  </p>
+  <ul>
+    <li><strong>O número não é guardado legível.</strong> Fica no banco apenas um
+      <em>hash</em> dele, calculado com uma chave que só o nosso servidor tem. Quem
+      obtivesse o banco não teria como descobrir os números.</li>
+    <li><strong>Os quatro últimos dígitos</strong>, esses sim, para a tela poder dizer
+      qual número está ligado — "termina em 4321". É o mesmo acordo do cartão.</li>
+    <li><strong>A data do vínculo e a da última mensagem</strong>, para você ver na
+      tela desde quando ele vale e se está em uso.</li>
+  </ul>
+  <p>
+    <strong>As conversas não são guardadas.</strong> A mensagem é lida, vira o resumo
+    que você confirma e é descartada: não há histórico de conversa, nem cópia do texto,
+    nem registro de quem mandou o quê. O que fica é o lançamento que você confirmou —
+    igual ao que você teria digitado.
+  </p>
+  <p>
+    Desligar é um toque, em Perfil → WhatsApp → Desligar. O vínculo é apagado na hora e
+    aquele número para de lançar. Nenhum lançamento já feito é perdido.
+  </p>
+
   <h3>Dados técnicos</h3>
   <ul>
     <li>Sessões ativas, guardadas como <em>hash</em> do token, para manter você logado
@@ -102,6 +128,13 @@
     <li><strong>Google Fonts</strong> — entrega a fonte usada nas telas. Ao carregar a
       fonte, o navegador informa o IP ao Google.</li>
     <li><strong>Meio de pagamento</strong> — apenas se e quando houver assinatura paga.</li>
+    <li><strong>Meta (WhatsApp)</strong> — apenas se você conectar o WhatsApp. Toda
+      mensagem trocada com o nosso número passa pela Meta, que a entrega e a trata
+      conforme a política de privacidade dela, como em qualquer conversa de WhatsApp.
+      Isso inclui o conteúdo do que você escreve ou fala para lançar.</li>
+    <li><strong>Serviço de transcrição</strong> — apenas se você mandar um recado de
+      voz pelo WhatsApp. O áudio é enviado para virar texto e não é guardado por nós.
+      Ver a seção abaixo.</li>
   </ul>
 
   <h2>Ditado por voz</h2>
@@ -114,11 +147,41 @@
     microfone: todo o resto do app funciona igual.
   </p>
 
+  <h2>Lançar pelo WhatsApp</h2>
+  <p>
+    Conectado o seu número, você manda uma frase — "gastei 40 no mercado pelo débito" —
+    e o app responde com o que entendeu. <strong>Nada é lançado antes de você
+    confirmar.</strong>
+  </p>
+  <p>
+    Duas coisas a saber antes de conectar, porque elas envolvem gente de fora:
+  </p>
+  <ul>
+    <li><strong>A mensagem passa pela Meta.</strong> É o WhatsApp: o que você escreve
+      ou fala para lançar chega até nós através dos servidores dela, sob a política de
+      privacidade dela. Quem não quiser isso tem o app inteiro funcionando sem conectar
+      o WhatsApp.</li>
+    <li><strong>O áudio vai para um serviço de transcrição.</strong> Recado de voz
+      precisa virar texto, e quem faz isso é um serviço externo — hoje, a API de
+      transcrição da OpenAI. O áudio é enviado, transcrito e descartado: não guardamos
+      o arquivo nem o texto bruto, e nada disso é usado para treinar nada. Mandando a
+      frase escrita, nenhum áudio sai daqui.</li>
+  </ul>
+  <p>
+    Dentro do nosso servidor, a frase é lida pelo mesmo código que lê o ditado na tela
+    do app. Não há leitura por inteligência artificial do conteúdo financeiro, nem
+    envio dos seus lançamentos para serviço nenhum.
+  </p>
+
   <h2>Por quanto tempo guardamos</h2>
   <p>
     Enquanto a sua conta existir. <strong>Quando você exclui a conta, os dados são
     apagados do banco</strong> — não são desativados, congelados nem movidos para um
     arquivo morto. Cópias de segurança do banco são rotativas e também expiram.
+  </p>
+  <p>
+    O vínculo do WhatsApp tem vida própria: ele acaba quando você desliga, mesmo que a
+    conta continue. O código de conexão vale 15 minutos e some depois de usado.
   </p>
 
   <h2>Como apagar tudo</h2>
@@ -145,8 +208,12 @@
     <li>Senhas com <em>hash</em> scrypt e sal por usuário.</li>
     <li>A sessão fica num cookie <code>httpOnly</code>, que o JavaScript da página não
       consegue ler.</li>
-    <li>No banco, cada tabela tem <em>Row Level Security</em> por dono: mesmo um erro
-      de programação não devolve a linha de outra pessoa.</li>
+    <li>No banco, as tabelas com os seus dados têm <em>Row Level Security</em> por
+      dono: mesmo um erro de programação não devolve a linha de outra pessoa. Ficam de
+      fora dessa regra apenas duas, que precisam ser consultadas <em>antes</em> de se
+      saber de quem são — o link público de despesa compartilhada e o vínculo do
+      WhatsApp. Elas guardam apenas <em>hashes</em>, datas e identificadores: nenhum
+      valor, nome, e-mail ou número legível.</li>
   </ul>
   <p class="nota">
     Nenhum sistema é inviolável. Se houver incidente com risco relevante aos seus
