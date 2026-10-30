@@ -5819,8 +5819,34 @@
     r.cartaoId = destino.cartaoId || null;
     if (!r.cartaoId && !r.contaId) r.faltando.push("destino");
 
-    // Categoria: só as que recebem lançamento, do tipo certo.
+    // A descrição vem ANTES da categoria, e não por ordem de gosto: é dela
+    // que sai o lojista, e é o lojista que lembra a categoria quando a frase
+    // não disse nenhuma. Ela não precisa da categoria para ser achada — o que
+    // ela descarta são os nomes de TODOS os cadastros citados, o escolhido e
+    // os outros.
+    //
+    // Quem diz "descrição X" está ditando a descrição, e esse pedido ganha de
+    // qualquer leitura do resto.
+    var mDesc = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
+    r.desc = mDesc ? mDesc[1].trim().slice(0, 60)
+      : descricaoDaFala(frase, texto, !r.contaId && !r.cartaoId);
+
+    // Categoria, em duas tentativas. Primeiro o nome dito: quem fala
+    // "alimentação" está classificando agora, e isso manda em qualquer
+    // memória. Só depois a regra do lojista, que é lembrança — a mesma que o
+    // formulário consulta quando se digita a descrição. Na ordem contrária,
+    // dizer a categoria em voz alta não adiantaria nada num lojista já
+    // conhecido.
     var cat = acharPorNome(categoriasLancaveis(r.tipo), texto);
+    if (!cat && r.desc) {
+      var regra = regraParaDigitado(state.regrasCategoria, r.desc);
+      var daRegra = regra ? byId(state.categories, regra.categoriaId) : null;
+      // A categoria lembrada tem de servir ao tipo: despesa não vai para
+      // categoria de receita, nem com regra mandando. Mesma guarda do
+      // formulário.
+      var serve = daRegra && categoriasLancaveis(r.tipo).some(function (c) { return c.id === daRegra.id; });
+      if (serve) { cat = daRegra; r.categoriaDoLojista = true; }
+    }
     if (cat) r.categoriaId = cat.id;
     else r.faltando.push("categoria");
 
@@ -5854,12 +5880,6 @@
     // Data no futuro manda mais que o verbo: dinheiro que ainda vai sair é
     // previsto, mesmo numa frase como "pago no pix amanhã".
     if (r.data > isoDate(hoje)) r.confirmada = false;
-
-    // Quem diz "descrição X" está ditando a descrição, e esse pedido ganha de
-    // qualquer leitura do resto.
-    var mDesc = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
-    r.desc = mDesc ? mDesc[1].trim().slice(0, 60)
-      : descricaoDaFala(frase, texto, !r.contaId && !r.cartaoId);
 
     return r;
   }
@@ -5906,6 +5926,9 @@
     linhas.push({
       rotulo: "Categoria",
       valor: cat ? nomeCompleto(cat) : (temCategoria ? "não identificada" : "nada cadastrado ainda"),
+      // Categoria que ninguém falou precisa dizer de onde veio: senão ela
+      // aparece como se o app tivesse ouvido uma palavra que não foi dita.
+      meta: cat && r.categoriaDoLojista ? "como você classificou " + r.desc + " antes" : "",
       ok: !!cat
     });
     if (r.cartaoId) {
@@ -11786,7 +11809,8 @@
     lista.innerHTML = resumoDaFala(falaAtual).map(function (l) {
       return '<div class="row' + (l.ok ? "" : " pendente") + '">' +
         '<span class="row-main"><span class="row-title">' +
-        '<span class="row-name">' + esc(l.rotulo) + '</span></span></span>' +
+        '<span class="row-name">' + esc(l.rotulo) + '</span></span>' +
+        (l.meta ? '<span class="row-meta">' + esc(l.meta) + '</span>' : "") + '</span>' +
         '<span class="row-val">' + esc(l.valor) + '</span></div>';
     }).join("");
     // Faltando algo, o caminho não é travar: é abrir o formulário com o que deu
