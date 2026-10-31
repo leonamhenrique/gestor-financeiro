@@ -6,13 +6,34 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 
+/**
+ * O celular brasileiro com o nono dígito, sempre.
+ *
+ * A Meta entrega o `from` de números do Brasil quase sempre SEM ele:
+ * "553175696594" no lugar de "5531975696594". São a mesma pessoa, e tratar
+ * como números diferentes custa caro das duas pontas — a resposta sai para uma
+ * forma que o WhatsApp não reconhece e volta recusada, e um vínculo gravado
+ * numa forma deixa de ser achado quando a outra chega.
+ *
+ * A regra é a da numeração brasileira: 55 + DDD (dois dígitos) + oito dígitos
+ * começando em 6, 7, 8 ou 9 é celular sem o nono. Fixo começa em 2 a 5 e fica
+ * como está — enfiar um 9 nele inventaria um número que não existe.
+ */
+function comNonoDigito(digitos: string): string {
+  if (digitos.length !== 12 || digitos.slice(0, 2) !== '55') return digitos;
+  const assinante = digitos.slice(4);
+  if (!/^[6-9]/.test(assinante)) return digitos;
+  return digitos.slice(0, 4) + '9' + assinante;
+}
+
 /** Só os dígitos, como o WhatsApp manda (E.164 sem o "+"): 5531988887777.
  *
  * Normalizar é obrigatório antes de comparar: o mesmo número escrito
  * "+55 31 98888-7777" e "5531988887777" tem de achar o mesmo dono, senão a
- * pessoa parearia uma vez e seria estranha na mensagem seguinte. */
+ * pessoa parearia uma vez e seria estranha na mensagem seguinte. O nono dígito
+ * entra aqui pelo mesmo motivo: é a mesma pessoa escrita de outro jeito. */
 export function normalizarTelefone(bruto: string): string {
-  return String(bruto || '').replace(/\D/g, '');
+  return comNonoDigito(String(bruto || '').replace(/\D/g, ''));
 }
 
 /**

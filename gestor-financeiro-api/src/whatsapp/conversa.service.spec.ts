@@ -350,6 +350,25 @@ describe('meta — a fronteira', () => {
     const ms = mensagensDoPayload(payload);
     expect(ms).toHaveLength(3);
     expect(ms[0]).toMatchObject({ de: '5531988887777', texto: 'oi' });
+
+    // O `from` do Brasil chega sem o nono digito: a fronteira ja devolve a
+    // forma canonica, e o resto do modulo nunca ve as duas.
+    const semNono = mensagensDoPayload({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                messages: [
+                  { from: '553175696594', id: 'm4', type: 'text', text: { body: 'oi' } },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(semNono[0].de).toBe('5531975696594');
     expect(ms[1].audioId).toBe('au1');
     expect(ms[2].texto).toBe('Sim');
   });

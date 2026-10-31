@@ -10,10 +10,13 @@
 // ============================================================
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { normalizarTelefone } from './telefone';
 
 /** O que o app faz com uma mensagem, depois de tirada a casca da Meta. */
 export interface MensagemRecebida {
-  /** O número de quem mandou, só dígitos com DDI. */
+  /** O número de quem mandou, já na forma canônica (ver `normalizarTelefone`).
+   * Normalizado AQUI, na fronteira, para o resto do módulo nunca ver as duas
+   * formas do mesmo celular brasileiro. */
   de: string;
   /** O texto. Áudio ainda não: ver `audioId`. */
   texto: string;
@@ -66,7 +69,7 @@ export function mensagensDoPayload(corpo: any): MensagemRecebida[] {
     for (const mudanca of mudancas) {
       const mensagens = Array.isArray(mudanca?.value?.messages) ? mudanca.value.messages : [];
       for (const m of mensagens) {
-        const de = String(m?.from || '').replace(/\D/g, '');
+        const de = normalizarTelefone(m?.from);
         const id = String(m?.id || '');
         if (!de || !id) continue;
         if (m.type === 'text' && m.text?.body) {

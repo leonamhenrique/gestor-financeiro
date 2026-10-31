@@ -13,7 +13,7 @@
 
 import { NotFoundException } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
-import { hashDoTelefone, normalizarCodigo } from './telefone';
+import { hashDoTelefone, normalizarCodigo, normalizarTelefone } from './telefone';
 
 const TELEFONE = '+55 31 98888-7777';
 const OUTRO = '5531977776666';
@@ -256,6 +256,46 @@ describe('WhatsappService — pareamento', () => {
       /WHATSAPP_PHONE_PEPPER/,
     );
     expect(links).toHaveLength(0);
+  });
+
+  describe('o nono digito do celular brasileiro', () => {
+    // A Meta entrega o `from` de numeros do Brasil quase sempre SEM o nono
+    // digito. Sao a mesma pessoa, e foi assim que a resposta do bot saiu para
+    // um numero que o WhatsApp recusou com "not in allowed list".
+    it('o celular sem o nono vira o celular com o nono', () => {
+      expect(normalizarTelefone('553175696594')).toBe('5531975696594');
+    });
+
+    it('com o nono, fica como esta', () => {
+      expect(normalizarTelefone('5531975696594')).toBe('5531975696594');
+    });
+
+    it('pontuacao sai, o nono entra', () => {
+      expect(normalizarTelefone('+55 (31) 7569-6594')).toBe('5531975696594');
+    });
+
+    // Fixo comeca em 2 a 5: enfiar um 9 nele inventaria um numero.
+    it('fixo nao ganha nono digito', () => {
+      expect(normalizarTelefone('553134567890')).toBe('553134567890');
+      expect(normalizarTelefone('551123456789')).toBe('551123456789');
+    });
+
+    it('numero de fora do Brasil nao e tocado', () => {
+      expect(normalizarTelefone('15552056796')).toBe('15552056796');
+      expect(normalizarTelefone('351912345678')).toBe('351912345678');
+    });
+
+    // E o que isto compra: as duas formas acham o mesmo dono.
+    it('as duas formas dao o mesmo hash', () => {
+      expect(hashDoTelefone('553175696594')).toBe(hashDoTelefone('5531975696594'));
+    });
+
+    it('e o vinculo feito numa forma e achado pela outra', async () => {
+      const codigo = await codigoDe();
+      const r = await service.vincularPorCodigo('553175696594', codigo);
+      expect(r?.ultimos4).toBe('6594');
+      expect(await service.donoDoTelefone('5531975696594')).toBe('user-1');
+    });
   });
 
   it('o prefixo SALDO nao faz parte do codigo', () => {
