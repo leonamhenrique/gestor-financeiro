@@ -9,7 +9,7 @@
 // ============================================================
 
 import { ConversaService } from './conversa.service';
-import { assinaturaConfere, mensagensDoPayload } from './meta';
+import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
 import { createHmac } from 'node:crypto';
 
 const DE = '5531988887777';
@@ -261,6 +261,67 @@ describe('meta — a fronteira', () => {
     // Sem o segredo configurado nada passa — falha fechada, para um deploy
     // sem a variável não virar porta aberta.
     expect(assinaturaConfere(corpo, assinar(corpo), undefined)).toBe(false);
+  });
+
+  describe('responder diz por que nao saiu', () => {
+    const env = { ...process.env };
+    afterEach(() => {
+      process.env = { ...env };
+    });
+
+    it('sem token, diz que e o token', async () => {
+      delete process.env.WHATSAPP_TOKEN;
+      process.env.WHATSAPP_PHONE_ID = '123';
+      await expect(responder('5531900000000', 'oi')).resolves.toMatch(/WHATSAPP_TOKEN/);
+    });
+
+    it('sem phone id, diz que e o phone id', async () => {
+      process.env.WHATSAPP_TOKEN = 't';
+      delete process.env.WHATSAPP_PHONE_ID;
+      await expect(responder('5531900000000', 'oi')).resolves.toMatch(/WHATSAPP_PHONE_ID/);
+    });
+
+    it('saiu: devolve null', async () => {
+      process.env.WHATSAPP_TOKEN = 't';
+      process.env.WHATSAPP_PHONE_ID = '123';
+      (global as any).fetch = jest.fn(async () => ({ ok: true }));
+      await expect(responder('5531900000000', 'oi')).resolves.toBeNull();
+    });
+
+    it('nao saiu: devolve o motivo que a Meta deu, SEM o telefone', async () => {
+      process.env.WHATSAPP_TOKEN = 't';
+      process.env.WHATSAPP_PHONE_ID = '123';
+      (global as any).fetch = jest.fn(async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            message: 'Recipient phone number not in allowed list: 5531975696594',
+            code: 131030,
+          },
+        }),
+      }));
+      const motivo = await responder('5531975696594', 'oi');
+      expect(motivo).toContain('not in allowed list');
+      expect(motivo).toContain('131030');
+      // O motivo serve ao log, e o log nao guarda numero de ninguem.
+      expect(motivo).not.toContain('5531975696594');
+      expect(motivo).toContain('[número]');
+    });
+
+    it('a rede caindo tambem vira motivo, nao excecao', async () => {
+      process.env.WHATSAPP_TOKEN = 't';
+      process.env.WHATSAPP_PHONE_ID = '123';
+      (global as any).fetch = jest.fn(async () => {
+        throw new Error('getaddrinfo ENOTFOUND');
+      });
+      await expect(responder('5531900000000', 'oi')).resolves.toMatch(/rede/);
+    });
+
+    it('a mascara nao come numero curto, que nao e telefone', () => {
+      expect(semNumeros('erro no código 131030 ao enviar')).toBe('erro no código 131030 ao enviar');
+      expect(semNumeros('numero 5531975696594 aqui')).toBe('numero [número] aqui');
+    });
   });
 
   it('le texto, audio e botao do payload', () => {

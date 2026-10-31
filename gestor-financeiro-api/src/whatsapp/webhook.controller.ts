@@ -93,12 +93,8 @@ export class WhatsappWebhookController {
         // destinatários permitidos (modo de teste), token vencido, janela de
         // 24h fechada. Sem este aviso, a pessoa vê silêncio e o servidor acha
         // que fez o seu trabalho.
-        const foi = await responder(m.de, resposta);
-        if (!foi) {
-          this.log.warn(
-            'resposta NÃO saiu: confira WHATSAPP_TOKEN, WHATSAPP_PHONE_ID e a lista de destinatários',
-          );
-        }
+        const motivo = await responder(m.de, resposta);
+        if (motivo) this.log.warn('resposta NÃO saiu: ' + motivo);
       } catch {
         /* o log de erro mora no serviço, com contexto */
       }

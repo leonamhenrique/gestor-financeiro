@@ -85,23 +85,58 @@ export function mensagensDoPayload(corpo: any): MensagemRecebida[] {
   return saida;
 }
 
-/** Manda uma mensagem de texto. Sem número e token configurados, não faz nada
- * e diz que não fez — é o que mantém o resto do fluxo testável e o ambiente
- * de desenvolvimento mudo. */
-export async function responder(telefone: string, texto: string): Promise<boolean> {
+/** Tira do texto qualquer sequencia longa de digitos antes de ela virar log.
+ *
+ * A Meta devolve o motivo da recusa em prosa, e em alguns casos o telefone do
+ * destinatario vem dentro da frase ("Recipient phone number not in allowed
+ * list: 5531..."). O motivo e o que interessa; o numero nao entra no log. */
+export function semNumeros(texto: string): string {
+  return String(texto || '').replace(/\d{8,}/g, '[número]');
+}
+
+/**
+ * Manda uma mensagem de texto. Devolve `null` quando saiu, ou o MOTIVO quando
+ * não saiu.
+ *
+ * O motivo vem junto de propósito. Antes isto devolvia só `true`/`false`, e o
+ * log só sabia dizer "não saiu, confira estas três coisas" — enquanto a Meta
+ * respondia, na mesma chamada, exatamente qual das três era. Jogar essa
+ * resposta fora transformou meia hora de conserto numa noite de adivinhação.
+ *
+ * Sem número e token configurados não tenta: é o que mantém o ambiente de
+ * desenvolvimento mudo, e o fluxo testável sem rede.
+ */
+export async function responder(telefone: string, texto: string): Promise<string | null> {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneId = process.env.WHATSAPP_PHONE_ID;
-  if (!token || !phoneId) return false;
+  if (!token) return 'WHATSAPP_TOKEN não está configurado';
+  if (!phoneId) return 'WHATSAPP_PHONE_ID não está configurado';
 
-  const r = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to: telefone,
-      type: 'text',
-      text: { body: texto, preview_url: false },
-    }),
-  });
-  return r.ok;
+  let r: Response;
+  try {
+    r = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: telefone,
+        type: 'text',
+        text: { body: texto, preview_url: false },
+      }),
+    });
+  } catch (e: any) {
+    return 'a rede falhou: ' + semNumeros(e?.message || 'erro');
+  }
+  if (r.ok) return null;
+
+  // O corpo do erro da Meta diz o que fazer; o status sozinho, não.
+  let detalhe = '';
+  try {
+    const corpo: any = await r.json();
+    detalhe = corpo?.error?.message || '';
+    if (corpo?.error?.code) detalhe += ' (código ' + corpo.error.code + ')';
+  } catch {
+    /* resposta sem JSON: fica só o status */
+  }
+  return 'HTTP ' + r.status + (detalhe ? ' — ' + semNumeros(detalhe) : '');
 }
