@@ -14,11 +14,25 @@
 //      explicar o erro para quem bate na porta é ensinar a arrombá-la.
 // ============================================================
 
-import { Controller, Get, Headers, HttpCode, Logger, Post, Query, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  Logger,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/public.decorator';
 import { ConversaService } from './conversa.service';
-import { assinaturaConfere, mensagensDoPayload, responder } from './meta';
+import {
+  BOTOES_CONFIRMAR,
+  assinaturaConfere,
+  mensagensDoPayload,
+  responder,
+} from './meta';
 
 @Controller('webhooks/whatsapp')
 export class WhatsappWebhookController {
@@ -47,7 +61,11 @@ export class WhatsappWebhookController {
   @Get()
   verificar(@Query() q: Record<string, string>) {
     const segredo = process.env.WHATSAPP_VERIFY_TOKEN;
-    if (segredo && q['hub.mode'] === 'subscribe' && q['hub.verify_token'] === segredo) {
+    if (
+      segredo &&
+      q['hub.mode'] === 'subscribe' &&
+      q['hub.verify_token'] === segredo
+    ) {
       this.log.log('handshake aceito');
       return q['hub.challenge'];
     }
@@ -67,7 +85,13 @@ export class WhatsappWebhookController {
     @Req() req: { rawBody?: Buffer; body?: any },
     @Headers('x-hub-signature-256') assinatura: string,
   ) {
-    if (!assinaturaConfere(req.rawBody, assinatura, process.env.WHATSAPP_APP_SECRET)) {
+    if (
+      !assinaturaConfere(
+        req.rawBody,
+        assinatura,
+        process.env.WHATSAPP_APP_SECRET,
+      )
+    ) {
       // 200 mesmo assim, e calado para quem bateu. Mas no log do servidor
       // fica dito: senão o operador não tem como distinguir isto de "nada
       // chegou".
@@ -99,7 +123,11 @@ export class WhatsappWebhookController {
         // destinatários permitidos (modo de teste), token vencido, janela de
         // 24h fechada. Sem este aviso, a pessoa vê silêncio e o servidor acha
         // que fez o seu trabalho.
-        const motivo = await responder(m.de, resposta);
+        const motivo = await responder(
+          m.de,
+          resposta.texto,
+          resposta.confirmar ? BOTOES_CONFIRMAR : undefined,
+        );
         if (motivo) this.log.warn('resposta NÃO saiu: ' + motivo);
       } catch {
         /* o log de erro mora no serviço, com contexto */

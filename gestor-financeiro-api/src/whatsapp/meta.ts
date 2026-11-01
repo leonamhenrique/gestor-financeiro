@@ -45,7 +45,9 @@ export function assinaturaConfere(
   appSecret: string | undefined,
 ): boolean {
   if (!corpoBruto || !cabecalho || !appSecret) return false;
-  const esperado = 'sha256=' + createHmac('sha256', appSecret).update(corpoBruto).digest('hex');
+  const esperado =
+    'sha256=' +
+    createHmac('sha256', appSecret).update(corpoBruto).digest('hex');
   const a = Buffer.from(esperado, 'utf8');
   const b = Buffer.from(String(cabecalho), 'utf8');
   // Tamanho diferente já é diferente; `timingSafeEqual` exigiria iguais e
@@ -67,7 +69,9 @@ export function mensagensDoPayload(corpo: any): MensagemRecebida[] {
   for (const entrada of entradas) {
     const mudancas = Array.isArray(entrada?.changes) ? entrada.changes : [];
     for (const mudanca of mudancas) {
-      const mensagens = Array.isArray(mudanca?.value?.messages) ? mudanca.value.messages : [];
+      const mensagens = Array.isArray(mudanca?.value?.messages)
+        ? mudanca.value.messages
+        : [];
       for (const m of mensagens) {
         const de = normalizarTelefone(m?.from);
         const id = String(m?.id || '');
@@ -77,10 +81,16 @@ export function mensagensDoPayload(corpo: any): MensagemRecebida[] {
         } else if (m.type === 'audio' && m.audio?.id) {
           saida.push({ de, id, texto: '', audioId: String(m.audio.id) });
         } else if (m.type === 'interactive') {
-          // Botão tocado: o título do botão é o que a pessoa "disse".
-          const titulo =
-            m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || '';
-          if (titulo) saida.push({ de, id, texto: String(titulo) });
+          // Botão tocado. Vale o ID, e não o rótulo: o id é nosso ("sim",
+          // "nao") e não muda quando alguém melhora o texto do botão. Ler o
+          // rótulo amarraria a lógica à redação da tela.
+          const escolha =
+            m.interactive?.button_reply?.id ||
+            m.interactive?.button_reply?.title ||
+            m.interactive?.list_reply?.id ||
+            m.interactive?.list_reply?.title ||
+            '';
+          if (escolha) saida.push({ de, id, texto: String(escolha) });
         }
       }
     }
@@ -97,6 +107,19 @@ export function semNumeros(texto: string): string {
   return String(texto || '').replace(/\d{8,}/g, '[número]');
 }
 
+/** Um botão de resposta rápida. O `id` é o que volta no webhook. */
+export interface Botao {
+  id: string;
+  titulo: string;
+}
+
+/* Os dois da pergunta de confirmação. O rótulo é para ler; o id é o que a
+ * conversa entende, e por isso ele é igual ao que alguém digitaria. */
+export const BOTOES_CONFIRMAR: Botao[] = [
+  { id: 'sim', titulo: 'Confirmar' },
+  { id: 'nao', titulo: 'Cancelar' },
+];
+
 /**
  * Manda uma mensagem de texto. Devolve `null` quando saiu, ou o MOTIVO quando
  * não saiu.
@@ -109,27 +132,55 @@ export function semNumeros(texto: string): string {
  * Sem número e token configurados não tenta: é o que mantém o ambiente de
  * desenvolvimento mudo, e o fluxo testável sem rede.
  */
-export async function responder(telefone: string, texto: string): Promise<string | null> {
+export async function responder(
+  telefone: string,
+  texto: string,
+  botoes?: Botao[],
+): Promise<string | null> {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneId = process.env.WHATSAPP_PHONE_ID;
   if (!token) return 'WHATSAPP_TOKEN não está configurado';
   if (!phoneId) return 'WHATSAPP_PHONE_ID não está configurado';
 
-  let r: Response;
-  try {
-    r = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+  const corpo = botoes?.length
+    ? {
+        messaging_product: 'whatsapp',
+        to: telefone,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: texto },
+          action: {
+            buttons: botoes.map((b) => ({
+              type: 'reply',
+              reply: { id: b.id, title: b.titulo },
+            })),
+          },
+        },
+      }
+    : {
         messaging_product: 'whatsapp',
         to: telefone,
         type: 'text',
         text: { body: texto, preview_url: false },
-      }),
+      };
+
+  let r: Response;
+  try {
+    r = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(corpo),
     });
   } catch (e: any) {
     return 'a rede falhou: ' + semNumeros(e?.message || 'erro');
   }
+  // Botão recusado não pode custar a pergunta: sem a mensagem, a pessoa fica
+  // sem o resumo e sem saber que precisa confirmar. O texto puro sempre vai.
+  if (!r.ok && botoes?.length) return responder(telefone, texto);
   if (r.ok) return null;
 
   // O corpo do erro da Meta diz o que fazer; o status sozinho, não.

@@ -111,7 +111,7 @@ describe('ConversaService', () => {
 
     it('recebe o mesmo recado, tenha conta ou nao', async () => {
       const r = await service.responderA(msg('oi'));
-      expect(r).toMatch(/não reconheço este número/i);
+      expect(r?.texto).toMatch(/não reconheço este número/i);
       // E nada do que ele disser vira lançamento.
       expect(criados).toHaveLength(0);
     });
@@ -119,7 +119,7 @@ describe('ConversaService', () => {
     it('mas o codigo de pareamento conecta', async () => {
       whatsapp.vincularPorCodigo = jest.fn(async () => ({ userId: 'user-1', ultimos4: '7777' }));
       const r = await service.responderA(msg('SALDO-K7P2M9QX'));
-      expect(r).toMatch(/agora lança na sua conta/i);
+      expect(r?.texto).toMatch(/agora lança na sua conta/i);
     });
   });
 
@@ -127,11 +127,11 @@ describe('ConversaService', () => {
     const r = await service.responderA(
       msg('gastei 40 reais no mercado pelo debito da conta Nubank categoria alimentacao'),
     );
-    expect(r).toContain('R$ 40,00');
-    expect(r).toContain('Mercado');
-    expect(r).toContain('Nubank');
-    expect(r).toContain('Alimentação');
-    expect(r).toMatch(/Confirma\?/);
+    expect(r?.texto).toContain('R$ 40,00');
+    expect(r?.texto).toContain('Mercado');
+    expect(r?.texto).toContain('Nubank');
+    expect(r?.texto).toContain('Alimentação');
+    expect(r?.texto).toMatch(/Confirma\?/);
     expect(criados).toHaveLength(0);
   });
 
@@ -140,8 +140,8 @@ describe('ConversaService', () => {
     // nao achava nenhuma, e a resposta dizia "Faltou destino" para uma frase
     // que nomeava a conta corretamente.
     const r = await service.responderA(msg('despesa de 10 reais no pix conta do nubank'));
-    expect(r).toContain('Conta: Nubank');
-    expect(r).not.toMatch(/Faltou destino/);
+    expect(r?.texto).toContain('Conta: Nubank');
+    expect(r?.texto).not.toMatch(/Faltou destino/);
   });
 
   it('o sim grava, e so entao', async () => {
@@ -159,7 +159,7 @@ describe('ConversaService', () => {
       description: 'Mercado',
       isConfirmed: true,
     });
-    expect(r).toMatch(/^Lançado\./);
+    expect(r?.texto).toMatch(/^✅ Lançado\./);
   });
 
   describe('o lojista aprendido pelo WhatsApp', () => {
@@ -204,7 +204,7 @@ describe('ConversaService', () => {
       await service.responderA(msg('gastei 12 na padaria pelo debito da conta Nubank categoria alimentacao'));
       const r = await service.responderA(msg('sim'));
       expect(criados).toHaveLength(1);
-      expect(r).toMatch(/^Lançado\./);
+      expect(r?.texto).toMatch(/^✅ Lançado\./);
     });
   });
 
@@ -212,7 +212,7 @@ describe('ConversaService', () => {
     await service.responderA(msg('gastei 40 no debito da conta Nubank categoria alimentacao'));
     const r = await service.responderA(msg('não'));
     expect(criados).toHaveLength(0);
-    expect(r).toMatch(/não lancei nada/i);
+    expect(r?.texto).toMatch(/não lancei nada/i);
     // E o "sim" depois do "não" não ressuscita o rascunho.
     await service.responderA(msg('sim'));
     expect(criados).toHaveLength(0);
@@ -221,18 +221,18 @@ describe('ConversaService', () => {
   it('sim sem rascunho nenhum e so mais uma frase', async () => {
     const r = await service.responderA(msg('sim'));
     expect(criados).toHaveLength(0);
-    expect(r).toMatch(/Faltou/);
+    expect(r?.texto).toMatch(/Faltou/);
   });
 
   it('a regra de lojista do usuario classifica, e o resumo diz de onde veio', async () => {
     const r = await service.responderA(msg('compra no pix na magazine valor de 10 pago nubank'));
-    expect(r).toContain('Compras');
-    expect(r).toContain('(do lojista)');
+    expect(r?.texto).toContain('Compras');
+    expect(r?.texto).toContain('(do lojista)');
   });
 
   it('frase incompleta pergunta, e nao guarda rascunho', async () => {
     const r = await service.responderA(msg('gastei 30 reais'));
-    expect(r).toMatch(/Faltou destino, categoria/);
+    expect(r?.texto).toMatch(/Faltou destino, categoria/);
     await service.responderA(msg('sim'));
     expect(criados).toHaveLength(0);
   });
@@ -241,7 +241,7 @@ describe('ConversaService', () => {
     it('sem transcritor configurado, diz que nao escuta', async () => {
       ouvido = null;
       const r = await service.responderA({ de: DE, texto: '', id: 'm9', audioId: 'a1' });
-      expect(r).toMatch(/não escuto áudio/i);
+      expect(r?.texto).toMatch(/não escuto áudio/i);
       expect(audio.ouvir).not.toHaveBeenCalled();
       expect(criados).toHaveLength(0);
     });
@@ -251,10 +251,10 @@ describe('ConversaService', () => {
       const r = await service.responderA({ de: DE, texto: '', id: 'm9', audioId: 'a1' });
       // O que foi ouvido vem antes do resumo: e assim que a pessoa pega o
       // transcritor trocando uma palavra.
-      expect(r).toMatch(/^Ouvi: /);
-      expect(r).toContain('R$ 40,00');
-      expect(r).toContain('Mercado');
-      expect(r).toMatch(/Confirma\?/);
+      expect(r?.texto).toMatch(/^Ouvi: /);
+      expect(r?.texto).toContain('R$ 40,00');
+      expect(r?.texto).toContain('Mercado');
+      expect(r?.texto).toMatch(/Confirma\?/);
       expect(criados).toHaveLength(0);
     });
 
@@ -271,7 +271,7 @@ describe('ConversaService', () => {
       audio.disponivel = jest.fn(() => true);
       audio.ouvir = jest.fn(async () => null);
       const r = await service.responderA({ de: DE, texto: '', id: 'm9', audioId: 'a1' });
-      expect(r).toMatch(/não consegui entender o áudio/i);
+      expect(r?.texto).toMatch(/não consegui entender o áudio/i);
       expect(criados).toHaveLength(0);
     });
 
@@ -284,36 +284,71 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('a pergunta de confirmacao pede botao', () => {
+    // Digitar "sim" erra: um "aim" vira frase nova, que o app tenta ler como
+    // lancamento. So a pergunta fechada ganha botao.
+    it('a pergunta do lancamento vem marcada para botao', async () => {
+      const r = await service.responderA(
+        msg('gastei 40 reais no mercado pelo debito da conta Nubank categoria alimentacao'),
+      );
+      expect(r?.confirmar).toBe(true);
+    });
+
+    it('a da transferencia tambem', async () => {
+      const r = await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
+      expect(r?.confirmar).toBe(true);
+    });
+
+    it('o que nao e pergunta nao ganha botao', async () => {
+      const faltando = await service.responderA(msg('gastei 30 reais'));
+      expect(faltando?.confirmar).toBeFalsy();
+      await service.responderA(
+        msg('gastei 40 reais no mercado pelo debito da conta Nubank categoria alimentacao'),
+      );
+      const lancado = await service.responderA(msg('sim'));
+      expect(lancado?.confirmar).toBeFalsy();
+    });
+
+    // Quem prefere digitar continua digitando: o botao e atalho.
+    it('digitar sim continua lancando', async () => {
+      await service.responderA(
+        msg('gastei 40 reais no mercado pelo debito da conta Nubank categoria alimentacao'),
+      );
+      await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(1);
+    });
+  });
+
   describe('quando o nome nao bate, a resposta diz quais existem', () => {
     // "Faltou destino" sozinho e um beco: quem esta no WhatsApp nao tem a tela
     // a mao para conferir se cadastrou "Itau" ou "Itau Corrente".
     it('no destino de despesa, lista contas e cartoes', async () => {
       const r = await service.responderA(msg('gastei 30 reais em alimentacao'));
-      expect(r).toContain('Suas contas: Nubank, Cofre.');
-      expect(r).toContain('Seus cartões: Nubank Roxinho.');
+      expect(r?.texto).toContain('Suas contas: Nubank, Cofre.');
+      expect(r?.texto).toContain('Seus cartões: Nubank Roxinho.');
     });
 
     it('na transferencia, lista so as contas', async () => {
       const r = await service.responderA(msg('transferi 50 do Nubank'));
-      expect(r).toContain('Suas contas: Nubank, Cofre.');
-      expect(r).not.toContain('cartões');
+      expect(r?.texto).toContain('Suas contas: Nubank, Cofre.');
+      expect(r?.texto).not.toContain('cartões');
     });
 
     // Categoria nao entra: sao dezenas, e a parede de texto nao ajuda.
     it('faltando so a categoria, nao despeja lista nenhuma', async () => {
       const r = await service.responderA(msg('gastei 30 reais no debito da conta Nubank'));
-      expect(r).toMatch(/Faltou categoria/);
-      expect(r).not.toContain('Suas contas');
+      expect(r?.texto).toMatch(/Faltou categoria/);
+      expect(r?.texto).not.toContain('Suas contas');
     });
   });
 
   describe('transferencia entre contas', () => {
     it('o resumo diz a DIRECAO, e nao "Conta" duas vezes', async () => {
       const r = await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
-      expect(r).toContain('Sai de: Nubank');
-      expect(r).toContain('Entra em: Cofre');
-      expect(r).toContain('R$ 100,00');
-      expect(r).toMatch(/Confirma\?/);
+      expect(r?.texto).toContain('Sai de: Nubank');
+      expect(r?.texto).toContain('Entra em: Cofre');
+      expect(r?.texto).toContain('R$ 100,00');
+      expect(r?.texto).toMatch(/Confirma\?/);
       // Nada gravado antes do sim, aqui tambem.
       expect(transferidas).toHaveLength(0);
     });
@@ -330,7 +365,7 @@ describe('ConversaService', () => {
         amount: 100,
       });
       expect(transferidas[0].clientKey).toMatch(/^wa-/);
-      expect(r).toMatch(/^Transferido\./);
+      expect(r?.texto).toMatch(/^✅ Transferido\./);
     });
 
     // A ordem e o que diz quem paga e quem recebe.
@@ -342,22 +377,22 @@ describe('ConversaService', () => {
 
     it('a mesma conta dos dois lados e contradicao, nao falta', async () => {
       const r = await service.responderA(msg('transferencia de 100 do Nubank para o Nubank'));
-      expect(r).toMatch(/mesma conta duas vezes/);
-      expect(r).not.toMatch(/Faltou/);
+      expect(r?.texto).toMatch(/mesma conta duas vezes/);
+      expect(r?.texto).not.toMatch(/Faltou/);
       expect(transferidas).toHaveLength(0);
     });
 
     it('faltando a segunda conta, diz qual e qual', async () => {
       const r = await service.responderA(msg('transferi 100 do Nubank'));
-      expect(r).toMatch(/Faltou conta de destino/);
-      expect(r).toMatch(/primeira conta dita/);
+      expect(r?.texto).toMatch(/Faltou conta de destino/);
+      expect(r?.texto).toMatch(/primeira conta dita/);
       expect(transferidas).toHaveLength(0);
     });
 
     it('com menos de duas contas, nao ha transferencia possivel', async () => {
       prisma.bankAccount.findMany = jest.fn(async () => [contaUnica]);
       const r = await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
-      expect(r).toMatch(/precisa de duas contas/);
+      expect(r?.texto).toMatch(/precisa de duas contas/);
       expect(transferidas).toHaveLength(0);
     });
 
@@ -367,7 +402,7 @@ describe('ConversaService', () => {
       });
       await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
       const r = await service.responderA(msg('sim'));
-      expect(r).toMatch(/Não consegui transferir/);
+      expect(r?.texto).toMatch(/Não consegui transferir/);
     });
   });
 
@@ -393,7 +428,7 @@ describe('ConversaService', () => {
     prisma.bankAccount.findMany = jest.fn(async () => []);
     prisma.creditCard.findMany = jest.fn(async () => []);
     const r = await service.responderA(msg('gastei 40 no mercado'));
-    expect(r).toMatch(/cadastre uma conta ou um cartão/i);
+    expect(r?.texto).toMatch(/cadastre uma conta ou um cartão/i);
   });
 
   it('o lancamento usa o mesmo caminho do app, com clientKey', async () => {
@@ -524,7 +559,7 @@ describe('meta — a fronteira', () => {
                     from: '5531988887777',
                     id: 'm3',
                     type: 'interactive',
-                    interactive: { button_reply: { title: 'Sim' } },
+                    interactive: { button_reply: { id: 'sim', title: 'Confirmar' } },
                   },
                 ],
               },
@@ -556,7 +591,9 @@ describe('meta — a fronteira', () => {
     });
     expect(semNono[0].de).toBe('5531975696594');
     expect(ms[1].audioId).toBe('au1');
-    expect(ms[2].texto).toBe('Sim');
+    // Vale o ID do botao, nao o rotulo: o rotulo pode ser reescrito a
+    // qualquer momento, e a conversa nao pode depender da redacao da tela.
+    expect(ms[2].texto).toBe('sim');
   });
 
   it('evento que nao e mensagem nao vira nada, e nao estoura', () => {

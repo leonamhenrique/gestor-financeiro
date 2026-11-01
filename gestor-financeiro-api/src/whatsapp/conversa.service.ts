@@ -49,19 +49,37 @@ const FUSO = process.env.APP_TIMEZONE || 'America/Sao_Paulo';
  * Devolve um Date cujos componentes LOCAIS são a data brasileira, que é o que
  * `isoDate` e as contas de dia da leitura ("ontem", "dia 12") usam.
  */
-export function diaDoUsuario(agora: Date = new Date(), fuso: string = FUSO): Date {
+export function diaDoUsuario(
+  agora: Date = new Date(),
+  fuso: string = FUSO,
+): Date {
   const partes = new Intl.DateTimeFormat('en-CA', {
     timeZone: fuso,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).formatToParts(agora);
-  const num = (tipo: string) => Number(partes.find((p) => p.type === tipo)?.value);
+  const num = (tipo: string) =>
+    Number(partes.find((p) => p.type === tipo)?.value);
   return new Date(num('year'), num('month') - 1, num('day'));
 }
 
-const SIM = /^(sim|s|ok|okay|confirmo?|confirmar|pode|pode lan[çc]ar|isso|claro|beleza|positivo|👍)$/i;
+const SIM =
+  /^(sim|s|ok|okay|confirmo?|confirmar|pode|pode lan[çc]ar|isso|claro|beleza|positivo|👍)$/i;
 const NAO = /^(n[ãa]o|n|cancela(r)?|deixa|esquece|negativo)$/i;
+
+/**
+ * O que a conversa responde.
+ *
+ * `confirmar` liga os botões Sim/Cancelar. Só a pergunta de confirmação tem
+ * resposta fechada, e é justamente ela que não pode depender de a pessoa
+ * digitar "sim" sem errar — um "aim" vira uma frase nova, que o app tenta ler
+ * como lançamento. Digitar continua valendo: o botão é atalho, não substituto.
+ */
+export interface Resposta {
+  texto: string;
+  confirmar?: boolean;
+}
 
 interface Rascunho {
   lancamento: any;
@@ -85,7 +103,7 @@ export class ConversaService {
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
    * Quem manda a resposta é o controlador — assim este serviço inteiro é
    * testável sem rede. */
-  async responderA(m: MensagemRecebida): Promise<string | null> {
+  async responderA(m: MensagemRecebida): Promise<Resposta | null> {
     if (this.jaProcessada(m.id)) return null;
     this.marcarProcessada(m.id);
 
@@ -99,20 +117,28 @@ export class ConversaService {
     // recado de voz responder igualzinho ao que ela veria no app.
     if (m.audioId) {
       if (!this.audio.disponivel()) {
-        return (
-          'Ainda não escuto áudio por aqui. ' +
-          'Escreva a frase: "gastei 40 no mercado pelo débito".'
-        );
+        return {
+          texto:
+            'Ainda não escuto áudio por aqui. ' +
+            'Escreva a frase: "gastei 40 no mercado pelo débito".',
+        };
       }
       const ouvido = await this.audio.ouvir(m.audioId);
       if (!ouvido) {
-        return 'Não consegui entender o áudio. Mande de novo, mais perto do microfone, ou escreva a frase.';
+        return {
+          texto:
+            'Não consegui entender o áudio. Mande de novo, mais perto do microfone, ou escreva a frase.',
+        };
       }
       // O que foi ouvido vem ANTES do resumo, sempre. Metade dos enganos de
       // voz é o transcritor trocando uma palavra, e a pessoa só descobre se
       // a resposta disser o que ele achou que ouviu.
       const resposta = await this.lerFrase(userId, ouvido);
-      return resposta ? 'Ouvi: “' + ouvido + '”\n\n' + resposta : null;
+      if (!resposta) return null;
+      return {
+        ...resposta,
+        texto: 'Ouvi: “' + ouvido + '”\n\n' + resposta.texto,
+      };
     }
 
     const texto = (m.texto || '').trim();
@@ -121,17 +147,23 @@ export class ConversaService {
   }
 
   /** Daqui para baixo tanto faz se a frase foi falada ou digitada. */
-  private async lerFrase(userId: string, texto: string): Promise<string | null> {
+  private async lerFrase(
+    userId: string,
+    texto: string,
+  ): Promise<Resposta | null> {
     const rascunho = this.rascunhoDe(userId);
     if (rascunho && SIM.test(texto)) return this.gravar(userId, rascunho);
     if (rascunho && NAO.test(texto)) {
       this.rascunhos.delete(userId);
-      return 'Ok, não lancei nada.';
+      return { texto: 'Ok, não lancei nada.' };
     }
 
     const ctx = await this.contextoDoUsuario(userId);
     if (!ctx.contas.length && !ctx.cartoes.length) {
-      return 'Antes de lançar por aqui, cadastre uma conta ou um cartão no app.';
+      return {
+        texto:
+          'Antes de lançar por aqui, cadastre uma conta ou um cartão no app.',
+      };
     }
 
     const r = fala.interpretarFala(texto, ctx);
@@ -142,19 +174,25 @@ export class ConversaService {
     if (r.transferencia) return this.lerTransferencia(userId, r, ctx);
 
     if (r.faltando.length) {
-      const nomes = r.faltando.includes('destino') ? ' ' + this.nomesDeDestino(ctx) : '';
-      return (
-        this.resumo(r, ctx) +
-        '\n\nFaltou ' +
-        r.faltando.join(', ') +
-        '.' +
-        nomes +
-        ' Mande a frase de novo com essa parte, ou lance no app.'
-      );
+      const nomes = r.faltando.includes('destino')
+        ? ' ' + this.nomesDeDestino(ctx)
+        : '';
+      return {
+        texto:
+          this.resumo(r, ctx) +
+          '\n\nFaltou ' +
+          r.faltando.join(', ') +
+          '.' +
+          nomes +
+          ' Mande a frase de novo com essa parte, ou lance no app.',
+      };
     }
 
     this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
-    return this.resumo(r, ctx) + '\n\nConfirma? Responda SIM para lançar.';
+    return {
+      texto: this.resumo(r, ctx) + '\n\nConfirma?',
+      confirmar: true,
+    };
   }
 
   /**
@@ -164,31 +202,39 @@ export class ConversaService {
    * recado próprio: o servidor recusaria, e "faltou conta de destino" mandaria
    * a pessoa procurar o que ela já disse.
    */
-  private lerTransferencia(userId: string, r: any, ctx: any): string {
+  private lerTransferencia(userId: string, r: any, ctx: any): Resposta {
     const ativas = ctx.contas.filter((c: any) => c.isActive !== false);
     if (ativas.length < 2) {
-      return (
-        'Transferência precisa de duas contas, e você tem ' +
-        (ativas.length === 1 ? 'uma' : 'nenhuma') +
-        '. Cadastre outra no app, em Contas.'
-      );
+      return {
+        texto:
+          'Transferência precisa de duas contas, e você tem ' +
+          (ativas.length === 1 ? 'uma' : 'nenhuma') +
+          '. Cadastre outra no app, em Contas.',
+      };
     }
     if (r.deId && r.deId === r.paraId) {
-      return 'Você disse a mesma conta duas vezes. Diga de qual sai e para qual vai, nessa ordem.';
+      return {
+        texto:
+          'Você disse a mesma conta duas vezes. Diga de qual sai e para qual vai, nessa ordem.',
+      };
     }
     if (r.faltando.length) {
-      return (
-        this.resumoTransferencia(r, ctx) +
-        '\n\nFaltou ' +
-        r.faltando.join(', ') +
-        '. ' +
-        this.nomesDeConta(ctx) +
-        ' A primeira conta dita é a que paga, a segunda é a que recebe.'
-      );
+      return {
+        texto:
+          this.resumoTransferencia(r, ctx) +
+          '\n\nFaltou ' +
+          r.faltando.join(', ') +
+          '. ' +
+          this.nomesDeConta(ctx) +
+          ' A primeira conta dita é a que paga, a segunda é a que recebe.',
+      };
     }
 
     this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
-    return this.resumoTransferencia(r, ctx) + '\n\nConfirma? Responda SIM para transferir.';
+    return {
+      texto: this.resumoTransferencia(r, ctx) + '\n\nConfirma?',
+      confirmar: true,
+    };
   }
 
   // ----------------------------------------------------------
@@ -197,27 +243,30 @@ export class ConversaService {
   /** Resposta igual para todo número desconhecido, com ou sem conta no app.
    * Dizer "esta conta não tem WhatsApp ligado" confirmaria, para quem
    * adivinhou um número, que existe conta ali. */
-  private async semVinculo(m: MensagemRecebida): Promise<string> {
+  private async semVinculo(m: MensagemRecebida): Promise<Resposta> {
     const ligou = await this.whatsapp.vincularPorCodigo(m.de, m.texto || '');
     if (ligou) {
-      return (
-        'Pronto. Este número agora lança na sua conta do saldonline.\n\n' +
-        'Experimente: "gastei 40 no mercado pelo débito".'
-      );
+      return {
+        texto:
+          'Pronto. Este número agora lança na sua conta do saldonline.\n\n' +
+          'Experimente: "gastei 40 no mercado pelo débito".',
+      };
     }
-    return (
-      'Não reconheço este número. Para conectar, abra o app, vá em Perfil → WhatsApp ' +
-      'e mande daqui o código que aparecer lá.'
-    );
+    return {
+      texto:
+        'Não reconheço este número. Para conectar, abra o app, vá em Perfil → WhatsApp ' +
+        'e mande daqui o código que aparecer lá.',
+    };
   }
 
   // ----------------------------------------------------------
   // gravar, depois do sim
   // ----------------------------------------------------------
-  private async gravar(userId: string, rascunho: Rascunho): Promise<string> {
+  private async gravar(userId: string, rascunho: Rascunho): Promise<Resposta> {
     this.rascunhos.delete(userId);
     const r = rascunho.lancamento;
-    if (r.transferencia) return this.gravarTransferencia(userId, r, rascunho.criadoEm);
+    if (r.transferencia)
+      return this.gravarTransferencia(userId, r, rascunho.criadoEm);
     try {
       await this.transactions.create({
         userId,
@@ -233,11 +282,18 @@ export class ConversaService {
         // A mesma chave para a mesma frase: se a Meta reentregar o "sim"
         // depois de o lançamento existir, o servidor devolve o que já está
         // gravado em vez de lançar o dobro.
-        clientKey: 'wa-' + userId.slice(0, 8) + '-' + Math.round(rascunho.criadoEm / 1000),
+        clientKey:
+          'wa-' +
+          userId.slice(0, 8) +
+          '-' +
+          Math.round(rascunho.criadoEm / 1000),
       });
     } catch (e: any) {
       this.log.error('falha ao lançar pelo WhatsApp: ' + (e?.message || e));
-      return 'Não consegui lançar agora. Tente de novo em instantes, ou lance pelo app.';
+      return {
+        texto:
+          'Não consegui lançar agora. Tente de novo em instantes, ou lance pelo app.',
+      };
     }
     // Depois do sucesso, nunca antes — e sem deixar que um tropeço aqui diga
     // à pessoa que o lançamento falhou, porque ele não falhou.
@@ -247,7 +303,7 @@ export class ConversaService {
       this.log.warn('não consegui aprender o lojista: ' + (e?.message || e));
     }
 
-    return 'Lançado. ' + this.linhaCurta(r);
+    return { texto: '✅ Lançado. ' + this.linhaCurta(r) };
   }
 
   /**
@@ -261,7 +317,11 @@ export class ConversaService {
    * tela: dois lados ensinando a mesma tabela com réguas diferentes seria pior
    * do que um lado não ensinar.
    */
-  private async talvezAprenderLojista(userId: string, desc: string, categoriaId: string) {
+  private async talvezAprenderLojista(
+    userId: string,
+    desc: string,
+    categoriaId: string,
+  ) {
     if (!categoriaId || !desc) return;
     const chave = fala.chaveDeLojista(desc);
     if (chave.length < fala.MIN_LOJISTA) return;
@@ -284,13 +344,21 @@ export class ConversaService {
     await this.prisma.categoryRule.upsert({
       where: { userId_merchant: { userId, merchant: chave } },
       create: { userId, merchant: chave, label, categoryId: categoriaId },
-      update: { categoryId: categoriaId, hits: { increment: 1 }, ...(label ? { label } : {}) },
+      update: {
+        categoryId: categoriaId,
+        hits: { increment: 1 },
+        ...(label ? { label } : {}),
+      },
     });
   }
 
   /** Transferência tem serviço próprio, e é ele que debita uma conta e credita
    * a outra na mesma transação de banco. Aqui só se traduz o pedido. */
-  private async gravarTransferencia(userId: string, r: any, criadoEm: number): Promise<string> {
+  private async gravarTransferencia(
+    userId: string,
+    r: any,
+    criadoEm: number,
+  ): Promise<Resposta> {
     try {
       await this.transfers.create({
         userId,
@@ -300,13 +368,24 @@ export class ConversaService {
         description: r.desc || undefined,
         transferDate: r.data,
         isConfirmed: r.confirmada,
-        clientKey: 'wa-' + userId.slice(0, 8) + '-' + Math.round(criadoEm / 1000),
+        clientKey:
+          'wa-' + userId.slice(0, 8) + '-' + Math.round(criadoEm / 1000),
       });
     } catch (e: any) {
       this.log.error('falha ao transferir pelo WhatsApp: ' + (e?.message || e));
-      return 'Não consegui transferir agora. Tente de novo em instantes, ou faça pelo app.';
+      return {
+        texto:
+          'Não consegui transferir agora. Tente de novo em instantes, ou faça pelo app.',
+      };
     }
-    return 'Transferido. ' + this.brl(r.valor) + ' em ' + this.dataBR(r.data) + '.';
+    return {
+      texto:
+        '✅ Transferido. ' +
+        this.brl(r.valor) +
+        ' em ' +
+        this.dataBR(r.data) +
+        '.',
+    };
   }
 
   // ----------------------------------------------------------
@@ -321,7 +400,9 @@ export class ConversaService {
     const [contas, cartoes, categorias, regras] = await Promise.all([
       this.prisma.bankAccount.findMany({ where: { userId } }),
       this.prisma.creditCard.findMany({ where: { userId } }),
-      this.prisma.category.findMany({ where: { OR: [{ userId }, { userId: null }] } }),
+      this.prisma.category.findMany({
+        where: { OR: [{ userId }, { userId: null }] },
+      }),
       this.prisma.categoryRule.findMany({ where: { userId } }),
     ]);
 
@@ -330,15 +411,26 @@ export class ConversaService {
     // `institutionName` — conta nenhuma era achada, e o teste não viu porque o
     // mock tinha sido escrito com a mesma crença errada.
     return {
-      contas: contas.map((c) => ({ id: c.id, nome: c.institutionName, isActive: c.isActive })),
-      cartoes: cartoes.map((k) => ({ id: k.id, nome: k.name, contaId: k.bankAccountId })),
+      contas: contas.map((c) => ({
+        id: c.id,
+        nome: c.institutionName,
+        isActive: c.isActive,
+      })),
+      cartoes: cartoes.map((k) => ({
+        id: k.id,
+        nome: k.name,
+        contaId: k.bankAccountId,
+      })),
       categorias: categorias.map((c) => ({
         id: c.id,
         nome: c.name,
         tipo: c.type,
         paiId: c.parentId || null,
       })),
-      regras: regras.map((r) => ({ lojista: r.merchant, categoriaId: r.categoryId })),
+      regras: regras.map((r) => ({
+        lojista: r.merchant,
+        categoriaId: r.categoryId,
+      })),
       // O dia é o de quem falou, não o do servidor — ver `diaDoUsuario`.
       hoje: diaDoUsuario(),
     };
@@ -347,6 +439,9 @@ export class ConversaService {
   // ----------------------------------------------------------
   // o texto da resposta
   // ----------------------------------------------------------
+  /* As figuras ficam onde ajudam a BATER O OLHO e reconhecer: o banco, o
+   * cartão, e se o dinheiro já andou. Não há uma em cada linha de propósito —
+   * emoji em tudo vira enfeite, e enfeite em toda linha não destaca nenhuma. */
   private resumo(r: any, ctx: any): string {
     const linhas = [
       r.tipo === 'INCOME' ? '↓ Receita' : '↑ Despesa',
@@ -355,14 +450,21 @@ export class ConversaService {
     ];
     const cartao = ctx.cartoes.find((k: any) => k.id === r.cartaoId);
     const conta = ctx.contas.find((c: any) => c.id === r.contaId);
-    linhas.push((cartao ? 'Cartão: ' : 'Conta: ') + (cartao?.nome || conta?.nome || '—'));
+    linhas.push(
+      (cartao ? '💳 Cartão: ' : '🏦 Conta: ') +
+        (cartao?.nome || conta?.nome || '—'),
+    );
     const cat = ctx.categorias.find((c: any) => c.id === r.categoriaId);
     linhas.push(
-      'Categoria: ' + (cat?.nome || '—') + (r.categoriaDoLojista ? ' (do lojista)' : ''),
+      'Categoria: ' +
+        (cat?.nome || '—') +
+        (r.categoriaDoLojista ? ' (do lojista)' : ''),
     );
     if (r.cartaoId && r.faturaMes) linhas.push('Fatura: ' + r.faturaMes);
     linhas.push('Data: ' + this.dataBR(r.data));
-    linhas.push('Situação: ' + (r.confirmada ? 'confirmado' : 'previsto'));
+    linhas.push(
+      r.confirmada ? '✅ Situação: confirmado' : '🕒 Situação: previsto',
+    );
     return linhas.join('\n');
   }
 
@@ -388,7 +490,8 @@ export class ConversaService {
   private nomesDeDestino(ctx: any): string {
     const cartoes = ctx.cartoes.map((k: any) => k.nome).filter(Boolean);
     const partes = [this.nomesDeConta(ctx)];
-    if (cartoes.length) partes.push('Seus cartões: ' + this.ateOito(cartoes) + '.');
+    if (cartoes.length)
+      partes.push('Seus cartões: ' + this.ateOito(cartoes) + '.');
     return partes.filter(Boolean).join(' ');
   }
 
@@ -409,10 +512,10 @@ export class ConversaService {
     return [
       '⇄ Transferência',
       'Valor: ' + this.brl(r.valor),
-      'Sai de: ' + (r.deId ? nome(r.deId) : '—'),
-      'Entra em: ' + (r.paraId ? nome(r.paraId) : '—'),
+      '🏦 Sai de: ' + (r.deId ? nome(r.deId) : '—'),
+      '🏦 Entra em: ' + (r.paraId ? nome(r.paraId) : '—'),
       'Data: ' + this.dataBR(r.data),
-      'Situação: ' + (r.confirmada ? 'confirmada' : 'prevista'),
+      r.confirmada ? '✅ Situação: confirmada' : '🕒 Situação: prevista',
     ].join('\n');
   }
 
@@ -429,7 +532,13 @@ export class ConversaService {
   }
 
   private brl(valor: number): string {
-    return 'R$ ' + Number(valor).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return (
+      'R$ ' +
+      Number(valor)
+        .toFixed(2)
+        .replace('.', ',')
+        .replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+    );
   }
 
   private dataBR(iso: string): string {

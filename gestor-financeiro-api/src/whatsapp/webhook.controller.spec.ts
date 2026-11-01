@@ -173,8 +173,70 @@ describe('WhatsappWebhookController', () => {
       expect(conversa.responderA).toHaveBeenCalledTimes(2);
     });
 
+    it('a pergunta de confirmacao sai com botoes', async () => {
+      // Com token e phone id, da para ler o que foi mandado para a Meta.
+      process.env.WHATSAPP_TOKEN = 't';
+      process.env.WHATSAPP_PHONE_ID = '123';
+      let enviado: any = null;
+      (global as any).fetch = jest.fn(async (_u: string, opcoes: any) => {
+        enviado = JSON.parse(opcoes.body);
+        return { ok: true };
+      });
+      conversa.responderA = jest.fn(async () => ({ texto: 'Confirma?', confirmar: true }));
+
+      const { req, assinatura } = pedido(comMensagem);
+      await controller.receber(req, assinatura);
+
+      expect(enviado.type).toBe('interactive');
+      expect(enviado.interactive.body.text).toBe('Confirma?');
+      // Os ids sao o que volta no webhook, e por isso sao os mesmos que
+      // alguem digitaria.
+      expect(enviado.interactive.action.buttons.map((b: any) => b.reply.id)).toEqual([
+        'sim',
+        'nao',
+      ]);
+    });
+
+    it('o que nao e pergunta sai como texto simples', async () => {
+      process.env.WHATSAPP_TOKEN = 't';
+      process.env.WHATSAPP_PHONE_ID = '123';
+      let enviado: any = null;
+      (global as any).fetch = jest.fn(async (_u: string, opcoes: any) => {
+        enviado = JSON.parse(opcoes.body);
+        return { ok: true };
+      });
+      conversa.responderA = jest.fn(async () => ({ texto: 'Lançado.' }));
+
+      const { req, assinatura } = pedido(comMensagem);
+      await controller.receber(req, assinatura);
+
+      expect(enviado.type).toBe('text');
+    });
+
+    it('botao recusado nao custa a pergunta: o texto vai assim mesmo', async () => {
+      // Sem isto, a pessoa ficaria sem o resumo E sem saber que precisa
+      // confirmar, por causa de um recurso de interface.
+      process.env.WHATSAPP_TOKEN = 't';
+      process.env.WHATSAPP_PHONE_ID = '123';
+      const enviados: any[] = [];
+      (global as any).fetch = jest.fn(async (_u: string, opcoes: any) => {
+        const corpo = JSON.parse(opcoes.body);
+        enviados.push(corpo);
+        return corpo.type === 'interactive'
+          ? { ok: false, status: 400, json: async () => ({ error: { message: 'sem suporte' } }) }
+          : { ok: true };
+      });
+      conversa.responderA = jest.fn(async () => ({ texto: 'Confirma?', confirmar: true }));
+
+      const { req, assinatura } = pedido(comMensagem);
+      await controller.receber(req, assinatura);
+
+      expect(enviados.map((e) => e.type)).toEqual(['interactive', 'text']);
+      expect(avisos.join(' ')).not.toMatch(/resposta N[ÃA]O saiu/);
+    });
+
     it('a resposta que nao sai deixa o motivo no log', async () => {
-      conversa.responderA = jest.fn(async () => 'alguma resposta');
+      conversa.responderA = jest.fn(async () => ({ texto: 'alguma resposta' }));
       const { req, assinatura } = pedido(comMensagem);
       await controller.receber(req, assinatura);
       // Sem WHATSAPP_TOKEN, o motivo é esse — e ele chega ao log inteiro.
