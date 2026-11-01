@@ -13,7 +13,15 @@ import type { BankAccount, Category, CategoryRule, CreditCard } from '@prisma/cl
 
 /** Decimal como o Prisma devolve, para o mock nao mentir sobre o tipo. */
 const dec = (n: number) => new Prisma.Decimal(n);
-import { ConversaService, diaDoUsuario, perguntaDeSaldo } from './conversa.service';
+import {
+  ConversaService,
+  diaDoUsuario,
+  mesDaPergunta,
+  perguntaDeFatura,
+  perguntaDeResultado,
+  perguntaDeSaldo,
+} from './conversa.service';
+import type { FaturasDoMes, RelatorioService, ResultadoDoMes } from '../relatorio/relatorio.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
 import { createHmac } from 'node:crypto';
 
@@ -35,6 +43,12 @@ describe('ConversaService', () => {
   let aprendidas: any[];
   let dono: string | null;
   let ouvido: string | null;
+  /* O resultado do mes vem tipado de proposito: a conta de verdade esta
+   * provada em relatorio.spec.ts, e o que se prova aqui e o TEXTO. Tipado,
+   * este mock nao consegue inventar um campo que o servico nao devolve. */
+  let resultado: ResultadoDoMes;
+  let faturasDoMes: FaturasDoMes;
+  let relatorio: Pick<RelatorioService, 'doMes' | 'faturasDoMes'>;
 
   beforeEach(() => {
     criados = [];
@@ -123,7 +137,65 @@ describe('ConversaService', () => {
       }),
     };
 
-    service = new ConversaService(prisma, transactions, transfers, whatsapp, audio);
+    resultado = {
+      mes: '2026-11',
+      regime: 'fatura',
+      entradas: 5000,
+      saidas: 3200,
+      resultado: 1800,
+      vazio: false,
+      lancamentos: 12,
+      faturas: [
+        {
+          cartaoId: 'k1',
+          cartao: 'Nubank Roxinho',
+          referencia: '2026-11',
+          vencimento: '2026-11-17',
+          valor: 1200,
+          status: 'OPEN',
+          situacao: 'Aberta',
+        },
+      ],
+    };
+    faturasDoMes = {
+      mes: '2026-11',
+      total: 1500,
+      faturas: [
+        {
+          cartaoId: 'k1',
+          cartao: 'Nubank Roxinho',
+          referencia: '2026-11',
+          vencimento: '2026-11-17',
+          valor: 1200,
+          status: 'OPEN',
+          situacao: 'Aberta',
+        },
+        {
+          // Fecha 25 e vence 5: a fatura de outubro e cobrada em novembro.
+          cartaoId: 'k2',
+          cartao: 'Carrefour',
+          referencia: '2026-10',
+          vencimento: '2026-11-05',
+          valor: 300,
+          status: 'PAID',
+          situacao: 'Paga',
+        },
+      ],
+      cartoes: 2,
+    };
+    relatorio = {
+      doMes: jest.fn(async () => resultado),
+      faturasDoMes: jest.fn(async () => faturasDoMes),
+    };
+
+    service = new ConversaService(
+      prisma,
+      transactions,
+      transfers,
+      whatsapp,
+      audio,
+      relatorio as RelatorioService,
+    );
   });
 
   describe('quem ainda nao conectou', () => {
@@ -414,6 +486,165 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('a pergunta de resultado', () => {
+    /* Relogio preso: a resposta diz o mes por extenso e o teste cobra isso.
+     * Sem prender, estes testes passariam hoje e falhariam no dia 1o do mes
+     * que vem -- e a falha pareceria um defeito no codigo, nao no teste.
+     * Meio-dia em UTC e o mesmo dia no Brasil, sem a virada das 21h. */
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('responde receitas, despesas e o que sobrou', async () => {
+      const r = await service.responderA(msg('qual meu resultado nesse mes?'));
+      expect(r?.texto).toContain('Resultado de Novembro 2026');
+      expect(r?.texto).toContain('Receitas: R$ 5.000,00');
+      expect(r?.texto).toContain('Despesas: R$ 3.200,00');
+      expect(r?.texto).toContain('Sobrou: R$ 1.800,00');
+      // Pergunta nao grava nada, e nao pede confirmacao.
+      expect(criados).toHaveLength(0);
+      expect(r?.confirmar).toBeFalsy();
+    });
+
+    it('diz quantos lancamentos, e que previsto conta', async () => {
+      // O numero do mes corrente inclui o que ainda nao aconteceu. Quem
+      // comparar com o extrato do banco vai achar diferenca -- e e melhor
+      // saber por que.
+      const r = await service.responderA(msg('resultado do mes'));
+      expect(r?.texto).toContain('12 lançamentos, previstos incluídos');
+    });
+
+    it('a fatura aparece nomeada, porque e ela que surpreende no total', async () => {
+      const r = await service.responderA(msg('resultado do mes'));
+      expect(r?.texto).toContain('Nubank Roxinho (fatura 11/2026, aberta): R$ 1.200,00');
+    });
+
+    it('resultado negativo nao e "sobrou"', async () => {
+      resultado = { ...resultado, entradas: 1000, saidas: 1500, resultado: -500 };
+      const r = await service.responderA(msg('qual o resultado desse mes'));
+      expect(r?.texto).toContain('Faltou: R$ 500,00');
+      expect(r?.texto).not.toContain('Sobrou');
+    });
+
+    it('mes sem movimento diz isso, em vez de zero com cara de resposta', async () => {
+      resultado = { ...resultado, entradas: 0, saidas: 0, resultado: 0, vazio: true, lancamentos: 0, faturas: [] };
+      const r = await service.responderA(msg('resultado de julho'));
+      expect(r?.texto).toContain('Sem movimento neste mês');
+    });
+
+    it('a resposta explica o regime, que e o que explica o numero', async () => {
+      const r = await service.responderA(msg('resultado do mes'));
+      expect(r?.texto).toContain('Contado pelo vencimento da fatura');
+
+      resultado = { ...resultado, regime: 'compra' };
+      const outra = await service.responderA(msg('resultado do mes'));
+      expect(outra?.texto).toContain('Contado pela data da compra');
+    });
+
+    it('o mes dito na frase e o mes consultado', async () => {
+      await service.responderA(msg('qual meu resultado em outubro?'));
+      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-10');
+      await service.responderA(msg('e o resultado do mes passado?'));
+      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-10');
+    });
+  });
+
+  describe('a pergunta das faturas do mes', () => {
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('lista uma linha por cartao, com o total no fim', async () => {
+      const r = await service.responderA(msg('qual o valor das minhas faturas em novembro?'));
+      expect(r?.texto).toContain('Faturas que vencem em Novembro 2026');
+      expect(r?.texto).toContain('Nubank Roxinho — fatura 11/2026, aberta: R$ 1.200,00 (vence 17/11/2026)');
+      expect(r?.texto).toContain('Total: R$ 1.500,00');
+      expect(criados).toHaveLength(0);
+      expect(r?.confirmar).toBeFalsy();
+    });
+
+    it('diz o mes da fatura E o dia em que ela vence', async () => {
+      // Num cartao que fecha 25 e vence 5, a fatura de outubro e cobrada em
+      // novembro: dizer so uma das duas datas faz a pessoa conferir o numero
+      // contra o mes errado.
+      const r = await service.responderA(msg('qual o valor das minhas faturas?'));
+      expect(r?.texto).toContain('Carrefour — fatura 10/2026, paga: R$ 300,00 (vence 05/11/2026)');
+    });
+
+    it('o mes citado e o mes consultado', async () => {
+      await service.responderA(msg('qual o valor das minhas faturas em dezembro/2026?'));
+      expect(relatorio.faturasDoMes).toHaveBeenLastCalledWith('user-1', '2026-12');
+      await service.responderA(msg('quanto vou pagar de fatura no mes que vem?'));
+      expect(relatorio.faturasDoMes).toHaveBeenLastCalledWith('user-1', '2026-12');
+    });
+
+    it('mes sem fatura nenhuma diz isso, e nao zero', async () => {
+      faturasDoMes = { ...faturasDoMes, total: 0, faturas: [] };
+      const r = await service.responderA(msg('qual o valor das faturas em julho'));
+      expect(r?.texto).toContain('Nenhuma fatura vence em Julho 2026');
+    });
+
+    it('sem cartao cadastrado, a resposta e outra', async () => {
+      faturasDoMes = { ...faturasDoMes, total: 0, faturas: [], cartoes: 0 };
+      const r = await service.responderA(msg('qual o valor das minhas faturas'));
+      expect(r?.texto).toMatch(/n[ãa]o tem cart[ãa]o cadastrado/i);
+    });
+
+    describe('quando a frase nomeia um cartao', () => {
+      beforeEach(() => {
+        // O segundo cartao entra so aqui: com dois cartoes, a fala deixa de
+        // ter um destino obvio, e os testes de lancamento contam com isso.
+        prisma.creditCard.findMany = jest.fn(async () => [
+          { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1', closingDay: 1 },
+          { id: 'k2', name: 'Carrefour', bankAccountId: 'a1', closingDay: 25 },
+        ]);
+      });
+
+      it('responde so a fatura dele, sem o total repetindo a linha', async () => {
+        const r = await service.responderA(msg('qual o valor da fatura do nubank em novembro?'));
+        expect(r?.texto).toContain('Nubank Roxinho — fatura que vence em Novembro 2026');
+        expect(r?.texto).toContain('Fatura 11/2026, aberta: R$ 1.200,00 (vence 17/11/2026)');
+        expect(r?.texto).not.toContain('Carrefour');
+        // Com uma linha so, um "Total" abaixo dela nao informa nada.
+        expect(r?.texto).not.toContain('Total');
+      });
+
+      it('reconhece o apelido pela mesma regra do lancamento', async () => {
+        const r = await service.responderA(msg('qual a fatura do carrefour?'));
+        expect(r?.texto).toContain('Carrefour — fatura que vence em Novembro 2026');
+        expect(r?.texto).toContain('Fatura 10/2026, paga: R$ 300,00');
+        expect(r?.texto).not.toContain('Nubank');
+      });
+
+      it('cartao sem fatura vencendo no mes diz isso pelo nome dele', async () => {
+        faturasDoMes = {
+          ...faturasDoMes,
+          total: 1200,
+          faturas: faturasDoMes.faturas.filter((f) => f.cartaoId === 'k1'),
+        };
+        const r = await service.responderA(msg('qual a fatura do carrefour em novembro?'));
+        expect(r?.texto).toBe('💳 Carrefour não tem fatura vencendo em Novembro 2026.');
+      });
+
+      it('nome que nao bate com cartao nenhum: responde todos', async () => {
+        // A lista ja mostra os nomes que existem, entao nada fica escondido.
+        const r = await service.responderA(msg('qual a fatura do itau?'));
+        expect(r?.texto).toContain('Faturas que vencem em Novembro 2026');
+        expect(r?.texto).toContain('Total: R$ 1.500,00');
+      });
+    });
+
+    it('a pergunta da fatura nao vira pergunta de resultado', async () => {
+      await service.responderA(msg('qual o resultado das minhas faturas em novembro'));
+      expect(relatorio.faturasDoMes).toHaveBeenCalled();
+      expect(relatorio.doMes).not.toHaveBeenCalled();
+    });
+  });
+
   describe('a fatura da compra no cartao', () => {
     // O caso que o usuario encontrou: comprando no DIA do fechamento, a fala
     // mandava para a fatura que estava fechando naquele dia -- as vezes ja
@@ -607,6 +838,100 @@ describe('perguntaDeSaldo', () => {
   it('lancamento comum nao vira pergunta', () => {
     expect(perguntaDeSaldo('gastei 40 no mercado pelo debito', true)).toBe(false);
     expect(perguntaDeSaldo('bom dia', false)).toBe(false);
+  });
+});
+
+describe('perguntaDeResultado', () => {
+  it('reconhece as formas comuns', () => {
+    for (const f of [
+      'qual meu resultado nesse mes?',
+      'resultado do mes',
+      'qual o resultado de outubro',
+      'como fechei o mes?',
+      'me da o balanco do mes',
+      'quanto gastei esse mes?',
+      'quanto recebi em outubro',
+    ]) {
+      expect(perguntaDeResultado(f, false)).toBe(true);
+    }
+  });
+
+  it('"quanto gastei" sem mes nao e pergunta do mes', () => {
+    // Pode ser sobre uma loja ou uma categoria, e responder o total do mes
+    // seria dar o numero certo para a pergunta errada.
+    expect(perguntaDeResultado('quanto gastei no mercado', false)).toBe(false);
+  });
+
+  it('frase com dinheiro nao e pergunta', () => {
+    expect(perguntaDeResultado('recebi 500 do resultado da empresa', true)).toBe(false);
+  });
+
+  it('nao rouba a pergunta de saldo', () => {
+    for (const f of ['qual meu saldo', 'quanto eu tenho', 'quanto sobra na conta']) {
+      expect(perguntaDeResultado(f, false)).toBe(false);
+      expect(perguntaDeSaldo(f, false)).toBe(true);
+    }
+    // Com mes na frase, "quanto sobrou" e resultado -- e e por isso que a
+    // pergunta de resultado e feita primeiro.
+    expect(perguntaDeResultado('quanto sobrou esse mes', false)).toBe(true);
+  });
+});
+
+describe('perguntaDeFatura', () => {
+  it('reconhece as formas comuns', () => {
+    for (const f of [
+      'qual o valor das minhas faturas em novembro',
+      'qual o valor da minha fatura de dezembro/2026',
+      'quanto vou pagar de fatura esse mes?',
+      'minhas faturas',
+    ]) {
+      expect(perguntaDeFatura(f, false)).toBe(true);
+    }
+  });
+
+  it('tentativa de lancamento na fatura nao e pergunta', () => {
+    // Com valor, o guarda comum resolve; sem valor, o verbo de gasto e o que
+    // separa "gastei na fatura de dezembro" de "qual a fatura de dezembro".
+    expect(perguntaDeFatura('gastei 30 no cartao na fatura de dezembro', true)).toBe(false);
+    expect(perguntaDeFatura('gastei no cartao na fatura de dezembro', false)).toBe(false);
+    expect(perguntaDeFatura('paguei a fatura do nubank', false)).toBe(false);
+  });
+
+  it('frase sem fatura nao e dela', () => {
+    expect(perguntaDeFatura('qual meu resultado nesse mes', false)).toBe(false);
+    expect(perguntaDeFatura('qual meu saldo', false)).toBe(false);
+  });
+});
+
+describe('de que mes a pergunta fala', () => {
+  const hoje = new Date(2026, 10, 1); // 1o de novembro de 2026
+
+  it('sem mes dito, e o mes corrente -- como a tela, que abre em hoje', () => {
+    expect(mesDaPergunta('qual meu resultado', hoje)).toBe('2026-11');
+    expect(mesDaPergunta('resultado desse mes', hoje)).toBe('2026-11');
+  });
+
+  it('anda um mes para cada lado', () => {
+    expect(mesDaPergunta('resultado do mes passado', hoje)).toBe('2026-10');
+    expect(mesDaPergunta('resultado do mes retrasado', hoje)).toBe('2026-09');
+    expect(mesDaPergunta('resultado do mes que vem', hoje)).toBe('2026-12');
+  });
+
+  it('entende o mes pelo nome, pela tabela do app', () => {
+    expect(mesDaPergunta('resultado de outubro', hoje)).toBe('2026-10');
+    expect(mesDaPergunta('resultado de marco de 2025', hoje)).toBe('2025-03');
+  });
+
+  it('mes por nome sem ano: o mais recente, aceitando um a frente', () => {
+    // Dezembro em novembro e o proximo (previsto, que a tela tambem mostra).
+    expect(mesDaPergunta('resultado de dezembro', hoje)).toBe('2026-12');
+    // Janeiro em novembro e o que passou, e nao o que vem em dois meses.
+    expect(mesDaPergunta('resultado de janeiro', hoje)).toBe('2026-01');
+  });
+
+  it('entende o mes escrito em numeros', () => {
+    expect(mesDaPergunta('resultado de 10/2026', hoje)).toBe('2026-10');
+    expect(mesDaPergunta('resultado de 2026-09', hoje)).toBe('2026-09');
   });
 });
 

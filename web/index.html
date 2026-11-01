@@ -6475,7 +6475,8 @@
       api("/transfers"),
       api("/goals"),
       api("/budgets"),
-      api("/category-rules")
+      api("/category-rules"),
+      api("/preferences")
     ]);
     state.accounts = partes[0].map(contaDaApi);
     state.categories = partes[1].map(categoriaDaApi);
@@ -6485,6 +6486,12 @@
     state.objetivos = partes[5].map(objetivoDaApi);
     state.planejamentos = partes[6].map(planejamentoDaApi);
     state.regrasCategoria = partes[7].map(regraDaApi);
+    // O regime dos relatórios é do USUÁRIO, não do aparelho: a mesma conta
+    // responde a tela aqui e a pergunta "qual meu resultado nesse mês?" pelo
+    // WhatsApp, e as duas têm de usar a escolha dele. O localStorage segue
+    // sendo o cache que faz o app abrir já certo, offline — a verdade é esta
+    // linha, e ela sobrescreve o cache.
+    definirRelatorioPor(partes[8] && partes[8].reportRegime, true);
     var pagamentos = await Promise.all(state.cards.map(function (k) {
       return api("/credit-cards/" + k.id + "/payments");
     }));
@@ -15176,7 +15183,31 @@
     pintarConfig();
     // Muda o que TODA tela conta, não só a de origem.
     renderAll();
+    guardarRelatorioNoServidor();
   });
+
+  /** A escolha sobe para o servidor porque ela não vale só nesta tela: é ela
+   * que decide o número que o WhatsApp responde. Se não subir, a pessoa troca
+   * para "compra" aqui e continua recebendo a conta por fatura lá — dois
+   * números para a mesma pergunta, que é o defeito que a escolha única existe
+   * para evitar.
+   *
+   * Falhar é dizer que falhou. A escolha continua valendo neste aparelho (já
+   * está no localStorage e na tela), e o aviso conta o que ficou para trás —
+   * em vez de deixar a pessoa descobrir pela diferença. */
+  async function guardarRelatorioNoServidor() {
+    if (!MODO_API) return;
+    var escolhido = relatorioPor;
+    try {
+      await api("/preferences", { reportRegime: escolhido }, "PATCH");
+    } catch (e) {
+      avisar("A escolha valeu só neste aparelho",
+        "Não consegui avisar o servidor" + (e && e.semRede ? " (sem conexão)" : "") +
+        ". Os relatórios aqui já contam pelo que você escolheu; a resposta pelo WhatsApp " +
+        "continua pela escolha anterior até isto chegar lá. Abra as Configurações e escolha " +
+        "de novo quando estiver conectado.");
+    }
+  }
 
   document.getElementById("abrir-perfil").addEventListener("click", abrirPerfilMenu);
   document.getElementById("abrir-perfil-nav").addEventListener("click", abrirPerfilMenu);
@@ -15187,9 +15218,13 @@
    * a ordem escolhida vale para as duas: guardar uma ordem em cada superfície
    * faria a pessoa reaprender o próprio app ao virar o celular.
    *
-   * Fica no aparelho, como o tema e a data dos relatórios: é preferência de
-   * uso, não dado financeiro. Não vai para o servidor — nenhum campo novo,
-   * nenhuma migração, e funciona offline e no modo demonstração. */
+   * Fica no aparelho, como o tema: é preferência de uso, não dado financeiro.
+   * Não vai para o servidor — nenhum campo novo, nenhuma migração, e funciona
+   * offline e no modo demonstração.
+   *
+   * O regime dos relatórios já esteve nesta lista e saiu dela: ele decide o
+   * número que o WhatsApp responde, e preferência que vale em mais de uma
+   * porta não cabe no aparelho de uma delas. */
   var CHAVE_MENU = "gestor-menu-ordem";
   // Uma tela só existe no menu se estiver NAS TRÊS listas: aqui, na barra de
   // baixo (`.tabbar`) e no trilho do desktop (`#nav-principal`). Faltar numa

@@ -22,9 +22,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { scriptDoApp, bloco, linha, funcao } = require('./recorte');
 
-const RAIZ = path.resolve(__dirname, '..', '..');
-const ORIGEM = path.join(RAIZ, 'web', 'index.html');
 const DESTINO = path.resolve(__dirname, '..', 'src', 'fala', 'fala.js');
 
 /** As constantes que a leitura usa, na ordem em que aparecem lá. */
@@ -112,47 +111,16 @@ const EXPORTADAS = [
   'regraDoLojista',
   'MIN_LOJISTA',
   'normalizarFala',
+  // O nome dos meses e a busca por nome: a pergunta "qual meu resultado em
+  // outubro?" tem de entender "outubro" pela MESMA tabela que a tela usa, e
+  // a resposta tem de escrever o mês como a tela escreve.
+  'MESES',
+  'mesPorNome',
+  // Achar o cartao que a frase nomeia: a pergunta "qual a fatura do Nubank"
+  // tem de reconhecer o apelido pelas MESMAS regras que o lancamento usa
+  // (sem acento, o nome mais longo primeiro, palavra de quatro letras).
+  'acharPorNome',
 ];
-
-function scriptDoApp() {
-  const html = fs.readFileSync(ORIGEM, 'utf8');
-  const i = html.lastIndexOf('<script>');
-  const j = html.lastIndexOf('</script>');
-  if (i < 0 || j < 0) throw new Error('não achei o script do app em ' + ORIGEM);
-  return html.slice(i + 8, j);
-}
-
-/** O bloco delimitado por chaves ou colchetes que começa no marcador. */
-function bloco(src, abre, marcador) {
-  const i = src.indexOf(marcador);
-  if (i < 0) throw new Error('não achei ' + marcador);
-  const fecha = abre === '{' ? '}' : ']';
-  const inicio = src.indexOf(abre, i);
-  let nivel = 0;
-  let j = inicio;
-  for (; j < src.length; j++) {
-    if (src[j] === abre) nivel++;
-    else if (src[j] === fecha) {
-      nivel--;
-      if (!nivel) break;
-    }
-  }
-  return src.slice(inicio, j + 1);
-}
-
-function linha(src, marcador) {
-  const i = src.indexOf(marcador);
-  if (i < 0) throw new Error('não achei ' + marcador);
-  return src.slice(i, src.indexOf('\n', i));
-}
-
-function funcao(src, nome) {
-  const marcador = 'function ' + nome + '(';
-  const i = src.indexOf(marcador);
-  if (i < 0) throw new Error('não achei a função ' + nome);
-  const corpo = bloco(src, '{', marcador);
-  return src.slice(i, src.indexOf('{', i)) + corpo;
-}
 
 const CABECALHO = `// ============================================================
 // fala.js — GERADO. Não edite aqui.

@@ -16,6 +16,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { TransfersService } from '../transfers/transfers.service';
+import { LinhaDeFatura, RelatorioService } from '../relatorio/relatorio.service';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -101,6 +102,114 @@ export function perguntaDeSaldo(texto: string, temValor: boolean): boolean {
   );
 }
 
+/** Sem acento e em minúscula, do jeito que as duas perguntas comparam. */
+function semAcento(texto: string): string {
+  return String(texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * A frase é uma pergunta sobre o RESULTADO de um mês?
+ *
+ * Saldo e resultado são perguntas diferentes, e confundi-las é dar o número
+ * certo para a pergunta errada: saldo é quanto existe na conta HOJE; resultado
+ * é o que entrou menos o que saiu NAQUELE MÊS, previstos incluídos. Quem
+ * pergunta "qual meu resultado?" no fim do mês não quer o extrato do banco.
+ *
+ * O guarda do valor é o mesmo de `perguntaDeSaldo`, e pela mesma razão:
+ * pergunta não traz dinheiro. A consequência conhecida é que "resultado de
+ * 11/2026" é lido como lançamento, porque o 11 parece valor — e aí a resposta
+ * mostra o que entendeu, que é o jeito de a pessoa ver o engano em vez de
+ * sofrê-lo calada. Com o mês por nome ("resultado de novembro") não há
+ * ambiguidade.
+ */
+export function perguntaDeResultado(texto: string, temValor: boolean): boolean {
+  if (temValor) return false;
+  const t = semAcento(texto);
+  // As palavras do próprio rótulo da tela ("Resultado mês a mês"), mais as
+  // duas formas que aparecem em conversa.
+  if (/\bresultado\b|\bbalanco\b|fech(ei|amento) (o )?(do )?mes/.test(t)) return true;
+  // "quanto gastei" sozinho poderia ser sobre uma categoria ou uma loja — só
+  // vale como pergunta do mês quando o mês está na frase.
+  return (
+    /quanto (eu )?(gastei|gasto|recebi|entrou|saiu|sobrou)/.test(t) && temMesNaFrase(t)
+  );
+}
+
+/**
+ * A frase é uma pergunta sobre FATURA?
+ *
+ * "Qual o valor das minhas faturas em novembro" não é o resultado do mês nem
+ * o saldo: é quanto o cartão vai cobrar da conta. São três perguntas
+ * vizinhas e três números diferentes, e dar o número certo para a pergunta
+ * errada é o engano que mais parece acerto.
+ *
+ * Esta é testada ANTES da de resultado: quem nomeia a fatura está perguntando
+ * da fatura, mesmo que use a palavra "resultado" na mesma frase.
+ */
+export function perguntaDeFatura(texto: string, temValor: boolean): boolean {
+  if (temValor) return false;
+  const t = semAcento(texto);
+  if (!/\bfatura\b|\bfaturas\b/.test(t)) return false;
+  // "gastei na fatura de dezembro" sem valor nenhum ainda é tentativa de
+  // lançamento, e não pergunta: o verbo de gasto manda.
+  return !/\b(gastei|gasto|paguei|comprei|lancei|lanca|recebi)\b/.test(t);
+}
+
+/** A frase aponta algum mês? "esse mes", "mes passado", "em outubro". */
+function temMesNaFrase(t: string): boolean {
+  if (/\bmes\b|\bmeses\b/.test(t)) return true;
+  return t.split(/[^a-z0-9]+/).some((w) => fala.mesPorNome(w) >= 0);
+}
+
+/**
+ * De que mês a pergunta fala. Devolve 'AAAA-MM'.
+ *
+ * Sem mês dito, é o mês corrente — o mesmo padrão da tela, que abre no mês de
+ * hoje. "Mês passado" e "mês que vem" andam um para cada lado.
+ *
+ * Mês dito por nome sem ano é o caso ambíguo: "janeiro", em novembro, pode ser
+ * o janeiro que passou ou o que vem. A regra é "o mais recente, aceitando um
+ * mês à frente": dezembro perguntado em novembro é o próximo (previsto, que a
+ * tela também mostra), janeiro perguntado em novembro é o deste ano, que já
+ * passou. Qualquer que seja a escolha, a resposta DIZ o mês e o ano — é isso
+ * que deixa a pessoa corrigir em vez de acreditar.
+ */
+export function mesDaPergunta(texto: string, hoje: Date): string {
+  const t = semAcento(texto);
+  const chave = (y: number, m: number) =>
+    y + '-' + String(m + 1).padStart(2, '0');
+  const andar = (n: number) => {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + n, 1);
+    return chave(d.getFullYear(), d.getMonth());
+  };
+
+  if (/mes (passado|anterior|retrasado)|mes que passou/.test(t)) {
+    return andar(/retrasado/.test(t) ? -2 : -1);
+  }
+  if (/mes que vem|proximo mes|mes seguinte/.test(t)) return andar(1);
+
+  // "10/2026" e "2026-10" ditos por extenso na mensagem.
+  const barra = t.match(/\b(0?[1-9]|1[0-2])\s*\/\s*(20\d{2})\b/);
+  if (barra) return chave(Number(barra[2]), Number(barra[1]) - 1);
+  const iso = t.match(/\b(20\d{2})-(0[1-9]|1[0-2])\b/);
+  if (iso) return chave(Number(iso[1]), Number(iso[2]) - 1);
+
+  for (const palavra of t.split(/[^a-z0-9]+/)) {
+    const m = fala.mesPorNome(palavra);
+    if (m < 0) continue;
+    const ano = t.match(/\b(20\d{2})\b/);
+    if (ano) return chave(Number(ano[1]), m);
+    const atual = hoje.getFullYear() * 12 + hoje.getMonth();
+    const candidato = hoje.getFullYear() * 12 + m;
+    // Mais de um mês à frente é passado: é o ano anterior que ela quis dizer.
+    return candidato > atual + 1 ? chave(hoje.getFullYear() - 1, m) : chave(hoje.getFullYear(), m);
+  }
+  return andar(0);
+}
+
 interface Rascunho {
   lancamento: any;
   criadoEm: number;
@@ -118,6 +227,7 @@ export class ConversaService {
     private readonly transfers: TransfersService,
     private readonly whatsapp: WhatsappService,
     private readonly audio: AudioService,
+    private readonly relatorio: RelatorioService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -186,12 +296,22 @@ export class ConversaService {
       };
     }
 
-    // A pergunta vem ANTES da leitura do lançamento: lida como lançamento,
+    // As perguntas vêm ANTES da leitura do lançamento: lida como lançamento,
     // "qual meu saldo" responderia "faltou valor, destino, categoria" — o
     // app tratando uma pergunta como um formulário mal preenchido.
-    if (
-      perguntaDeSaldo(texto, !!fala.valorDaFala(fala.normalizarFala(texto)))
-    ) {
+    const temValor = !!fala.valorDaFala(fala.normalizarFala(texto));
+
+    // Resultado antes de saldo, porque as duas se encostam numa palavra:
+    // "quanto sobrou?" é saldo, mas "quanto sobrou ESSE MÊS?" é resultado. A
+    // de resultado só reclama de "quanto sobrou" quando há mês na frase, então
+    // deixá-la perguntar primeiro resolve o encontro sem tirar nada da outra.
+    if (perguntaDeFatura(texto, temValor)) {
+      return { texto: await this.responderFaturas(userId, texto, ctx) };
+    }
+    if (perguntaDeResultado(texto, temValor)) {
+      return { texto: await this.responderResultado(userId, texto) };
+    }
+    if (perguntaDeSaldo(texto, temValor)) {
       return { texto: await this.responderSaldo(userId, ctx) };
     }
 
@@ -492,6 +612,146 @@ export class ConversaService {
       '\n\n' +
       linhas.join('\n')
     );
+  }
+
+  /**
+   * O resultado do mês, pela MESMA conta da tela de Resumo.
+   *
+   * A conta não está aqui nem em lugar nenhum do servidor: é o recorte do
+   * app (`relatorio.js`), que `RelatorioService` alimenta com o estado do
+   * banco. Daqui sai só o texto.
+   *
+   * Três coisas a resposta diz sempre, e cada uma existe por um engano
+   * possível:
+   *
+   *   - **o mês e o ano**, porque "esse mês" e "outubro" foram interpretados
+   *     e a pessoa precisa poder discordar;
+   *   - **que previstos contam**, porque o número do mês corrente inclui o
+   *     que ainda não aconteceu — quem comparar com o extrato do banco vai
+   *     achar diferença, e é melhor saber por quê;
+   *   - **o regime**, porque é ele que explica por que uma compra no cartão
+   *     não apareceu no mês em que foi feita. É a escolha da pessoa, lida do
+   *     cadastro dela, a mesma que a tela usa.
+   */
+  private async responderResultado(userId: string, texto: string): Promise<string> {
+    const mes = mesDaPergunta(texto, diaDoUsuario());
+    const r = await this.relatorio.doMes(userId, mes);
+
+    if (r.vazio) {
+      return (
+        '📊 ' + this.rotuloMes(mes) + '\n\nSem movimento neste mês.' +
+        '\n\n' + this.notaDoRegime(r.regime)
+      );
+    }
+
+    const sobrou = r.resultado >= 0;
+    const linhas = [
+      '📊 Resultado de ' + this.rotuloMes(mes),
+      '',
+      '📈 Receitas: ' + this.brl(r.entradas),
+      '📉 Despesas: ' + this.brl(r.saidas),
+      (sobrou ? '✅ Sobrou: ' : '🔻 Faltou: ') + this.brl(Math.abs(r.resultado)),
+    ];
+
+    // As faturas, uma a uma: é a linha que mais surpreende quem olha o
+    // número do mês, porque ela não é um gasto que a pessoa fez hoje — é a
+    // soma das compras de um cartão chegando para pagar.
+    if (r.faturas.length) {
+      linhas.push('');
+      for (const f of r.faturas.slice(0, 4)) {
+        linhas.push(
+          '💳 ' + f.cartao + ' (fatura ' + this.mesBR(f.referencia) + ', ' +
+          f.situacao.toLowerCase() + '): ' + this.brl(Math.abs(f.valor)),
+        );
+      }
+      if (r.faturas.length > 4) {
+        linhas.push('… e outras ' + (r.faturas.length - 4) + ' faturas.');
+      }
+    }
+
+    linhas.push('');
+    linhas.push(
+      '🧾 ' + r.lancamentos + (r.lancamentos === 1 ? ' lançamento' : ' lançamentos') +
+      ', previstos incluídos.',
+    );
+    linhas.push(this.notaDoRegime(r.regime));
+    return linhas.join('\n');
+  }
+
+  /**
+   * As faturas que vencem no mês, uma por cartão, com o total.
+   *
+   * Cada linha traz o mês DA FATURA e o dia do VENCIMENTO, porque as duas
+   * podem ser de meses diferentes: num cartão que fecha 25 e vence 5, a
+   * fatura de outubro é cobrada em novembro. Sem as duas datas, a pessoa
+   * confere o número contra o mês errado e acha que o app errou.
+   *
+   * O total vem por último, como no saldo: primeiro as linhas que alguém
+   * consegue conferir, depois a soma delas.
+   */
+  private async responderFaturas(userId: string, texto: string, ctx: any): Promise<string> {
+    const mes = mesDaPergunta(texto, diaDoUsuario());
+    // O cartão nomeado sai da frase pela MESMA porta do lançamento
+    // (`acharPorNome`, do recorte): "qual a fatura do Nubank" reconhece o
+    // apelido como "gastei 30 no Nubank" reconhece. Uma segunda regra de
+    // apelido aqui faria o mesmo nome valer num lugar e não valer no outro.
+    const cartao = fala.acharPorNome(ctx.cartoes, fala.normalizarFala(texto));
+    const r = await this.relatorio.faturasDoMes(userId, mes);
+
+    if (!r.cartoes) {
+      return 'Você não tem cartão cadastrado. Crie um no app, em Cartões.';
+    }
+
+    // Um cartão nomeado: só ele. Como cada cartão tem no máximo uma fatura
+    // vencendo num mês, a resposta é uma linha — e um "Total" repetindo essa
+    // mesma linha logo abaixo dela não informa nada.
+    if (cartao) {
+      const dele = r.faturas.filter((f) => f.cartaoId === cartao.id);
+      if (!dele.length) {
+        return '💳 ' + cartao.nome + ' não tem fatura vencendo em ' + this.rotuloMes(mes) + '.';
+      }
+      return (
+        '💳 ' + cartao.nome + ' — fatura que vence em ' + this.rotuloMes(mes) + '\n\n' +
+        this.linhaDeFatura(dele[0], false)
+      );
+    }
+
+    if (!r.faturas.length) {
+      return (
+        '💳 Nenhuma fatura vence em ' + this.rotuloMes(mes) + '.' + '\n' +
+        'Nenhuma compra sua caiu numa fatura que seja cobrada neste mês.'
+      );
+    }
+
+    const linhas = ['💳 Faturas que vencem em ' + this.rotuloMes(mes), ''];
+    for (const f of r.faturas) linhas.push(this.linhaDeFatura(f, true));
+    linhas.push('');
+    linhas.push('🧾 Total: ' + this.brl(r.total));
+    return linhas.join('\n');
+  }
+
+  /** Uma fatura em uma linha. `comNome` só quando a lista tem mais de um
+   * cartão — com o cartão já no cabeçalho, repetir o nome em cada linha é
+   * ruído. */
+  private linhaDeFatura(f: LinhaDeFatura, comNome: boolean): string {
+    return (
+      (comNome ? f.cartao + ' — fatura ' : 'Fatura ') +
+      this.mesBR(f.referencia) + ', ' + f.situacao.toLowerCase() + ': ' +
+      this.brl(Math.abs(f.valor)) + ' (vence ' + this.dataBR(f.vencimento) + ')'
+    );
+  }
+
+  /** O regime, em uma linha — e no vocabulário das Configurações. */
+  private notaDoRegime(regime: string): string {
+    return regime === 'compra'
+      ? '🧮 Contado pela data da compra, como você escolheu nas Configurações.'
+      : '🧮 Contado pelo vencimento da fatura: compra no cartão pesa no mês em que a fatura vence.';
+  }
+
+  /** "Novembro 2026" — como a tela escreve, pela tabela da tela. */
+  private rotuloMes(chave: string): string {
+    const p = String(chave).split('-');
+    return fala.MESES[Number(p[1]) - 1] + ' ' + p[0];
   }
 
   // ----------------------------------------------------------

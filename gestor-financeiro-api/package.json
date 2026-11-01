@@ -8,6 +8,7 @@
   "scripts": {
     "build": "nest build",
     "sync:fala": "node scripts/gerar-fala.js",
+    "sync:relatorio": "node scripts/gerar-relatorio.js",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

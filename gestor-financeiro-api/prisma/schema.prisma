@@ -39,6 +39,21 @@ enum TransactionSource {
   APP
 }
 
+/// Como os relatórios contam uma compra no cartão.
+///
+/// COMPRA  — pela data do lançamento ("quando eu gastei?").
+/// FATURA  — pela data de vencimento da fatura ("quando o dinheiro sai?").
+///
+/// As duas contagens estão certas; o que não pode é o app responder pelas
+/// duas ao mesmo tempo. Era uma preferência guardada só no navegador, e por
+/// isso o WhatsApp respondia sempre pelo padrão — dizendo um número enquanto
+/// a tela da mesma pessoa mostrava outro. Preferência que vale em mais de uma
+/// porta não cabe no localStorage de uma delas.
+enum ReportRegime {
+  COMPRA
+  FATURA
+}
+
 enum AccountType {
   CHECKING // conta corrente
   SAVINGS // poupança
@@ -95,6 +110,8 @@ model User {
   passwordHash        String    @map("password_hash")
   // Bloqueio temporário contra adivinhação de senha. Fica no banco, e não em
   // memória, para valer igual com mais de uma instância da API rodando.
+  // O regime dos relatórios (ver ReportRegime). FATURA é o padrão do app.
+  reportRegime        ReportRegime @default(FATURA) @map("report_regime")
   failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
   lockedUntil         DateTime? @map("locked_until")
   createdAt           DateTime  @default(now()) @map("created_at")

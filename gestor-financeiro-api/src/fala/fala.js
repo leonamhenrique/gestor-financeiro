@@ -677,4 +677,4 @@ function interpretarFala(frase, ctx) {
     return r;
   }
 
-module.exports = { interpretarFala, valorDaFala, chaveDeLojista, lojistaDoHistorico, regraDoLojista, MIN_LOJISTA, normalizarFala };
+module.exports = { interpretarFala, valorDaFala, chaveDeLojista, lojistaDoHistorico, regraDoLojista, MIN_LOJISTA, normalizarFala, MESES, mesPorNome, acharPorNome };

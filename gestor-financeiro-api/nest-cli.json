@@ -4,6 +4,6 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": ["fala/*.js"]
+    "assets": ["fala/*.js", "relatorio/*.js"]
   }
 }
