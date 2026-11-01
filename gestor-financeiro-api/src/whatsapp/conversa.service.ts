@@ -267,27 +267,37 @@ export class ConversaService {
     const r = rascunho.lancamento;
     if (r.transferencia)
       return this.gravarTransferencia(userId, r, rascunho.criadoEm);
+    const pedido = {
+      userId,
+      type: r.tipo,
+      amount: r.valor,
+      categoryId: r.categoriaId,
+      description: r.desc || undefined,
+      transactionDate: new Date(r.data + 'T12:00:00.000Z'),
+      bankAccountId: r.contaId || undefined,
+      creditCardId: r.cartaoId || undefined,
+      isConfirmed: r.confirmada,
+      invoiceMonth: r.cartaoId && r.faturaMes ? r.faturaMes : undefined,
+      // A mesma chave para a mesma frase: se a Meta reentregar o "sim"
+      // depois de o lançamento existir, o servidor devolve o que já está
+      // gravado em vez de lançar o dobro.
+      clientKey:
+        'wa-' + userId.slice(0, 8) + '-' + Math.round(rascunho.criadoEm / 1000),
+    };
+
     try {
-      await this.transactions.create({
-        userId,
-        type: r.tipo,
-        amount: r.valor,
-        categoryId: r.categoriaId,
-        description: r.desc || undefined,
-        transactionDate: new Date(r.data + 'T12:00:00.000Z'),
-        bankAccountId: r.contaId || undefined,
-        creditCardId: r.cartaoId || undefined,
-        isConfirmed: r.confirmada,
-        invoiceMonth: r.cartaoId && r.faturaMes ? r.faturaMes : undefined,
-        // A mesma chave para a mesma frase: se a Meta reentregar o "sim"
-        // depois de o lançamento existir, o servidor devolve o que já está
-        // gravado em vez de lançar o dobro.
-        clientKey:
-          'wa-' +
-          userId.slice(0, 8) +
-          '-' +
-          Math.round(rascunho.criadoEm / 1000),
-      });
+      // Parcelado vira SÉRIE, e não N lançamentos soltos: é o `seriesId` que
+      // faz existirem "excluir todas", editar em série e antecipar. Mesmo
+      // caminho do formulário.
+      if (r.parcelas >= 2) {
+        await this.transactions.createSeries(pedido, {
+          kind: 'INSTALLMENT',
+          frequency: 'MONTHLY',
+          count: r.parcelas,
+        });
+      } else {
+        await this.transactions.create(pedido);
+      }
     } catch (e: any) {
       this.log.error('falha ao lançar pelo WhatsApp: ' + (e?.message || e));
       return {
@@ -445,9 +455,17 @@ export class ConversaService {
   private resumo(r: any, ctx: any): string {
     const linhas = [
       r.tipo === 'INCOME' ? '↓ Receita' : '↑ Despesa',
-      'Valor: ' + this.brl(r.valor),
+      // Parcelado são dois números a conferir: o de cada parcela e o que vai
+      // ser devido no fim. Mostrar um só deixa metade da conta para a cabeça
+      // de quem lê.
+      'Valor: ' + this.brl(r.valor) + (r.parcelas ? ' por parcela' : ''),
       'Descrição: ' + (r.desc || '—'),
     ];
+    if (r.parcelas) {
+      linhas.push(
+        '🧾 Parcelas: ' + r.parcelas + 'x — total ' + this.brl(r.valorTotal),
+      );
+    }
     const cartao = ctx.cartoes.find((k: any) => k.id === r.cartaoId);
     const conta = ctx.contas.find((c: any) => c.id === r.contaId);
     linhas.push(
@@ -520,6 +538,19 @@ export class ConversaService {
   }
 
   private linhaCurta(r: any): string {
+    if (r.parcelas) {
+      return (
+        r.parcelas +
+        'x de ' +
+        this.brl(r.valor) +
+        (r.desc ? ' — ' + r.desc : '') +
+        ', a partir de ' +
+        this.dataBR(r.data) +
+        '. Total ' +
+        this.brl(r.valorTotal) +
+        '.'
+      );
+    }
     return (
       (r.tipo === 'INCOME' ? 'Receita' : 'Despesa') +
       ' de ' +

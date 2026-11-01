@@ -5448,6 +5448,54 @@
     return null;
   }
 
+  /* Parcelamento dito de duas formas, e elas querem dizer coisas diferentes:
+   *
+   *   "gastei 30 EM 3X"      → 30 é o TOTAL, e cada parcela é 10
+   *   "3X DE 30"             → 30 é a PARCELA, e o total é 90
+   *
+   * A forma da frase desfaz a ambiguidade, e é só por isso que dá para ler
+   * sem perguntar. O app guarda o valor da PARCELA (o campo da tela diz "3
+   * parcelas de R$ X — total R$ Y"), então as duas formas chegam ao mesmo
+   * lugar; o que muda é de onde sai a conta. */
+  var RE_PARCELA_DE = /\b(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\s+de\s+(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)/;
+  var RE_PARCELA_EM = /\b(?:em|parcelad[oa] em|dividid[oa] em)\s*(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\b/;
+  var RE_PARCELA_X = /\b(\d{1,2})\s*x\b/;
+
+  /** Quantidade dita em número ou por extenso. */
+  function quantidadeDita(s) {
+    if (/^\d+$/.test(s)) return parseInt(s, 10);
+    return NUMERO_PALAVRA[s] || 0;
+  }
+
+  /**
+   * Devolve {quantidade, parcela, total} ou null.
+   *
+   * `total` é recalculado como parcela × quantidade, e não copiado do que foi
+   * dito: 100 em 3x dá três de 33,33, que somam 99,99. O resumo mostra esse
+   * total, porque é o que vai existir no extrato — dizer 100 ali seria o app
+   * prometendo um centavo que ele não vai lançar.
+   *
+   * Menos de 2 ou mais de 60 não é parcelamento: é dado quebrado, e o mesmo
+   * teto da tela de lançamento.
+   */
+  function parcelamentoDaFala(texto, valorLido) {
+    var m = texto.match(RE_PARCELA_DE);
+    if (m) {
+      var nDe = quantidadeDita(m[1]);
+      var parcela = numeroBR(m[2]);
+      if (nDe >= 2 && nDe <= 60 && parcela) {
+        return { quantidade: nDe, parcela: parcela, total: Math.round(parcela * nDe * 100) / 100 };
+      }
+      return null;
+    }
+    m = texto.match(RE_PARCELA_EM) || texto.match(RE_PARCELA_X);
+    if (!m || !valorLido) return null;
+    var n = quantidadeDita(m[1]);
+    if (n < 2 || n > 60) return null;
+    var cada = Math.round((valorLido * 100) / n) / 100;
+    return { quantidade: n, parcela: cada, total: Math.round(cada * n * 100) / 100 };
+  }
+
   function mesPorNome(nome) {
     var alvo = normalizarFala(nome);
     for (var i = 0; i < MESES.length; i++) {
@@ -5877,6 +5925,14 @@
     if (/despesa|gastei|paguei|comprei|pagamento de|gasto/.test(texto) && !ENTRADA.test(texto)) r.tipo = "EXPENSE";
 
     r.valor = valorDaFala(texto);
+    // O parcelamento pode CORRIGIR o valor: em "3x de 30", o primeiro número
+    // da frase é a quantidade de parcelas, e é ele que `valorDaFala` acharia.
+    var parc = parcelamentoDaFala(texto, r.valor);
+    if (parc) {
+      r.parcelas = parc.quantidade;
+      r.valor = parc.parcela;
+      r.valorTotal = parc.total;
+    }
     if (!r.valor) r.faltando.push("valor");
 
     // Destino: cartão pelo nome, ou a forma de pagamento (débito, pix, dinheiro).
@@ -5976,7 +6032,22 @@
       return linhas;
     }
     linhas.push({ rotulo: "Tipo", valor: r.tipo === "INCOME" ? "Receita" : "Despesa", ok: true });
-    linhas.push({ rotulo: "Valor", valor: r.valor ? brl(r.valor) : "não identificado", ok: !!r.valor });
+    // Parcelado, o valor que a pessoa precisa conferir são DOIS: o de cada
+    // parcela e o que ela vai dever no fim. Mostrar um só deixaria metade da
+    // conta por fazer na cabeça de quem lê.
+    linhas.push({
+      rotulo: "Valor",
+      valor: r.valor ? brl(r.valor) + (r.parcelas ? " por parcela" : "") : "não identificado",
+      ok: !!r.valor
+    });
+    if (r.parcelas) {
+      linhas.push({
+        rotulo: "Parcelas",
+        valor: r.parcelas + "x · total " + brl(r.valorTotal),
+        meta: "a compra inteira entra agora, repartida nas próximas faturas",
+        ok: true
+      });
+    }
     // A descrição aparece mesmo vazia. Ela é opcional, então não entra no que
     // "faltou"; mas sem a linha a pessoa não tem como saber se o app guardou
     // o que ela comprou ou se deixou passar.
@@ -11502,6 +11573,43 @@
       : qtd + " ocorrências de " + brl(valor) + ". Dia 31 cai no último dia válido do mês.";
   }
 
+  /**
+   * Cria a série no aparelho, no modo demonstração. O servidor faz o mesmo
+   * por outro caminho; esta função existe para o formulário e o ditado não
+   * terem duas versões da mesma regra.
+   *
+   * Parcelamento no cartão: a compra aconteceu UMA vez, e as parcelas são ela
+   * repartida. Cada fatura futura já espera a sua, então todas nascem
+   * confirmadas — deixar as seguintes previstas era pedir para confirmar, mês
+   * a mês, uma dívida que já existe. Série de conta (aluguel, assinatura)
+   * segue diferente: as próximas ainda não aconteceram.
+   */
+  function criarSerieLocal(o) {
+    var serieId = uid("serie");
+    var corrente = new Date(o.data + "T00:00:00");
+    var parceladoNoCartao = o.tipoRep === "PARCELADA" && !!o.cartaoId;
+    for (var i = 0; i < o.qtd; i++) {
+      var primeira = i === 0;
+      var oc = {
+        id: uid("t"), tipo: o.tipo, valor: o.valor, categoriaId: o.categoriaId,
+        desc: o.tipoRep === "PARCELADA"
+          ? (o.desc || "Compra") + " (Parcela " + (i + 1) + "/" + o.qtd + ")"
+          : o.desc,
+        data: isoDate(corrente), contaId: o.contaId, cartaoId: o.cartaoId,
+        // O override de fatura é só da primeira; as outras caem na fatura da
+        // própria data. Já o "já confirmado" acompanha a compra inteira
+        // quando é parcelamento no cartão (ver acima). Desmarcar vale para
+        // todas: quem planeja uma compra parcelada não quer nada confirmado.
+        confirmada: (primeira || parceladoNoCartao) ? o.confirmada : false,
+        faturaMesOverride: primeira ? o.override : null,
+        serieId: serieId, serieIndex: i
+      };
+      state.transactions.push(oc);
+      if (oc.confirmada) aplicarEfeito(oc, 1);
+      corrente = avancarPeriodo(corrente, o.freq);
+    }
+  }
+
   function abrirLancamento(opcoes) {
     opcoes = opcoes || {};
     editandoLancamento = opcoes.editar || null;
@@ -11558,10 +11666,19 @@
     document.getElementById("l-confirmado").checked = t ? !!t.confirmada : !!opcoes.confirmada;
 
     // Repetir só existe na criação: editar não refaz uma série.
-    document.getElementById("l-repetir").checked = false;
+    // Parcelamento dito na frase chega marcado: quem falou "em 3x" já disse
+    // o que quer, e pedir para marcar de novo seria cobrar duas vezes a mesma
+    // informação.
+    var parceladoDaFala = !t && opcoes.parcelas >= 2;
+    document.getElementById("l-repetir").checked = parceladoDaFala;
     document.getElementById("l-repetir").closest(".check").style.display = t ? "none" : "";
-    document.getElementById("l-repetir-wrap").style.display = "none";
-    document.getElementById("l-rep-qtd").value = 12;
+    document.getElementById("l-repetir-wrap").style.display = parceladoDaFala ? "" : "none";
+    document.getElementById("l-rep-qtd").value = parceladoDaFala ? opcoes.parcelas : 12;
+    if (parceladoDaFala) {
+      montarOpcoes("l-rep-tipo", [{ id: "FIXA", nome: "Fixa" }, { id: "PARCELADA", nome: "Parcelada" }],
+        "PARCELADA", atualizarRepetirHelp);
+      document.getElementById("l-rep-freq").value = "MENSAL";
+    }
 
     // A fatura pode começar apontando para um mês específico (edição, ou
     // "adicionar lançamento" a partir de uma fatura), mas isso NÃO conta como
@@ -11805,36 +11922,15 @@
       atual.confirmada = confirmada; atual.faturaMesOverride = override;
       if (atual.confirmada) aplicarEfeito(atual, 1);
     } else if (document.getElementById("l-repetir").checked) {
-      var tipoRep = opcaoEscolhida("l-rep-tipo") || "FIXA";
-      var freq = document.getElementById("l-rep-freq").value;
       var qtd = parseInt(document.getElementById("l-rep-qtd").value, 10) || 1;
       if (qtd < 2) { erro.textContent = "Informe pelo menos 2 ocorrências."; return; }
-      var serieId = uid("serie");
-      var corrente = new Date(data + "T00:00:00");
-      // Parcelamento no cartão: a compra aconteceu UMA vez, e as parcelas são
-      // ela repartida. Cada fatura futura já espera a sua, então todas nascem
-      // confirmadas — deixar as seguintes previstas era pedir para confirmar,
-      // mês a mês, uma dívida que já existe. Série de conta (aluguel,
-      // assinatura) segue diferente: as próximas ainda não aconteceram.
-      var parceladoNoCartao = tipoRep === "PARCELADA" && !!cartaoId;
-      for (var i = 0; i < qtd; i++) {
-        var primeira = i === 0;
-        var oc = {
-          id: uid("t"), tipo: tipo, valor: valor, categoriaId: categoriaId,
-          desc: tipoRep === "PARCELADA" ? (desc || "Compra") + " (Parcela " + (i + 1) + "/" + qtd + ")" : desc,
-          data: isoDate(corrente), contaId: contaId, cartaoId: cartaoId,
-          // O override de fatura é só da primeira; as outras caem na fatura
-          // da própria data. Já o "já confirmado" acompanha a compra inteira
-          // quando é parcelamento no cartão (ver acima). Desmarcar vale para
-          // todas: quem planeja uma compra parcelada não quer nada confirmado.
-          confirmada: (primeira || parceladoNoCartao) ? confirmada : false,
-          faturaMesOverride: primeira ? override : null,
-          serieId: serieId, serieIndex: i
-        };
-        state.transactions.push(oc);
-        if (oc.confirmada) aplicarEfeito(oc, 1);
-        corrente = avancarPeriodo(corrente, freq);
-      }
+      criarSerieLocal({
+        tipo: tipo, valor: valor, categoriaId: categoriaId, desc: desc, data: data,
+        contaId: contaId, cartaoId: cartaoId, confirmada: confirmada, override: override,
+        tipoRep: opcaoEscolhida("l-rep-tipo") || "FIXA",
+        freq: document.getElementById("l-rep-freq").value,
+        qtd: qtd
+      });
     } else {
       var nova = {
         id: uid("t"), tipo: tipo, valor: valor, categoriaId: categoriaId, desc: desc,
@@ -12136,7 +12232,7 @@
     return {
       tipo: r.tipo, valor: r.valor || "", desc: r.desc, data: r.data,
       contaId: r.contaId, cartaoId: r.cartaoId, categoriaId: r.categoriaId,
-      confirmada: r.confirmada, faturaMes: r.faturaMes
+      confirmada: r.confirmada, faturaMes: r.faturaMes, parcelas: r.parcelas || 0
     };
   }
 
@@ -12159,6 +12255,12 @@
       };
       if (r.contaId) corpoVoz.bankAccountId = r.contaId; else corpoVoz.creditCardId = r.cartaoId;
       if (r.cartaoId && r.faturaMes) corpoVoz.invoiceMonth = r.faturaMes;
+      // Parcelado dito na frase vira série de verdade, e não um lançamento
+      // solto com o valor da parcela — que é o que aconteceria se o número
+      // de parcelas fosse lido e depois esquecido.
+      if (r.parcelas >= 2) {
+        corpoVoz.repeat = { kind: "INSTALLMENT", frequency: "MONTHLY", count: r.parcelas };
+      }
       var resVoz = await lancarComFila(corpoVoz, "lançar");
       if (!resVoz.ok) return;
       // Depois do sucesso, como no formulário: ditar "sorvete alimentação"
@@ -12172,13 +12274,22 @@
       }
       return;
     }
-    var nova = {
-      id: uid("t"), tipo: r.tipo, valor: r.valor, categoriaId: r.categoriaId,
-      desc: r.desc, data: r.data, contaId: r.contaId, cartaoId: r.cartaoId,
-      confirmada: r.confirmada, faturaMesOverride: r.cartaoId ? r.faturaMes : null
-    };
-    state.transactions.push(nova);
-    if (nova.confirmada) aplicarEfeito(nova, 1);
+    if (r.parcelas >= 2) {
+      criarSerieLocal({
+        tipo: r.tipo, valor: r.valor, categoriaId: r.categoriaId, desc: r.desc, data: r.data,
+        contaId: r.contaId, cartaoId: r.cartaoId, confirmada: r.confirmada,
+        override: r.cartaoId ? r.faturaMes : null,
+        tipoRep: "PARCELADA", freq: "MENSAL", qtd: r.parcelas
+      });
+    } else {
+      var nova = {
+        id: uid("t"), tipo: r.tipo, valor: r.valor, categoriaId: r.categoriaId,
+        desc: r.desc, data: r.data, contaId: r.contaId, cartaoId: r.cartaoId,
+        confirmada: r.confirmada, faturaMesOverride: r.cartaoId ? r.faturaMes : null
+      };
+      state.transactions.push(nova);
+      if (nova.confirmada) aplicarEfeito(nova, 1);
+    }
     talvezAprenderDoLancamento(r.desc, r.categoriaId);
     persist(); renderAll(); fechar("dlg-voz");
   });

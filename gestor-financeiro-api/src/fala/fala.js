@@ -104,6 +104,12 @@ var TRANSFERENCIA = /transferenc|transferir|transferi\b|transfiro|transferido|tr
 
 var RE_PARCELA = /^(.*?)\s*-\s*Parcela\s+(\d+)\/(\d+)$/i;
 
+var RE_PARCELA_DE = /\b(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\s+de\s+(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)/;
+
+var RE_PARCELA_EM = /\b(?:em|parcelad[oa] em|dividid[oa] em)\s*(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\b/;
+
+var RE_PARCELA_X = /\b(\d{1,2})\s*x\b/;
+
 var MIN_LOJISTA = 5;
 
 function byId(list, id) { return list.filter(function (x) { return x.id === id; })[0]; }
@@ -230,6 +236,29 @@ function valorDaFala(texto) {
       return n;
     }
     return null;
+  }
+
+function quantidadeDita(s) {
+    if (/^\d+$/.test(s)) return parseInt(s, 10);
+    return NUMERO_PALAVRA[s] || 0;
+  }
+
+function parcelamentoDaFala(texto, valorLido) {
+    var m = texto.match(RE_PARCELA_DE);
+    if (m) {
+      var nDe = quantidadeDita(m[1]);
+      var parcela = numeroBR(m[2]);
+      if (nDe >= 2 && nDe <= 60 && parcela) {
+        return { quantidade: nDe, parcela: parcela, total: Math.round(parcela * nDe * 100) / 100 };
+      }
+      return null;
+    }
+    m = texto.match(RE_PARCELA_EM) || texto.match(RE_PARCELA_X);
+    if (!m || !valorLido) return null;
+    var n = quantidadeDita(m[1]);
+    if (n < 2 || n > 60) return null;
+    var cada = Math.round((valorLido * 100) / n) / 100;
+    return { quantidade: n, parcela: cada, total: Math.round(cada * n * 100) / 100 };
   }
 
 function mesPorNome(nome) {
@@ -526,6 +555,14 @@ function interpretarFala(frase, ctx) {
     if (/despesa|gastei|paguei|comprei|pagamento de|gasto/.test(texto) && !ENTRADA.test(texto)) r.tipo = "EXPENSE";
 
     r.valor = valorDaFala(texto);
+    // O parcelamento pode CORRIGIR o valor: em "3x de 30", o primeiro número
+    // da frase é a quantidade de parcelas, e é ele que `valorDaFala` acharia.
+    var parc = parcelamentoDaFala(texto, r.valor);
+    if (parc) {
+      r.parcelas = parc.quantidade;
+      r.valor = parc.parcela;
+      r.valorTotal = parc.total;
+    }
     if (!r.valor) r.faltando.push("valor");
 
     // Destino: cartão pelo nome, ou a forma de pagamento (débito, pix, dinheiro).

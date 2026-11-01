@@ -22,6 +22,7 @@ describe('ConversaService', () => {
   let transactions: any;
   let transfers: any;
   let transferidas: any[];
+  let series: any[];
   let contaUnica: any;
   let whatsapp: any;
   let audio: any;
@@ -33,6 +34,7 @@ describe('ConversaService', () => {
   beforeEach(() => {
     criados = [];
     transferidas = [];
+    series = [];
     aprendidas = [];
     dono = 'user-1';
     ouvido = null;
@@ -78,6 +80,10 @@ describe('ConversaService', () => {
       create: jest.fn(async (input: any) => {
         criados.push(input);
         return { id: 't1', ...input };
+      }),
+      createSeries: jest.fn(async (input: any, repeat: any) => {
+        series.push({ input, repeat });
+        return { series: { id: 's1' }, transactions: [] };
       }),
     };
 
@@ -349,6 +355,52 @@ describe('ConversaService', () => {
       const r = await service.responderA(msg('gastei 30 reais no debito da conta Nubank'));
       expect(r?.texto).toMatch(/Faltou categoria/);
       expect(r?.texto).not.toContain('Suas contas');
+    });
+  });
+
+  describe('compra parcelada', () => {
+    const frase = 'gastei 30 em 3x na padaria no cartao nubank categoria alimentacao';
+
+    it('o resumo mostra a parcela E o total', async () => {
+      const r = await service.responderA(msg(frase));
+      expect(r?.texto).toContain('Valor: R$ 10,00 por parcela');
+      expect(r?.texto).toContain('Parcelas: 3x — total R$ 30,00');
+      // Nada gravado antes do sim, aqui tambem.
+      expect(series).toHaveLength(0);
+    });
+
+    it('o sim cria uma SERIE, nao tres lancamentos soltos', async () => {
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(0);
+      expect(series).toHaveLength(1);
+      expect(series[0].repeat).toEqual({
+        kind: 'INSTALLMENT',
+        frequency: 'MONTHLY',
+        count: 3,
+      });
+      // O valor que vai para o banco e o da PARCELA, como no formulario.
+      expect(series[0].input.amount).toBe(10);
+      expect(r?.texto).toContain('3x de R$ 10,00');
+      expect(r?.texto).toContain('Total R$ 30,00');
+    });
+
+    it('"3x de 30" le o valor como parcela', async () => {
+      await service.responderA(
+        msg('comprei em 3x de 30 na padaria no cartao nubank categoria alimentacao'),
+      );
+      await service.responderA(msg('sim'));
+      expect(series[0].input.amount).toBe(30);
+      expect(series[0].repeat.count).toBe(3);
+    });
+
+    it('sem parcelamento continua sendo lancamento solto', async () => {
+      await service.responderA(
+        msg('gastei 30 na padaria no cartao nubank categoria alimentacao'),
+      );
+      await service.responderA(msg('sim'));
+      expect(series).toHaveLength(0);
+      expect(criados).toHaveLength(1);
     });
   });
 

@@ -47,6 +47,9 @@ const CONSTANTES_LINHA = [
   'var ENTRADA = ',
   'var TRANSFERENCIA = ',
   'var RE_PARCELA = ',
+  'var RE_PARCELA_DE = ',
+  'var RE_PARCELA_EM = ',
+  'var RE_PARCELA_X = ',
   'var MIN_LOJISTA = ',
 ];
 
@@ -75,6 +78,8 @@ const FUNCOES = [
   'valorPorExtenso',
   'numeroBR',
   'valorDaFala',
+  'quantidadeDita',
+  'parcelamentoDaFala',
   'mesPorNome',
   'escaparRegex',
   'posicaoDaPalavra',
