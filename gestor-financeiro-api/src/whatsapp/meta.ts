@@ -18,11 +18,13 @@ export interface MensagemRecebida {
    * Normalizado AQUI, na fronteira, para o resto do módulo nunca ver as duas
    * formas do mesmo celular brasileiro. */
   de: string;
-  /** O texto. Áudio ainda não: ver `audioId`. */
+  /** O texto. Numa foto, é a LEGENDA dela — que é por onde a pessoa diz
+   * onde lançar ("cartão de crédito nubank"). */
   texto: string;
-  /** Id da mídia, quando a mensagem foi um áudio. Guardado para o passo
-   * seguinte — hoje o app responde que ainda não ouve. */
+  /** Id da mídia, quando a mensagem foi um áudio. */
   audioId?: string;
+  /** Id da mídia, quando a mensagem foi uma imagem (foto de cupom). */
+  imagemId?: string;
   /** Id da mensagem na Meta. Serve para não processar a mesma duas vezes:
    * a Meta reentrega quando o webhook demora a responder. */
   id: string;
@@ -80,6 +82,16 @@ export function mensagensDoPayload(corpo: any): MensagemRecebida[] {
           saida.push({ de, id, texto: String(m.text.body) });
         } else if (m.type === 'audio' && m.audio?.id) {
           saida.push({ de, id, texto: '', audioId: String(m.audio.id) });
+        } else if (m.type === 'image' && m.image?.id) {
+          // A legenda vem junto e NÃO é descartada: é nela que a pessoa diz
+          // onde lançar. Foto sem legenda é mensagem válida também — a
+          // resposta pergunta o destino.
+          saida.push({
+            de,
+            id,
+            texto: String(m.image.caption || ''),
+            imagemId: String(m.image.id),
+          });
         } else if (m.type === 'interactive') {
           // Botão tocado. Vale o ID, e não o rótulo: o id é nosso ("sim",
           // "nao") e não muda quando alguém melhora o texto do botão. Ler o

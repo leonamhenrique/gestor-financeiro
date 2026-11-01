@@ -126,6 +126,14 @@ const EXPORTADAS = [
   // tem de reconhecer o apelido pelas MESMAS regras que o lancamento usa
   // (sem acento, o nome mais longo primeiro, palavra de quatro letras).
   'acharPorNome',
+  // O cupom traz valor, data e estabelecimento; a legenda traz o destino. O
+  // que junta os dois precisa das MESMAS contas do leitor de frase: a fatura
+  // sugerida pela data da compra, a chave do mes e a regra de lojista do
+  // jeito que o formulario digitado a consulta.
+  'faturaSugerida',
+  'monthKey',
+  'regraParaDigitado',
+  'byId',
 ];
 
 const CABECALHO = `// ============================================================

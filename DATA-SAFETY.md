@@ -54,8 +54,9 @@ tabelas ficou com zero linhas em todas as 19 depois do pedido.
 | Informações pessoais | **Número de telefone** | **Opcional** | Funcionalidade do app | Não |
 | Mensagens | **Outras mensagens no app** | **Opcional** | Funcionalidade do app | Não |
 | Arquivos de áudio | **Gravações de voz ou som** | **Opcional** | Funcionalidade do app | Não |
+| Fotos e vídeos | **Fotos** | **Opcional** | Funcionalidade do app | Não |
 
-As três últimas existem por causa de **um** recurso, e só valem para quem o
+As quatro últimas existem por causa de **um** recurso, e só valem para quem o
 liga: lançar mandando mensagem para o WhatsApp do app. Quem não conecta o
 número não produz nenhuma delas — ver *Lançar pelo WhatsApp*, nos casos que
 enganam.
@@ -86,7 +87,7 @@ ligada*.
 | Informações de pagamento | Nada de pagamento sai do aparelho hoje |
 | Saúde e fitness | Não se aplica |
 | E-mails e SMS | O app não lê nem envia nenhum dos dois |
-| Fotos e vídeos | Não há acesso a câmera nem galeria |
+| ~~Fotos e vídeos~~ | **Mudou em 01/11/2026**: o app continua sem acessar câmera e galeria, mas passou a receber foto de cupom pelo WhatsApp — ver a tabela do que é coletado |
 | Arquivos e documentos, Agenda, Contatos | Sem acesso |
 | Atividade em apps | **Não há analytics.** Nenhuma interação é registrada |
 | Navegação na Web | Não se aplica |
@@ -165,18 +166,41 @@ este caso não tem a ambiguidade do outro. É coleta, sem discussão.
 Nada disso acontece para quem não conecta o WhatsApp, e o recurso inteiro pode
 ser desligado em *Perfil → WhatsApp → Desligar*, o que apaga o vínculo na hora.
 
-**O áudio só sai se o servidor estiver configurado para isso.** Sem as
-variáveis `STT_PROVIDER` e `STT_API_KEY`, o app responde por escrito que não
-escuta e nenhum byte de áudio deixa o servidor — o padrão é mudo de propósito,
-para que mandar áudio para um terceiro seja uma decisão de quem opera, e não
+**Foto de cupom — coletada, opcional, efêmera.** A foto mandada pelo WhatsApp
+é baixada, enviada ao serviço de leitura de imagem e descartada. Dela saem
+quatro campos — valor total, data, forma de pagamento e estabelecimento — que
+viram o lançamento que a pessoa confirma. A imagem não é gravada, nem em
+arquivo nem em coluna.
+
+Dois pontos que esta declaração não pode arredondar:
+
+- **a imagem INTEIRA é enviada ao terceiro**, e um cupom traz mais que o
+  total: os itens comprados, o CNPJ da loja, o nome do operador do caixa e os
+  dígitos mascarados do cartão da maquininha. Aproveitar só quatro campos não
+  muda o que foi transmitido, e é isso que o formulário pergunta;
+- **número de cartão nunca é extraído nem guardado**, nem mascarado. É a mesma
+  regra que vale no resto do app, onde só existem bandeira, últimos quatro e
+  validade, digitados pela pessoa.
+
+O app continua **sem pedir permissão de câmera ou galeria**: quem escolhe e
+envia a foto é o WhatsApp, no aparelho, pela interface dele. Ainda assim a
+categoria *Fotos e vídeos* é declarada, porque o dado sai do aparelho — que é
+a definição que o Google usa.
+
+**Áudio e foto só saem se o servidor estiver configurado para isso.** Sem as
+variáveis `STT_PROVIDER` e `STT_API_KEY` (áudio) e `VISION_PROVIDER` /
+`VISION_API_KEY` (imagem), o app responde por escrito que não escuta nem
+enxerga, e nenhum byte deixa o servidor — o padrão é mudo e cego de propósito,
+para que mandar conteúdo a um terceiro seja decisão de quem opera, e não
 efeito colateral de um deploy.
 
 ### Infraestrutura não é compartilhamento
 
 Cloudflare (serve as telas), Render (hospeda API e banco), Resend (entrega o
-e-mail de redefinição) e o **serviço de transcrição** (recebe o áudio do
-recado de voz, devolve o texto e não o guarda) recebem dados para executar o
-serviço em nome do app — são operadores, não destinatários. A orientação do
+e-mail de redefinição) e o **serviço de transcrição e leitura de imagem**
+(recebe o áudio do recado de voz e a foto do cupom, devolve texto e não os
+guarda) recebem dados para executar o serviço em nome do app — são operadores,
+não destinatários. A orientação do
 Google exclui de "compartilhamento" a transferência para prestador que
 processa em seu nome.
 
@@ -203,7 +227,8 @@ As tabelas de WhatsApp que existem hoje — `whatsapp_links` e
 `whatsapp_pairings` — são outra coisa: nasceram com uso definido, guardam
 hash, datas e identificadores, e **nenhuma delas tem o número legível nem
 qualquer trecho de conversa**. É por causa delas, e do recurso que elas
-sustentam, que esta declaração passou a incluir telefone, mensagens e áudio.
+sustentam, que esta declaração passou a incluir telefone, mensagens, áudio e
+foto.
 
 ---
 

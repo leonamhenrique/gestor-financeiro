@@ -18,13 +18,12 @@
 // ============================================================
 
 import { Injectable, Logger } from '@nestjs/common';
+import { baixarMidia } from './midia';
 
 /** Teto do arquivo. Um recado de voz de um lançamento tem segundos; vários
  * megabytes aqui é outra coisa — áudio errado, encaminhamento de podcast, ou
  * alguém testando o limite da porta. Recusar é mais barato que transcrever. */
 const TETO_BYTES = 2 * 1024 * 1024;
-
-const GRAPH = 'https://graph.facebook.com/v21.0';
 
 @Injectable()
 export class AudioService {
@@ -60,31 +59,11 @@ export class AudioService {
     }
   }
 
-  /** O download é em dois tempos na Graph API: primeiro o endereço, depois os
-   * bytes — e o segundo pedido também vai assinado com o token. */
-  private async baixar(mediaId: string): Promise<{ bytes: Buffer; mime: string } | null> {
-    const token = process.env.WHATSAPP_TOKEN;
-    if (!token) return null;
-
-    const meta = await fetch(`${GRAPH}/${encodeURIComponent(mediaId)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!meta.ok) return null;
-    const dados: any = await meta.json();
-    if (!dados?.url) return null;
-
-    // O tamanho vem na resposta de cima: dá para recusar ANTES de baixar.
-    if (Number(dados.file_size) > TETO_BYTES) {
-      this.log.warn('áudio recusado por tamanho: ' + dados.file_size + ' bytes');
-      return null;
-    }
-
-    const bin = await fetch(dados.url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!bin.ok) return null;
-    const bytes = Buffer.from(await bin.arrayBuffer());
-    if (bytes.length > TETO_BYTES) return null;
-
-    return { bytes, mime: String(dados.mime_type || 'audio/ogg') };
+  private async baixar(mediaId: string) {
+    const m = await baixarMidia(mediaId, TETO_BYTES, this.log, 'áudio');
+    // O formato do WhatsApp é OGG/Opus; o padrão só cobre a resposta sem
+    // mime_type, que os transcritores recusariam sem nome de arquivo.
+    return m && { bytes: m.bytes, mime: m.mime || 'audio/ogg' };
   }
 
   private chave(): string | undefined {

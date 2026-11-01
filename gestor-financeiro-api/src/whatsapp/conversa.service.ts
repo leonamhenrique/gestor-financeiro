@@ -20,6 +20,7 @@ import { LinhaDeFatura, RelatorioService } from '../relatorio/relatorio.service'
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
+import { Cupom, CupomService } from './cupom.service';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fala = require('../fala/fala.js');
@@ -258,6 +259,7 @@ export class ConversaService {
     private readonly transfers: TransfersService,
     private readonly whatsapp: WhatsappService,
     private readonly audio: AudioService,
+    private readonly cupom: CupomService,
     private readonly relatorio: RelatorioService,
   ) {}
 
@@ -302,9 +304,142 @@ export class ConversaService {
       };
     }
 
+    if (m.imagemId) return this.lerCupom(userId, m.imagemId, (m.texto || '').trim());
+
     const texto = (m.texto || '').trim();
     if (!texto) return null;
     return this.lerFrase(userId, texto);
+  }
+
+  /**
+   * A foto de um cupom, com a legenda dizendo onde lançar.
+   *
+   * **Duas fontes, sem sobreposição**, e é isso que mantém uma regra só no
+   * app: o CUPOM diz valor, data, parcelas e estabelecimento; a LEGENDA diz
+   * destino e, se a pessoa quiser, categoria. A legenda passa pelo mesmo
+   * leitor de frase de sempre.
+   *
+   * O nome da loja NÃO entra no texto lido pelo leitor, e isso é deliberado:
+   * ele procura conta, cartão e categoria por nome dentro da frase, e um
+   * cupom de uma loja chamada "Itaú Supermercados" mandaria o lançamento
+   * para a conta errada — calado. O estabelecimento só vira descrição, e é
+   * dela que sai a regra de lojista, pela mesma chamada que o formulário
+   * digitado faz.
+   */
+  private async lerCupom(
+    userId: string,
+    imagemId: string,
+    legenda: string,
+  ): Promise<Resposta | null> {
+    if (!this.cupom.disponivel()) {
+      return {
+        texto:
+          'Ainda não leio foto por aqui. ' +
+          'Escreva a frase: "gastei 182,94 no mercado no crédito do nubank".',
+      };
+    }
+
+    const ctx = await this.contextoDoUsuario(userId);
+    if (!ctx.contas.length && !ctx.cartoes.length) {
+      return { texto: 'Antes de lançar por aqui, cadastre uma conta ou um cartão no app.' };
+    }
+
+    const lido = await this.cupom.ler(imagemId);
+    if (!lido) {
+      return {
+        texto:
+          'Não consegui ler esse cupom. Mande a foto mais de perto e sem dobras, ' +
+          'ou escreva a frase: "gastei 182,94 no mercado no crédito do nubank".',
+      };
+    }
+
+    const r = this.juntarCupomComLegenda(lido, legenda, ctx);
+
+    if (r.faltando.length) {
+      const nomes = r.faltando.includes('destino') ? ' ' + this.nomesDeDestino(ctx) : '';
+      const categorias = r.faltando.includes('categoria')
+        ? ' ' + this.ajudaDeCategoria(legenda, r.tipo, ctx)
+        : '';
+      return {
+        texto:
+          this.resumo(r, ctx) +
+          '\n\nLi o cupom, mas faltou ' +
+          r.faltando.join(', ') +
+          '.' +
+          nomes +
+          categorias +
+          ' Responda com essa parte, ou lance no app.',
+      };
+    }
+
+    this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
+    return { texto: this.resumo(r, ctx) + '\n\nConfirma?', confirmar: true };
+  }
+
+  /**
+   * O lançamento que nasce do cupom mais a legenda.
+   *
+   * As contas que o leitor de frase faria, feitas aqui com as MESMAS funções
+   * dele (ver `fala.js`): a fatura sugerida pela data da compra, a regra de
+   * lojista pela descrição e o rateio da parcela. O que não é dele é a
+   * decisão de onde cada campo vem — e essa é a razão deste método existir.
+   */
+  private juntarCupomComLegenda(cupom: Cupom, legenda: string, ctx: any): any {
+    // A legenda pode ser vazia: o leitor devolve o esqueleto com destino e
+    // categoria faltando, que é exatamente o que a resposta vai perguntar.
+    const r = fala.interpretarFala(legenda, ctx);
+
+    // Cupom é compra: nunca receita, e nunca transferência.
+    r.tipo = 'EXPENSE';
+    r.transferencia = false;
+
+    r.valor = cupom.valor;
+    if (cupom.parcelas >= 2) {
+      r.parcelas = cupom.parcelas;
+      r.valor = Math.round((cupom.valor * 100) / cupom.parcelas) / 100;
+      r.valorTotal = Math.round(r.valor * cupom.parcelas * 100) / 100;
+      // O mesmo aviso do centavo da frase falada: parcelas iguais nem sempre
+      // somam o total do cupom.
+      if (r.valorTotal !== cupom.valor) r.valorDito = cupom.valor;
+    }
+
+    if (cupom.data) r.data = cupom.data;
+
+    // A descrição da legenda ganha: quem escreveu "almoço do time" quis isso.
+    if (!r.desc && cupom.estabelecimento) r.desc = cupom.estabelecimento;
+
+    // A categoria aprendida do lojista, quando a legenda não disse — a mesma
+    // consulta que o formulário digitado faz, com a mesma guarda de tipo.
+    if (!r.categoriaId && r.desc) {
+      const regra = fala.regraParaDigitado(ctx.regras, r.desc);
+      const daRegra = regra ? fala.byId(ctx.categorias, regra.categoriaId) : null;
+      const serve =
+        daRegra &&
+        fala
+          .categoriasLancaveis(r.tipo, ctx.categorias)
+          .some((c: any) => c.id === daRegra.id);
+      if (serve) {
+        r.categoriaId = daRegra.id;
+        r.categoriaDoLojista = true;
+      }
+    }
+
+    // A fatura segue a data do CUPOM, e não a do dia em que a foto chegou:
+    // recalculada aqui porque o leitor a calculou com a data da legenda.
+    const cartao = r.cartaoId ? fala.byId(ctx.cartoes, r.cartaoId) : null;
+    r.faturaMes = cartao && cartao.fechamento ? fala.monthKey(fala.faturaSugerida(r.data, cartao)) : null;
+
+    // Cupom na mão é compra feita: nasce confirmada, como a compra no cartão
+    // no leitor de frase.
+    r.confirmada = true;
+
+    // O que falta, recontado depois da junção — a lista do leitor foi feita
+    // só com a legenda, quando o valor ainda não existia.
+    r.faltando = [];
+    if (!r.valor) r.faltando.push('valor');
+    if (!r.contaId && !r.cartaoId) r.faltando.push('destino');
+    if (!r.categoriaId) r.faltando.push('categoria');
+    return r;
   }
 
   /** Daqui para baixo tanto faz se a frase foi falada ou digitada. */

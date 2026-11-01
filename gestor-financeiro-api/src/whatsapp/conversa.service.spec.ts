@@ -23,6 +23,7 @@ import {
   regimeDaPergunta,
 } from './conversa.service';
 import type { FaturasDoMes, RelatorioService, ResultadoDoMes } from '../relatorio/relatorio.service';
+import type { Cupom, CupomService } from './cupom.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
 import { createHmac } from 'node:crypto';
 
@@ -40,6 +41,10 @@ describe('ConversaService', () => {
   let movimentos: any[];
   let whatsapp: any;
   let audio: any;
+  /* Tipado como o servico: um mock solto poderia devolver um campo que o
+   * leitor de cupom nao devolve, e o teste passaria defendendo uma crenca. */
+  let lidoDoCupom: Cupom | null;
+  let cupom: Pick<CupomService, 'disponivel' | 'ler'>;
   let criados: any[];
   let aprendidas: any[];
   let dono: string | null;
@@ -133,6 +138,17 @@ describe('ConversaService', () => {
       ouvir: jest.fn(async () => ouvido),
     };
 
+    lidoDoCupom = {
+      valor: 182.94,
+      data: '2026-10-30',
+      parcelas: 1,
+      estabelecimento: 'DMA Distribuidora',
+    };
+    cupom = {
+      disponivel: jest.fn(() => true),
+      ler: jest.fn(async () => lidoDoCupom),
+    };
+
     transfers = {
       create: jest.fn(async (input: any) => {
         transferidas.push(input);
@@ -199,6 +215,7 @@ describe('ConversaService', () => {
       transfers,
       whatsapp,
       audio,
+      cupom as CupomService,
       relatorio as RelatorioService,
     );
   });
@@ -448,6 +465,99 @@ describe('ConversaService', () => {
       const r = await service.responderA(msg('gastei 30 reais no debito da conta Nubank'));
       expect(r?.texto).toMatch(/Faltou categoria/);
       expect(r?.texto).not.toContain('Suas contas');
+    });
+  });
+
+  describe('foto de cupom fiscal', () => {
+    const foto = (legenda = '', id = 'm' + Math.random()) => ({
+      de: DE,
+      texto: legenda,
+      id,
+      imagemId: 'img-1',
+    });
+
+    it('o cupom da valor e data; a legenda diz onde lancar', async () => {
+      const r = await service.responderA(foto('cartao de credito nubank categoria compras'));
+      expect(r?.texto).toContain('💵 Valor: R$ 182,94');
+      expect(r?.texto).toContain('📅 Data: 30/10/2026');
+      expect(r?.texto).toContain('💳 Cartão: Nubank Roxinho');
+      expect(r?.texto).toContain('🏷️ Categoria: Compras');
+      expect(r?.confirmar).toBe(true);
+      // Nada gravado antes do sim, aqui tambem.
+      expect(criados).toHaveLength(0);
+    });
+
+    it('o estabelecimento vira a descricao', async () => {
+      const r = await service.responderA(foto('credito do nubank categoria compras'));
+      expect(r?.texto).toContain('📝 Descrição: DMA Distribuidora');
+    });
+
+    it('a descricao da legenda ganha da do cupom', async () => {
+      const r = await service.responderA(
+        foto('credito do nubank categoria compras descricao almoco do time'),
+      );
+      expect(r?.texto).toContain('📝 Descrição: almoco do time');
+    });
+
+    it('a fatura segue a data do CUPOM, nao a do dia em que a foto chegou', async () => {
+      // O cartao da fixture fecha dia 1: compra de 30/10 cai na fatura de
+      // novembro. Se a data usada fosse a de hoje, seria outra fatura.
+      const r = await service.responderA(foto('credito do nubank categoria compras'));
+      expect(r?.texto).toContain('🧾 Fatura: 11/2026');
+    });
+
+    it('cupom parcelado reparte, e avisa o centavo', async () => {
+      lidoDoCupom = { ...lidoDoCupom!, valor: 20, parcelas: 3 };
+      const r = await service.responderA(foto('credito do nubank categoria compras'));
+      expect(r?.texto).toContain('💵 Valor: R$ 6,67 por parcela');
+      expect(r?.texto).toContain('🔢 Parcelas: 3x — total R$ 20,01 (R$ 20,00 não divide certo por 3)');
+    });
+
+    it('o sim grava o que foi lido', async () => {
+      await service.responderA(foto('credito do nubank categoria compras'));
+      const r = await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(1);
+      expect(criados[0]).toMatchObject({
+        amount: 182.94,
+        // A data do cupom, e nao a do dia em que a foto chegou.
+        transactionDate: new Date('2026-10-30T12:00:00.000Z'),
+        creditCardId: 'k1',
+        isConfirmed: true,
+      });
+      expect(r?.texto).toContain('Lançado');
+    });
+
+    it('foto sem legenda pergunta onde lancar, mostrando o que ja leu', async () => {
+      const r = await service.responderA(foto(''));
+      expect(r?.texto).toContain('💵 Valor: R$ 182,94');
+      expect(r?.texto).toContain('Li o cupom, mas faltou destino, categoria.');
+      expect(r?.texto).toContain('Suas contas: Nubank, Cofre');
+      expect(r?.texto).toContain('Suas categorias de despesa:');
+      expect(r?.confirmar).toBeFalsy();
+    });
+
+    it('cupom ilegivel diz o que fazer, e nao some', async () => {
+      lidoDoCupom = null;
+      const r = await service.responderA(foto('credito do nubank'));
+      expect(r?.texto).toMatch(/n[ãa]o consegui ler esse cupom/i);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('sem leitor configurado, o app diz que nao enxerga', async () => {
+      cupom.disponivel = jest.fn(() => false);
+      const r = await service.responderA(foto('credito do nubank'));
+      expect(r?.texto).toMatch(/ainda n[ãa]o leio foto/i);
+      // E nenhum byte sai: nem tenta.
+      expect(cupom.ler).not.toHaveBeenCalled();
+    });
+
+    it('o lojista aprendido classifica o cupom seguinte', async () => {
+      // A regra da fixture e "magazine"; o estabelecimento do cupom passa
+      // pela MESMA consulta que o formulario digitado faz.
+      lidoDoCupom = { ...lidoDoCupom!, estabelecimento: 'Magazine Luiza' };
+      const r = await service.responderA(foto('credito do nubank'));
+      expect(r?.texto).toContain('🏷️ Categoria: Compras (do lojista)');
+      expect(r?.confirmar).toBe(true);
     });
   });
 
