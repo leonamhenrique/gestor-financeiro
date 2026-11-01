@@ -51,6 +51,14 @@ tabelas ficou com zero linhas em todas as 19 depois do pedido.
 | Informações pessoais | **Endereço de e-mail** | Obrigatório | Funcionalidade do app; Gerenciamento de contas | Não |
 | Informações pessoais | **IDs de usuários** | Obrigatório | Funcionalidade do app; Gerenciamento de contas | Não |
 | Informações financeiras | **Outras informações financeiras** | Obrigatório | Funcionalidade do app | Não |
+| Informações pessoais | **Número de telefone** | **Opcional** | Funcionalidade do app | Não |
+| Mensagens | **Outras mensagens no app** | **Opcional** | Funcionalidade do app | Não |
+| Arquivos de áudio | **Gravações de voz ou som** | **Opcional** | Funcionalidade do app | Não |
+
+As três últimas existem por causa de **um** recurso, e só valem para quem o
+liga: lançar mandando mensagem para o WhatsApp do app. Quem não conecta o
+número não produz nenhuma delas — ver *Lançar pelo WhatsApp*, nos casos que
+enganam.
 
 **Nome e e-mail** (`User.name`, `User.email`): informados no cadastro. O e-mail
 identifica a conta e é por onde chega a redefinição de senha.
@@ -74,10 +82,10 @@ ligada*.
 | Categoria | Por quê |
 | --- | --- |
 | Local (aproximado ou exato) | O app nunca pede nem usa localização |
-| Endereço, Telefone | Não há campo que peça — ver *Tabelas mortas* |
+| Endereço | Não há campo que peça |
 | Informações de pagamento | Nada de pagamento sai do aparelho hoje |
 | Saúde e fitness | Não se aplica |
-| Mensagens (e-mail, SMS, no app) | O app não lê nem envia mensagens do usuário |
+| E-mails e SMS | O app não lê nem envia nenhum dos dois |
 | Fotos e vídeos | Não há acesso a câmera nem galeria |
 | Arquivos e documentos, Agenda, Contatos | Sem acesso |
 | Atividade em apps | **Não há analytics.** Nenhuma interação é registrada |
@@ -106,7 +114,7 @@ motivos somados:
    `/billing/` — a assinatura opera sobre estado local. Pela definição do
    formulário, não há coleta.
 
-### Ditado por voz: o áudio sai, mas não pelo app
+### Ditado por voz na tela: o áudio sai, mas não pelo app
 
 O app permite lançar falando, usando o **reconhecimento de voz do navegador**
 (Web Speech API). No Chrome e no Android, isso significa que o áudio vai para
@@ -127,27 +135,75 @@ O raciocínio: declarar a mais não é infração; declarar a menos é. E a pol�
 de privacidade já divulga esse comportamento, então omitir aqui criaria
 divergência entre os dois documentos.
 
+### Lançar pelo WhatsApp: o recurso que mudou esta declaração
+
+Desde 31/10/2026 dá para lançar mandando mensagem — escrita ou falada — para o
+número de WhatsApp do app. É daqui que saem as três linhas opcionais da tabela
+de coletados, e vale separar o que cada uma significa.
+
+**Número de telefone — coletado, opcional.** Para saber de quem é cada
+mensagem, o número de quem escreve precisa estar ligado a uma conta. O vínculo
+só nasce se a pessoa quiser: ela pega um código em *Perfil → WhatsApp* e o
+manda pelo WhatsApp. No banco **não fica o número legível** — fica um HMAC com
+uma chave que só o servidor tem, mais os quatro últimos dígitos, que são o que
+a tela mostra (`whatsapp_links`, `telefone.ts`). Mesmo assim se declara: o
+número *saiu* do aparelho e chegou ao servidor, e guardar em forma irreversível
+é uma proteção, não uma dispensa.
+
+**Mensagens — coletado, opcional, efêmero.** O texto da frase chega ao servidor
+e é lido ali. **Não há histórico de conversa**: nenhuma tabela guarda o que foi
+dito, nem quem disse o quê. O que sobra é o lançamento que a pessoa confirmou,
+igual ao que ela teria digitado na tela. Marque *processado de forma efêmera*
+no formulário.
+
+**Áudio — coletado, opcional, efêmero.** Recado de voz é baixado, transcrito e
+descartado. Não há arquivo, não há coluna, não há log do que foi dito
+(`audio.service.ts`). Difere do ditado na tela num ponto que importa: aqui
+quem transmite é o **servidor do app**, não o navegador do usuário — então
+este caso não tem a ambiguidade do outro. É coleta, sem discussão.
+
+Nada disso acontece para quem não conecta o WhatsApp, e o recurso inteiro pode
+ser desligado em *Perfil → WhatsApp → Desligar*, o que apaga o vínculo na hora.
+
+**O áudio só sai se o servidor estiver configurado para isso.** Sem as
+variáveis `STT_PROVIDER` e `STT_API_KEY`, o app responde por escrito que não
+escuta e nenhum byte de áudio deixa o servidor — o padrão é mudo de propósito,
+para que mandar áudio para um terceiro seja uma decisão de quem opera, e não
+efeito colateral de um deploy.
+
 ### Infraestrutura não é compartilhamento
 
-Cloudflare (serve as telas), Render (hospeda API e banco) e Resend (entrega o
-e-mail de redefinição) recebem dados para executar o serviço em nome do app —
-são operadores, não destinatários. A orientação do Google exclui de
-"compartilhamento" a transferência para prestador que processa em seu nome.
+Cloudflare (serve as telas), Render (hospeda API e banco), Resend (entrega o
+e-mail de redefinição) e o **serviço de transcrição** (recebe o áudio do
+recado de voz, devolve o texto e não o guarda) recebem dados para executar o
+serviço em nome do app — são operadores, não destinatários. A orientação do
+Google exclui de "compartilhamento" a transferência para prestador que
+processa em seu nome.
+
+**A Meta é outro caso, e por isso está dita aqui.** Toda mensagem trocada com
+o número do app passa pelos servidores dela, sob a política de privacidade
+dela — como em qualquer conversa de WhatsApp. Ela não é um prestador
+contratado pelo app: é a plataforma que a própria pessoa escolheu usar, do
+mesmo jeito que o provedor de e-mail dela recebe o e-mail de redefinição de
+senha. Quem não quiser isso tem o app inteiro funcionando sem conectar o
+WhatsApp, e a política publicada diz isso com todas as letras.
 
 **Confira esse ponto no texto de ajuda do próprio formulário antes de enviar.**
 É a única resposta deste documento que depende de interpretação, e não de um
 fato do código.
 
-### Tabelas mortas no banco
+### As tabelas mortas foram removidas, e as de hoje são outras
 
-O schema tem `User.whatsappNumber` e a tabela `WhatsappMessageLog`, restos de
-uma integração que **não existe**: não há módulo, controller nem rota de
-WhatsApp, e o app web não menciona a palavra uma vez sequer. Nenhum dado chega
-ali.
+Até 12/10/2026 o schema tinha `User.whatsappNumber` e `WhatsappMessageLog`,
+restos da migration inicial que **nenhum código usava**. Eles foram removidos
+(migration `20261012190000_remove_whatsapp`) justamente porque schema que
+insinua uma coleta inexistente confunde auditoria.
 
-Por isso **telefone e mensagens não entram na declaração**. Mas o schema
-sugerindo uma coleta que não acontece é o tipo de coisa que confunde uma
-auditoria futura — vale remover numa migration quando houver ocasião.
+As tabelas de WhatsApp que existem hoje — `whatsapp_links` e
+`whatsapp_pairings` — são outra coisa: nasceram com uso definido, guardam
+hash, datas e identificadores, e **nenhuma delas tem o número legível nem
+qualquer trecho de conversa**. É por causa delas, e do recurso que elas
+sustentam, que esta declaração passou a incluir telefone, mensagens e áudio.
 
 ---
 
@@ -165,7 +221,10 @@ de cobrança. Quando isso mudar, **a declaração muda junto**:
   quê: nesse desenho o dado de pagamento é tratado pelo Google, não pelo app.
 
 Atualizar a declaração é obrigatório a cada release em que o comportamento
-muda. Esquecer disso é uma das formas mais comuns de divergência.
+muda. Esquecer disso é uma das formas mais comuns de divergência — e já
+aconteceu uma vez aqui: o WhatsApp entrou em produção em 31/10/2026 e este
+arquivo continuou dizendo, por algumas horas, que telefone e mensagens não
+eram coletados.
 
 ---
 
