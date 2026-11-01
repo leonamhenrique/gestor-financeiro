@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TransactionsModule } from '../transactions/transactions.module';
+import { TransfersModule } from '../transfers/transfers.module';
 import { AudioService } from './audio.service';
 import { ConversaService } from './conversa.service';
 import { WhatsappController } from './whatsapp.controller';
@@ -7,7 +8,7 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappWebhookController } from './webhook.controller';
 
 @Module({
-  imports: [TransactionsModule],
+  imports: [TransactionsModule, TransfersModule],
   controllers: [WhatsappController, WhatsappWebhookController],
   providers: [WhatsappService, ConversaService, AudioService],
   // Exportado porque a pergunta "de quem é esta mensagem?" é a primeira de

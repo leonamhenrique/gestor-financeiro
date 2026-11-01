@@ -20,6 +20,9 @@ describe('ConversaService', () => {
   let service: ConversaService;
   let prisma: any;
   let transactions: any;
+  let transfers: any;
+  let transferidas: any[];
+  let contaUnica: any;
   let whatsapp: any;
   let audio: any;
   let criados: any[];
@@ -29,6 +32,7 @@ describe('ConversaService', () => {
 
   beforeEach(() => {
     criados = [];
+    transferidas = [];
     aprendidas = [];
     dono = 'user-1';
     ouvido = null;
@@ -44,6 +48,7 @@ describe('ConversaService', () => {
       { id: 'a1', institutionName: 'Nubank', isActive: true },
       { id: 'a2', institutionName: 'Cofre', isActive: true },
     ];
+    contaUnica = contas[0];
     const cartoes: Pick<CreditCard, 'id' | 'name' | 'bankAccountId'>[] = [
       { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1' },
     ];
@@ -89,7 +94,14 @@ describe('ConversaService', () => {
       ouvir: jest.fn(async () => ouvido),
     };
 
-    service = new ConversaService(prisma, transactions, whatsapp, audio);
+    transfers = {
+      create: jest.fn(async (input: any) => {
+        transferidas.push(input);
+        return { id: 'tr1', ...input };
+      }),
+    };
+
+    service = new ConversaService(prisma, transactions, transfers, whatsapp, audio);
   });
 
   describe('quem ainda nao conectou', () => {
@@ -272,10 +284,68 @@ describe('ConversaService', () => {
     });
   });
 
-  it('transferencia nao vai por aqui', async () => {
-    const r = await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
-    expect(r).toMatch(/Transferência/);
-    expect(criados).toHaveLength(0);
+  describe('transferencia entre contas', () => {
+    it('o resumo diz a DIRECAO, e nao "Conta" duas vezes', async () => {
+      const r = await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
+      expect(r).toContain('Sai de: Nubank');
+      expect(r).toContain('Entra em: Cofre');
+      expect(r).toContain('R$ 100,00');
+      expect(r).toMatch(/Confirma\?/);
+      // Nada gravado antes do sim, aqui tambem.
+      expect(transferidas).toHaveLength(0);
+    });
+
+    it('o sim transfere pelo servico de transferencia, nao pelo de lancamento', async () => {
+      await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
+      const r = await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(0);
+      expect(transferidas).toHaveLength(1);
+      expect(transferidas[0]).toMatchObject({
+        userId: 'user-1',
+        fromAccountId: 'a1',
+        toAccountId: 'a2',
+        amount: 100,
+      });
+      expect(transferidas[0].clientKey).toMatch(/^wa-/);
+      expect(r).toMatch(/^Transferido\./);
+    });
+
+    // A ordem e o que diz quem paga e quem recebe.
+    it('a ordem das contas e a direcao', async () => {
+      await service.responderA(msg('transferi 50 do Cofre para o Nubank'));
+      await service.responderA(msg('sim'));
+      expect(transferidas[0]).toMatchObject({ fromAccountId: 'a2', toAccountId: 'a1' });
+    });
+
+    it('a mesma conta dos dois lados e contradicao, nao falta', async () => {
+      const r = await service.responderA(msg('transferencia de 100 do Nubank para o Nubank'));
+      expect(r).toMatch(/mesma conta duas vezes/);
+      expect(r).not.toMatch(/Faltou/);
+      expect(transferidas).toHaveLength(0);
+    });
+
+    it('faltando a segunda conta, diz qual e qual', async () => {
+      const r = await service.responderA(msg('transferi 100 do Nubank'));
+      expect(r).toMatch(/Faltou conta de destino/);
+      expect(r).toMatch(/primeira conta dita/);
+      expect(transferidas).toHaveLength(0);
+    });
+
+    it('com menos de duas contas, nao ha transferencia possivel', async () => {
+      prisma.bankAccount.findMany = jest.fn(async () => [contaUnica]);
+      const r = await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
+      expect(r).toMatch(/precisa de duas contas/);
+      expect(transferidas).toHaveLength(0);
+    });
+
+    it('falhar na transferencia nao mente que deu certo', async () => {
+      transfers.create = jest.fn(async () => {
+        throw new Error('saldo insuficiente');
+      });
+      await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
+      const r = await service.responderA(msg('sim'));
+      expect(r).toMatch(/Não consegui transferir/);
+    });
   });
 
   it('a reentrega da Meta nao lanca duas vezes', async () => {

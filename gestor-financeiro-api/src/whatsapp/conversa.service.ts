@@ -15,6 +15,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TransactionsService } from '../transactions/transactions.service';
+import { TransfersService } from '../transfers/transfers.service';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -76,6 +77,7 @@ export class ConversaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly transactions: TransactionsService,
+    private readonly transfers: TransfersService,
     private readonly whatsapp: WhatsappService,
     private readonly audio: AudioService,
   ) {}
@@ -134,9 +136,10 @@ export class ConversaService {
 
     const r = fala.interpretarFala(texto, ctx);
 
-    if (r.transferencia) {
-      return 'Transferência entre contas ainda não vai por aqui — faça no app. Por aqui vão despesas e receitas.';
-    }
+    // Transferência segue por outro ramo porque é outra coisa: não tem
+    // categoria, não tem cartão, e o que importa é a DIREÇÃO. O resto do
+    // caminho é o mesmo — resumo, "sim", grava.
+    if (r.transferencia) return this.lerTransferencia(userId, r, ctx);
 
     if (r.faltando.length) {
       return (
@@ -149,6 +152,38 @@ export class ConversaService {
 
     this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
     return this.resumo(r, ctx) + '\n\nConfirma? Responda SIM para lançar.';
+  }
+
+  /**
+   * "transferi 200 do nubank para o cofre".
+   *
+   * A mesma conta dos dois lados não é "faltou" — é contradição, e merece
+   * recado próprio: o servidor recusaria, e "faltou conta de destino" mandaria
+   * a pessoa procurar o que ela já disse.
+   */
+  private lerTransferencia(userId: string, r: any, ctx: any): string {
+    const ativas = ctx.contas.filter((c: any) => c.isActive !== false);
+    if (ativas.length < 2) {
+      return (
+        'Transferência precisa de duas contas, e você tem ' +
+        (ativas.length === 1 ? 'uma' : 'nenhuma') +
+        '. Cadastre outra no app, em Contas.'
+      );
+    }
+    if (r.deId && r.deId === r.paraId) {
+      return 'Você disse a mesma conta duas vezes. Diga de qual sai e para qual vai, nessa ordem.';
+    }
+    if (r.faltando.length) {
+      return (
+        this.resumoTransferencia(r, ctx) +
+        '\n\nFaltou ' +
+        r.faltando.join(', ') +
+        '. A primeira conta dita é a que paga, a segunda é a que recebe.'
+      );
+    }
+
+    this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
+    return this.resumoTransferencia(r, ctx) + '\n\nConfirma? Responda SIM para transferir.';
   }
 
   // ----------------------------------------------------------
@@ -177,6 +212,7 @@ export class ConversaService {
   private async gravar(userId: string, rascunho: Rascunho): Promise<string> {
     this.rascunhos.delete(userId);
     const r = rascunho.lancamento;
+    if (r.transferencia) return this.gravarTransferencia(userId, r, rascunho.criadoEm);
     try {
       await this.transactions.create({
         userId,
@@ -247,6 +283,27 @@ export class ConversaService {
     });
   }
 
+  /** Transferência tem serviço próprio, e é ele que debita uma conta e credita
+   * a outra na mesma transação de banco. Aqui só se traduz o pedido. */
+  private async gravarTransferencia(userId: string, r: any, criadoEm: number): Promise<string> {
+    try {
+      await this.transfers.create({
+        userId,
+        fromAccountId: r.deId,
+        toAccountId: r.paraId,
+        amount: r.valor,
+        description: r.desc || undefined,
+        transferDate: r.data,
+        isConfirmed: r.confirmada,
+        clientKey: 'wa-' + userId.slice(0, 8) + '-' + Math.round(criadoEm / 1000),
+      });
+    } catch (e: any) {
+      this.log.error('falha ao transferir pelo WhatsApp: ' + (e?.message || e));
+      return 'Não consegui transferir agora. Tente de novo em instantes, ou faça pelo app.';
+    }
+    return 'Transferido. ' + this.brl(r.valor) + ' em ' + this.dataBR(r.data) + '.';
+  }
+
   // ----------------------------------------------------------
   // o contexto, traduzido do banco
   // ----------------------------------------------------------
@@ -302,6 +359,23 @@ export class ConversaService {
     linhas.push('Data: ' + this.dataBR(r.data));
     linhas.push('Situação: ' + (r.confirmada ? 'confirmado' : 'previsto'));
     return linhas.join('\n');
+  }
+
+  /** O resumo da transferência diz a DIREÇÃO. Dizer "Conta" duas vezes
+   * esconderia justamente o que a pessoa precisa conferir. */
+  private resumoTransferencia(r: any, ctx: any): string {
+    const nome = (id: string) => {
+      const c = ctx.contas.find((x: any) => x.id === id);
+      return c ? c.nome : '—';
+    };
+    return [
+      '⇄ Transferência',
+      'Valor: ' + this.brl(r.valor),
+      'Sai de: ' + (r.deId ? nome(r.deId) : '—'),
+      'Entra em: ' + (r.paraId ? nome(r.paraId) : '—'),
+      'Data: ' + this.dataBR(r.data),
+      'Situação: ' + (r.confirmada ? 'confirmada' : 'prevista'),
+    ].join('\n');
   }
 
   private linhaCurta(r: any): string {
