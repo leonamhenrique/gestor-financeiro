@@ -8381,10 +8381,47 @@
     return (m ? m[1] : s).trim();
   }
 
+  /* Palavras genéricas no COMEÇO do nome, que a pessoa diz numa vez e não na
+   * outra: "comprei na loja das Casas Bahia" hoje, "comprei nas Casas Bahia"
+   * amanhã. Sem tirá-las, as duas frases geram chaves diferentes
+   * ("lojadascasasbahia" e "casasbahia"), o aprendizado não reconhece a loja
+   * da véspera e a pessoa ganha DUAS regras para o mesmo lugar.
+   *
+   * A lista é curta de propósito, e cresce com desconfiança: quase toda
+   * palavra genérica também é nome de alguém. "Mercado" não está aqui porque
+   * existe Mercado Livre e Mercado Pago; "supermercado", porque existe
+   * Supermercado BH. Entra só o que não nomeia ninguém sozinho. */
+  var GENERICO_LOJISTA = /^(a|as|o|os)?\s*lojas?\s+(d[aeo]s?|de)?\s*/;
+
   /** A chave do lojista: normalizada, sem acento e sem pontuação. É ela que
-   * vai para a regra aprendida, e é ela que o servidor valida. */
+   * vai para a regra aprendida, e é ela que o servidor valida.
+   *
+   * O prefixo genérico cai, mas só quando o que sobra ainda identifica a
+   * loja: "Loja das Casas Bahia" vira `casasbahia`, e "Loja A" continua
+   * inteira. Chave curta é chave perigosa — `regraDoLojista` casa por
+   * começo, então uma regra de uma letra classificaria tudo que começasse
+   * com ela. MIN_LOJISTA é o mesmo piso usado para não juntar lojistas
+   * diferentes por acaso. */
   function chaveDeLojista(desc) {
-    return chaveDeTexto(lojistaDoHistorico(desc));
+    var nome = normalizarNome(lojistaDoHistorico(desc));
+    var curta = chaveDeTexto(nome.replace(GENERICO_LOJISTA, ""));
+    return curta.length >= MIN_LOJISTA ? curta : chaveDeTexto(nome);
+  }
+
+  /** As chaves com que uma descrição procura regra: a de hoje e, quando o
+   * prefixo genérico caiu, a inteira também.
+   *
+   * A inteira continua valendo por causa das regras JÁ APRENDIDAS. Elas
+   * foram gravadas com o nome completo ("lojadascasasbahia") e, como o
+   * casamento é por começo, nunca mais seriam encontradas pela chave curta —
+   * a pessoa veria o app esquecer uma classificação que ela mesma ensinou.
+   * Isso evita migrar dados: recalcular as chaves no banco pediria repetir
+   * esta normalização em SQL, e duas versões dela divergiriam na primeira
+   * palavra nova. */
+  function chavesDeLojista(desc) {
+    var inteira = chaveDeTexto(lojistaDoHistorico(desc));
+    var curta = chaveDeLojista(desc);
+    return curta === inteira ? [curta] : [curta, inteira];
   }
 
   /** O começo que duas chaves têm em comum. */
@@ -8530,11 +8567,13 @@
    * linha — "mercadolivre" e "mercadolivreoficial" —, e a mais longa é a que
    * o usuário escreveu sabendo mais. */
   function regraDoLojista(regras, desc) {
-    var k = chaveDeLojista(desc);
-    if (!k) return null;
+    var chaves = chavesDeLojista(desc).filter(Boolean);
+    if (!chaves.length) return null;
     var melhor = null;
     (regras || []).forEach(function (r) {
-      if (!r || !r.lojista || k.indexOf(r.lojista) !== 0) return;
+      if (!r || !r.lojista) return;
+      var casa = chaves.some(function (k) { return k.indexOf(r.lojista) === 0; });
+      if (!casa) return;
       if (!melhor || r.lojista.length > melhor.lojista.length) melhor = r;
     });
     return melhor;

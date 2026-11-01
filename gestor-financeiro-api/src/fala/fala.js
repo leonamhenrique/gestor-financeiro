@@ -112,6 +112,8 @@ var RE_PARCELA_X = /\b(\d{1,2})\s*x\b/;
 
 var MIN_LOJISTA = 5;
 
+var GENERICO_LOJISTA = /^(a|as|o|os)?\s*lojas?\s+(d[aeo]s?|de)?\s*/;
+
 function byId(list, id) { return list.filter(function (x) { return x.id === id; })[0]; }
 
 function isoDate(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -174,15 +176,25 @@ function lojistaDoHistorico(desc) {
   }
 
 function chaveDeLojista(desc) {
-    return chaveDeTexto(lojistaDoHistorico(desc));
+    var nome = normalizarNome(lojistaDoHistorico(desc));
+    var curta = chaveDeTexto(nome.replace(GENERICO_LOJISTA, ""));
+    return curta.length >= MIN_LOJISTA ? curta : chaveDeTexto(nome);
+  }
+
+function chavesDeLojista(desc) {
+    var inteira = chaveDeTexto(lojistaDoHistorico(desc));
+    var curta = chaveDeLojista(desc);
+    return curta === inteira ? [curta] : [curta, inteira];
   }
 
 function regraDoLojista(regras, desc) {
-    var k = chaveDeLojista(desc);
-    if (!k) return null;
+    var chaves = chavesDeLojista(desc).filter(Boolean);
+    if (!chaves.length) return null;
     var melhor = null;
     (regras || []).forEach(function (r) {
-      if (!r || !r.lojista || k.indexOf(r.lojista) !== 0) return;
+      if (!r || !r.lojista) return;
+      var casa = chaves.some(function (k) { return k.indexOf(r.lojista) === 0; });
+      if (!casa) return;
       if (!melhor || r.lojista.length > melhor.lojista.length) melhor = r;
     });
     return melhor;
@@ -677,4 +689,4 @@ function interpretarFala(frase, ctx) {
     return r;
   }
 
-module.exports = { interpretarFala, valorDaFala, chaveDeLojista, lojistaDoHistorico, regraDoLojista, MIN_LOJISTA, normalizarFala, MESES, mesPorNome, acharPorNome };
+module.exports = { interpretarFala, valorDaFala, chaveDeLojista, lojistaDoHistorico, regraDoLojista, MIN_LOJISTA, normalizarFala, MESES, mesPorNome, categoriasLancaveis, acharPorNome };

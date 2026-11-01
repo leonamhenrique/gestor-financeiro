@@ -50,6 +50,7 @@ const CONSTANTES_LINHA = [
   'var RE_PARCELA_EM = ',
   'var RE_PARCELA_X = ',
   'var MIN_LOJISTA = ',
+  'var GENERICO_LOJISTA = ',
 ];
 
 /** As funções, em ordem de dependência não importa — `function` sobe. */
@@ -73,6 +74,7 @@ const FUNCOES = [
   'chaveDeTexto',
   'lojistaDoHistorico',
   'chaveDeLojista',
+  'chavesDeLojista',
   'regraDoLojista',
   'regraParaDigitado',
   // a leitura da frase
@@ -116,6 +118,10 @@ const EXPORTADAS = [
   // a resposta tem de escrever o mês como a tela escreve.
   'MESES',
   'mesPorNome',
+  // Quais categorias a pessoa pode usar para aquele tipo: a resposta precisa
+  // LISTAR as dela quando a frase pediu uma que nao existe, e "lancavel"
+  // tem regra (categoria mae com filhas nao recebe lancamento).
+  'categoriasLancaveis',
   // Achar o cartao que a frase nomeia: a pergunta "qual a fatura do Nubank"
   // tem de reconhecer o apelido pelas MESMAS regras que o lancamento usa
   // (sem acento, o nome mais longo primeiro, palavra de quatro letras).

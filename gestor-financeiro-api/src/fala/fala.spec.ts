@@ -84,6 +84,59 @@ describe('fala.js — a mesma leitura da tela, fora dela', () => {
     expect(r.faturaMes).toBe('2026-12');
   });
 
+  describe('a chave do lojista ignora o "loja das" do comeco', () => {
+    // O caso medido: "comprei na loja das Casas Bahia" hoje e "comprei nas
+    // Casas Bahia" amanha geravam chaves diferentes, o aprendizado nao
+    // reconhecia a loja da vespera e a pessoa ganhava DUAS regras para o
+    // mesmo lugar.
+    it('as duas formas de dizer a mesma loja dao a mesma chave', () => {
+      expect(fala.chaveDeLojista('Loja das Casas Bahia')).toBe('casasbahia');
+      expect(fala.chaveDeLojista('Casas Bahia')).toBe('casasbahia');
+      expect(fala.chaveDeLojista('Lojas Americanas')).toBe('americanas');
+    });
+
+    it('o que sobra tem de identificar a loja', () => {
+      // Chave curta e chave perigosa: o casamento e por comeco, e uma regra
+      // de uma letra classificaria tudo que comecasse com ela.
+      expect(fala.chaveDeLojista('Loja A')).toBe('lojaa');
+      expect(fala.chaveDeLojista('Loja')).toBe('loja');
+    });
+
+    it('palavra generica so cai quando e palavra, e no comeco', () => {
+      // "Lojaria" nao e "loja"; "Mercado Livre" e nome de gente.
+      expect(fala.chaveDeLojista('Lojaria do Ze')).toBe('lojariadoze');
+      expect(fala.chaveDeLojista('Mercado Livre')).toBe('mercadolivre');
+      expect(fala.chaveDeLojista('Padaria da Loja Velha')).toBe('padariadalojavelha');
+    });
+
+    it('a regra aprendida pega as duas formas', () => {
+      const regras = [{ id: 'r1', lojista: 'casasbahia', rotulo: 'Casas Bahia', categoriaId: 'c9' }];
+      expect(fala.regraDoLojista(regras, 'Loja das Casas Bahia')?.id).toBe('r1');
+      expect(fala.regraDoLojista(regras, 'Casas Bahia')?.id).toBe('r1');
+      expect(fala.regraDoLojista(regras, 'Casas Bahia - Parcela 2/3')?.id).toBe('r1');
+    });
+
+    it('regra JA APRENDIDA com a chave longa continua valendo', () => {
+      // Sem isto, quem ensinou "loja das casas bahia" antes desta mudanca
+      // veria o app esquecer uma classificacao que ela mesma ensinou -- e e
+      // o que dispensa migrar chave no banco.
+      const antigas = [
+        { id: 'r0', lojista: 'lojadascasasbahia', rotulo: 'Loja das Casas Bahia', categoriaId: 'c9' },
+      ];
+      expect(fala.regraDoLojista(antigas, 'Loja das Casas Bahia')?.id).toBe('r0');
+    });
+
+    it('a frase inteira chega na categoria pelas duas formas', () => {
+      const comRegra = { ...ctx(), regras: [{ id: 'r1', lojista: 'casasbahia', rotulo: 'Casas Bahia', categoriaId: 'c9' }] };
+      for (const f of [
+        'comprei 10 na loja das casas bahia no debito da conta Nubank',
+        'comprei 10 nas casas bahia no debito da conta Nubank',
+      ]) {
+        expect(fala.interpretarFala(f, comRegra)).toMatchObject({ categoriaId: 'c9', faltando: [] });
+      }
+    });
+  });
+
   it('sem contexto, estoura dizendo o que faltou', () => {
     // Falha fechada: sem isto a frase seria lida contra listas vazias e a
     // resposta diria "não identifiquei a conta" sem explicação nenhuma.

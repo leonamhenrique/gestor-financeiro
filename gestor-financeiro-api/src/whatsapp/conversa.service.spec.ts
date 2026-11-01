@@ -451,6 +451,44 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('quando falta a categoria', () => {
+    const frase = 'comprei hoje por 10 reais na loja das casas bahia no debito da conta nubank';
+
+    it('lista as categorias que a pessoa tem', async () => {
+      const r = await service.responderA(msg(frase));
+      expect(r?.texto).toContain('Faltou categoria.');
+      expect(r?.texto).toContain('Suas categorias de despesa: Alimentação, Compras');
+      expect(r?.texto).toContain('crie no app, em Categorias');
+      expect(criados).toHaveLength(0);
+    });
+
+    it('categoria dita que nao existe: a resposta diz que nao achou', async () => {
+      // Antes, a resposta era so "Faltou categoria": quem dizia "categoria
+      // doacao" sem ter criado a categoria repetia a mesma frase e recebia a
+      // mesma coisa, sem nunca saber que o nome dito nao existia.
+      const r = await service.responderA(msg(frase + ' categoria doacao'));
+      expect(r?.texto).toContain('Não achei essa categoria.');
+      expect(r?.texto).toContain('Suas categorias de despesa:');
+    });
+
+    it('quem so esqueceu a categoria nao e acusado de engano', async () => {
+      const r = await service.responderA(msg(frase));
+      expect(r?.texto).not.toContain('Não achei essa categoria');
+    });
+
+    it('a lista respeita o tipo do lancamento', async () => {
+      const r = await service.responderA(msg('recebi 500 reais na conta nubank'));
+      expect(r?.texto).toContain('Suas categorias de receita: Freelance');
+      expect(r?.texto).not.toContain('Alimentação');
+    });
+
+    it('sem categoria nenhuma do tipo, manda cadastrar', async () => {
+      prisma.category.findMany = jest.fn(async () => []);
+      const r = await service.responderA(msg(frase));
+      expect(r?.texto).toContain('Você ainda não tem categoria de despesa');
+    });
+  });
+
   describe('a pergunta de saldo', () => {
     it('responde o total e as contas que o compoem', async () => {
       const r = await service.responderA(msg('qual meu saldo'));

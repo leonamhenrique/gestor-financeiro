@@ -357,6 +357,9 @@ export class ConversaService {
       const nomes = r.faltando.includes('destino')
         ? ' ' + this.nomesDeDestino(ctx)
         : '';
+      const categorias = r.faltando.includes('categoria')
+        ? ' ' + this.ajudaDeCategoria(texto, r.tipo, ctx)
+        : '';
       return {
         texto:
           this.resumo(r, ctx) +
@@ -364,6 +367,7 @@ export class ConversaService {
           r.faltando.join(', ') +
           '.' +
           nomes +
+          categorias +
           ' Mande a frase de novo com essa parte, ou lance no app.',
       };
     }
@@ -906,6 +910,45 @@ export class ConversaService {
    * lugar de um recado curto não ajuda ninguém — para ela o caminho é a regra
    * de lojista, que aprende sozinha.
    */
+  /**
+   * O recado quando a categoria não saiu da frase.
+   *
+   * Antes daqui, a resposta só dizia "Faltou categoria" — e quem tinha dito
+   * "categoria doação" sem ter criado a categoria recebia exatamente isso,
+   * repetia a mesma frase e recebia de novo, sem nunca saber que o nome dito
+   * não existia. O destino já tinha essa cortesia ("Suas contas: …"); a
+   * categoria não.
+   *
+   * Lançar por aqui não CRIA categoria de propósito: cadastro é no app, onde
+   * se escolhe tipo, cor e categoria mãe. Mas isso só se sustenta se a
+   * resposta mandar a pessoa para lá, em vez de calar.
+   *
+   * A lista respeita o tipo e a regra de "lançável" do app (categoria mãe com
+   * filhas não recebe lançamento), porque é a mesma função da tela.
+   */
+  private ajudaDeCategoria(texto: string, tipo: string, ctx: any): string {
+    const nomes = fala
+      .categoriasLancaveis(tipo, ctx.categorias)
+      .map((c: any) => c.nome)
+      .filter(Boolean);
+
+    // "Não achei essa categoria" só quando a pessoa nomeou uma: dizer isso a
+    // quem simplesmente esqueceu a categoria seria acusá-la de um engano que
+    // ela não cometeu.
+    const disse = /categoria/i.test(texto) ? 'Não achei essa categoria. ' : '';
+    const quais = tipo === 'INCOME' ? 'receita' : 'despesa';
+    if (!nomes.length) {
+      return (
+        disse + 'Você ainda não tem categoria de ' + quais +
+        '. Crie uma no app, em Categorias.'
+      );
+    }
+    return (
+      disse + 'Suas categorias de ' + quais + ': ' + this.ateOito(nomes) +
+      '. Se for uma nova, crie no app, em Categorias.'
+    );
+  }
+
   private nomesDeConta(ctx: any): string {
     const contas = ctx.contas
       .filter((c: any) => c.isActive !== false)
