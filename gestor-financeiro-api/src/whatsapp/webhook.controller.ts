@@ -82,7 +82,13 @@ export class WhatsappWebhookController {
     }
 
     const mensagens = mensagensDoPayload(req.body);
-    this.log.log('entrega aceita: ' + mensagens.length + ' mensagem(ns)');
+    // A Meta avisa "enviado", "entregue" e "lido" de cada resposta nossa, e
+    // isso chega aqui como entrega sem mensagem nenhuma — três por conversa.
+    // Registrar cada uma encheria o log de linhas que não dizem nada, e e um
+    // log cheio de nada que faz ninguém olhar o log quando precisa.
+    if (mensagens.length) {
+      this.log.log('entrega aceita: ' + mensagens.length + ' mensagem(ns)');
+    }
 
     for (const m of mensagens) {
       // Uma mensagem ruim não pode derrubar as outras do mesmo lote.
