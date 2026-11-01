@@ -198,7 +198,53 @@ export class ConversaService {
       this.log.error('falha ao lançar pelo WhatsApp: ' + (e?.message || e));
       return 'Não consegui lançar agora. Tente de novo em instantes, ou lance pelo app.';
     }
+    // Depois do sucesso, nunca antes — e sem deixar que um tropeço aqui diga
+    // à pessoa que o lançamento falhou, porque ele não falhou.
+    try {
+      await this.talvezAprenderLojista(userId, r.desc, r.categoriaId);
+    } catch (e: any) {
+      this.log.warn('não consegui aprender o lojista: ' + (e?.message || e));
+    }
+
     return 'Lançado. ' + this.linhaCurta(r);
+  }
+
+  /**
+   * Guarda o lojista, como o app guarda depois de um lançamento digitado.
+   *
+   * Sem isto o WhatsApp era o único lugar que nunca ficava mais esperto: ele
+   * LIA as regras e nunca escrevia nenhuma. E é justamente onde se lança com
+   * pressa, que é quando mais vale o app já saber a categoria.
+   *
+   * A chave e o piso de tamanho vêm do `fala.js` compartilhado, os mesmos da
+   * tela: dois lados ensinando a mesma tabela com réguas diferentes seria pior
+   * do que um lado não ensinar.
+   */
+  private async talvezAprenderLojista(userId: string, desc: string, categoriaId: string) {
+    if (!categoriaId || !desc) return;
+    const chave = fala.chaveDeLojista(desc);
+    if (chave.length < fala.MIN_LOJISTA) return;
+
+    const regras = await this.prisma.categoryRule.findMany({
+      where: { userId },
+      select: { merchant: true, categoryId: true },
+    });
+    // Já existe regra para este lojista: foi ela que sugeriu a categoria, e
+    // reescrevê-la aqui apagaria, sem pergunta, uma decisão tomada na tela.
+    const jaSabe = fala.regraDoLojista(
+      regras.map((r) => ({ lojista: r.merchant, categoriaId: r.categoryId })),
+      desc,
+    );
+    if (jaSabe) return;
+
+    // O rótulo é o nome como a pessoa escreveu ("Padaria"), e não a chave
+    // normalizada ("padaria"): chave não se mostra a ninguém.
+    const label = fala.lojistaDoHistorico(desc);
+    await this.prisma.categoryRule.upsert({
+      where: { userId_merchant: { userId, merchant: chave } },
+      create: { userId, merchant: chave, label, categoryId: categoriaId },
+      update: { categoryId: categoriaId, hits: { increment: 1 }, ...(label ? { label } : {}) },
+    });
   }
 
   // ----------------------------------------------------------

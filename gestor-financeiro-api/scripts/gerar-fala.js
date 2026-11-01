@@ -91,7 +91,17 @@ const FUNCOES = [
   'interpretarFala',
 ];
 
-const EXPORTADAS = ['interpretarFala', 'chaveDeLojista', 'regraDoLojista', 'normalizarFala'];
+const EXPORTADAS = [
+  'interpretarFala',
+  // O aprendizado do lojista também roda no servidor, e tem de usar a MESMA
+  // chave e a MESMA regra de "já sei isto" da tela — senão os dois lados
+  // ensinam coisas diferentes para a mesma tabela.
+  'chaveDeLojista',
+  'lojistaDoHistorico',
+  'regraDoLojista',
+  'MIN_LOJISTA',
+  'normalizarFala',
+];
 
 function scriptDoApp() {
   const html = fs.readFileSync(ORIGEM, 'utf8');

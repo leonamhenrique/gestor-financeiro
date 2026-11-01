@@ -23,11 +23,13 @@ describe('ConversaService', () => {
   let whatsapp: any;
   let audio: any;
   let criados: any[];
+  let aprendidas: any[];
   let dono: string | null;
   let ouvido: string | null;
 
   beforeEach(() => {
     criados = [];
+    aprendidas = [];
     dono = 'user-1';
     ouvido = null;
 
@@ -58,7 +60,13 @@ describe('ConversaService', () => {
       bankAccount: { findMany: jest.fn(async () => contas) },
       creditCard: { findMany: jest.fn(async () => cartoes) },
       category: { findMany: jest.fn(async () => categorias) },
-      categoryRule: { findMany: jest.fn(async () => regrasDoBanco) },
+      categoryRule: {
+        findMany: jest.fn(async () => regrasDoBanco),
+        upsert: jest.fn(async (args: any) => {
+          aprendidas.push(args);
+          return {};
+        }),
+      },
     };
 
     transactions = {
@@ -140,6 +148,52 @@ describe('ConversaService', () => {
       isConfirmed: true,
     });
     expect(r).toMatch(/^Lançado\./);
+  });
+
+  describe('o lojista aprendido pelo WhatsApp', () => {
+    // O WhatsApp lia as regras e nunca escrevia nenhuma: era o unico lugar
+    // que nunca ficava mais esperto, justamente onde se lanca com pressa.
+    async function lancar(frase: string) {
+      await service.responderA(msg(frase));
+      await service.responderA(msg('sim'));
+    }
+
+    it('guarda o lojista com a chave e o rotulo certos', async () => {
+      await lancar('gastei 12 na padaria pelo debito da conta Nubank categoria alimentacao');
+      expect(aprendidas).toHaveLength(1);
+      expect(aprendidas[0].where.userId_merchant).toEqual({ userId: 'user-1', merchant: 'padaria' });
+      // Chave normalizada para casar; rotulo como a pessoa escreveu, para ler.
+      expect(aprendidas[0].create).toMatchObject({ merchant: 'padaria', label: 'Padaria', categoryId: 'c1' });
+    });
+
+    it('nao reescreve o que ja tem regra', async () => {
+      // "magazine" ja esta na tabela, e foi ela que sugeriu Compras.
+      await lancar('compra no pix na magazine valor de 10 pago nubank');
+      expect(criados).toHaveLength(1);
+      expect(aprendidas).toHaveLength(0);
+    });
+
+    it('lojista curto demais nao vira regra', async () => {
+      await lancar('gastei 12 no bar pelo debito da conta Nubank categoria alimentacao');
+      expect(criados).toHaveLength(1);
+      expect(aprendidas).toHaveLength(0);
+    });
+
+    it('sem descricao nao ha lojista para aprender', async () => {
+      await lancar('gastei 12 pelo debito da conta Nubank categoria alimentacao');
+      expect(criados).toHaveLength(1);
+      expect(aprendidas).toHaveLength(0);
+    });
+
+    it('falhar ao aprender nao faz o lancamento parecer que falhou', async () => {
+      prisma.categoryRule.upsert = jest.fn(async () => {
+        throw new Error('banco fora');
+      });
+      await service.responderA(msg('gastei 12 na padaria pelo debito da conta Nubank categoria alimentacao'));
+      const r = await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(1);
+      expect(r).toMatch(/^Lançado\./);
+    });
   });
 
   it('o nao joga fora', async () => {
