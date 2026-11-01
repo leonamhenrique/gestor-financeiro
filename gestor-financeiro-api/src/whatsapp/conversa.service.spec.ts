@@ -451,6 +451,98 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('o resumo, linha por linha', () => {
+    /* O bloco inteiro num teste so, e nao um toContain por linha.
+     *
+     * O resumo e a UNICA coisa que a pessoa le antes de dizer "sim": e nele
+     * que ela confere o que vai ser gravado. Uma linha que desaparece ou troca
+     * de lugar passaria por quinze asserts soltos sem derrubar nenhum. Relogio
+     * preso porque o bloco mostra a data.
+     */
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('despesa simples, em conta', async () => {
+      const r = await service.responderA(
+        msg('gastei 10 reais no mercado pelo debito da conta nubank categoria alimentacao'),
+      );
+      expect(r?.texto).toBe(
+        [
+          '📉 Despesa',
+          '💵 Valor: R$ 10,00',
+          '📝 Descrição: Mercado',
+          '🏦 Conta: Nubank',
+          '🏷️ Categoria: Alimentação',
+          '📅 Data: 10/11/2026',
+          '✅ Situação: confirmado',
+          '',
+          'Confirma?',
+        ].join('\n'),
+      );
+    });
+
+    it('receita prevista', async () => {
+      const r = await service.responderA(
+        msg('vou receber 1500 do projeto do site na conta nubank categoria freelance dia 20'),
+      );
+      expect(r?.texto).toBe(
+        [
+          '📈 Receita',
+          '💵 Valor: R$ 1.500,00',
+          '📝 Descrição: Projeto do site',
+          '🏦 Conta: Nubank',
+          '🏷️ Categoria: Freelance',
+          '📅 Data: 20/11/2026',
+          '🕒 Situação: previsto',
+          '',
+          'Confirma?',
+        ].join('\n'),
+      );
+    });
+
+    it('parcelada no cartao, com fatura', async () => {
+      const r = await service.responderA(
+        msg('gastei 30 em 3x na padaria no cartao nubank categoria alimentacao'),
+      );
+      expect(r?.texto).toBe(
+        [
+          '📉 Despesa',
+          '💵 Valor: R$ 10,00 por parcela',
+          '📝 Descrição: Padaria',
+          '🔢 Parcelas: 3x — total R$ 30,00',
+          '💳 Cartão: Nubank Roxinho',
+          '🏷️ Categoria: Alimentação',
+          // O cartao da fixture fecha dia 1: comprando dia 10, a fatura e a
+          // de dezembro.
+          '🧾 Fatura: 12/2026',
+          '📅 Data: 10/11/2026',
+          '✅ Situação: confirmado',
+          '',
+          'Confirma?',
+        ].join('\n'),
+      );
+    });
+
+    it('transferencia usa as mesmas marcas', async () => {
+      const r = await service.responderA(msg('transferi 200 do nubank para o cofre'));
+      expect(r?.texto).toBe(
+        [
+          '🔄 Transferência',
+          '💵 Valor: R$ 200,00',
+          '🏦 Sai de: Nubank',
+          '🏦 Entra em: Cofre',
+          '📅 Data: 10/11/2026',
+          '✅ Situação: confirmada',
+          '',
+          'Confirma?',
+        ].join('\n'),
+      );
+    });
+  });
+
   describe('quando falta a categoria', () => {
     const frase = 'comprei hoje por 10 reais na loja das casas bahia no debito da conta nubank';
 

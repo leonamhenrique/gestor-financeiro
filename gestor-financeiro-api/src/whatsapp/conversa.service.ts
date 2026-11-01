@@ -865,16 +865,18 @@ export class ConversaService {
    * emoji em tudo vira enfeite, e enfeite em toda linha não destaca nenhuma. */
   private resumo(r: any, ctx: any): string {
     const linhas = [
-      r.tipo === 'INCOME' ? '↓ Receita' : '↑ Despesa',
+      // 📈/📉 são o mesmo par que a resposta de resultado usa para
+      // Receitas/Despesas: o mesmo símbolo quer dizer a mesma coisa nas duas.
+      r.tipo === 'INCOME' ? '📈 Receita' : '📉 Despesa',
       // Parcelado são dois números a conferir: o de cada parcela e o que vai
       // ser devido no fim. Mostrar um só deixa metade da conta para a cabeça
       // de quem lê.
-      'Valor: ' + this.brl(r.valor) + (r.parcelas ? ' por parcela' : ''),
-      'Descrição: ' + (r.desc || '—'),
+      '💵 Valor: ' + this.brl(r.valor) + (r.parcelas ? ' por parcela' : ''),
+      '📝 Descrição: ' + (r.desc || '—'),
     ];
     if (r.parcelas) {
       linhas.push(
-        '🧾 Parcelas: ' + r.parcelas + 'x — total ' + this.brl(r.valorTotal),
+        '🔢 Parcelas: ' + r.parcelas + 'x — total ' + this.brl(r.valorTotal),
       );
     }
     const cartao = ctx.cartoes.find((k: any) => k.id === r.cartaoId);
@@ -885,14 +887,17 @@ export class ConversaService {
     );
     const cat = ctx.categorias.find((c: any) => c.id === r.categoriaId);
     linhas.push(
-      'Categoria: ' +
+      '🏷️ Categoria: ' +
         (cat?.nome || '—') +
         (r.categoriaDoLojista ? ' (do lojista)' : ''),
     );
     // "2026-12" é chave, não data: quem lê quer o mês.
+    //
+    // A nota fiscal (🧾) é a fatura, e não as parcelas: no lançamento
+    // parcelado as duas linhas aparecem juntas, e é a fatura que ela nomeia.
     if (r.cartaoId && r.faturaMes)
-      linhas.push('Fatura: ' + this.mesBR(r.faturaMes));
-    linhas.push('Data: ' + this.dataBR(r.data));
+      linhas.push('🧾 Fatura: ' + this.mesBR(r.faturaMes));
+    linhas.push('📅 Data: ' + this.dataBR(r.data));
     linhas.push(
       r.confirmada ? '✅ Situação: confirmado' : '🕒 Situação: previsto',
     );
@@ -980,11 +985,11 @@ export class ConversaService {
       return c ? c.nome : '—';
     };
     return [
-      '⇄ Transferência',
-      'Valor: ' + this.brl(r.valor),
+      '🔄 Transferência',
+      '💵 Valor: ' + this.brl(r.valor),
       '🏦 Sai de: ' + (r.deId ? nome(r.deId) : '—'),
       '🏦 Entra em: ' + (r.paraId ? nome(r.paraId) : '—'),
-      'Data: ' + this.dataBR(r.data),
+      '📅 Data: ' + this.dataBR(r.data),
       r.confirmada ? '✅ Situação: confirmada' : '🕒 Situação: prevista',
     ].join('\n');
   }
