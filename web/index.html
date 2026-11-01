@@ -5458,7 +5458,17 @@
    * parcelas de R$ X — total R$ Y"), então as duas formas chegam ao mesmo
    * lugar; o que muda é de onde sai a conta. */
   var RE_PARCELA_DE = /\b(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\s+de\s+(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)/;
-  var RE_PARCELA_EM = /\b(?:em|parcelad[oa] em|dividid[oa] em)\s*(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\b/;
+  /* "em 3 vezes" e "DE 3 vezes" são a mesma coisa, e a segunda forma ficava
+   * de fora. O caso veio do áudio: escrito "3x" a frase era entendida pelo
+   * atalho de baixo (RE_PARCELA_X), mas o transcritor escreve o que se fala —
+   * "parcelados de 3 vezes" — e aí não havia parcelamento nenhum. A mesma
+   * compra ditada e digitada virava dois lançamentos diferentes.
+   *
+   * Com "em|de" soltos, as formas "parcelado em", "parcelado de", "dividido
+   * em" e "dividido de" entram por consequência, sem precisarem de regra
+   * própria. O que segura o falso positivo é o sufixo obrigatório
+   * (x/vezes/parcelas): "de 3 reais" não é parcelamento. */
+  var RE_PARCELA_EM = /\b(?:em|de)\s*(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\b/;
   var RE_PARCELA_X = /\b(\d{1,2})\s*x\b/;
 
   /** Quantidade dita em número ou por extenso. */
@@ -5484,6 +5494,8 @@
       var nDe = quantidadeDita(m[1]);
       var parcela = numeroBR(m[2]);
       if (nDe >= 2 && nDe <= 60 && parcela) {
+        // Aqui a parcela foi DITA, então o total é consequência: não há
+        // divisão para sair torta.
         return { quantidade: nDe, parcela: parcela, total: Math.round(parcela * nDe * 100) / 100 };
       }
       return null;
@@ -5493,7 +5505,13 @@
     var n = quantidadeDita(m[1]);
     if (n < 2 || n > 60) return null;
     var cada = Math.round((valorLido * 100) / n) / 100;
-    return { quantidade: n, parcela: cada, total: Math.round(cada * n * 100) / 100 };
+    var total = Math.round(cada * n * 100) / 100;
+    /* R$ 20,00 em 3x dá 6,666...: parcelas iguais de 6,67 somam 20,01, um
+     * centavo a mais do que a pessoa disse. O cartão de verdade resolve
+     * fazendo a última parcela diferente, e a série deste app tem um valor
+     * só — então o jeito honesto é FALAR do centavo, em vez de mostrar um
+     * total que não é o dito e deixar quem lê descobrir sozinho. */
+    return { quantidade: n, parcela: cada, total: total, dito: valorLido, exato: total === valorLido };
   }
 
   function mesPorNome(nome) {
@@ -5932,6 +5950,9 @@
       r.parcelas = parc.quantidade;
       r.valor = parc.parcela;
       r.valorTotal = parc.total;
+      // Só quando houve divisão e ela não fechou: quem disse a parcela
+      // ("3x de 20") não tem centavo nenhum para conferir.
+      if (parc.exato === false) r.valorDito = parc.dito;
     }
     if (!r.valor) r.faltando.push("valor");
 
@@ -6056,7 +6077,10 @@
       linhas.push({
         rotulo: "Parcelas",
         valor: r.parcelas + "x · total " + brl(r.valorTotal),
-        meta: "a compra inteira entra agora, repartida nas próximas faturas",
+        meta: r.valorDito
+          ? brl(r.valorDito) + " não divide certo por " + r.parcelas +
+            ": as parcelas iguais somam " + brl(r.valorTotal)
+          : "a compra inteira entra agora, repartida nas próximas faturas",
         ok: true
       });
     }

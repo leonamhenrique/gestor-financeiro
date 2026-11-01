@@ -137,6 +137,49 @@ describe('fala.js — a mesma leitura da tela, fora dela', () => {
     });
   });
 
+  describe('"em 3 vezes" e "de 3 vezes" sao a mesma compra', () => {
+    const parcelas = (frase: string) => {
+      const r = fala.interpretarFala(frase + ' no cartao Nubank Roxinho categoria compras', ctx());
+      return [r.parcelas, r.valor, r.valorTotal];
+    };
+
+    it('a preposicao nao muda o significado', () => {
+      // O transcritor escreve o que se fala ("parcelados de 3 vezes"); o
+      // dedo escreve "3x". Era a mesma compra virando dois lancamentos.
+      for (const f of [
+        'comprei 20 em 3x',
+        'comprei 20 em 3 vezes',
+        'comprei 20 de 3 vezes',
+        'comprei 20 parcelado de 3x',
+        'comprei 20 parcelados de 3 vezes',
+        'comprei 20 dividido em 3 parcelas',
+        'comprei 20 em tres vezes',
+      ]) {
+        expect(parcelas(f)).toEqual([3, 6.67, 20.01]);
+      }
+    });
+
+    it('o sufixo e o que segura o falso positivo', () => {
+      // "de 3 reais" nao e parcelamento; sem x/vezes/parcelas, nada feito.
+      const r = fala.interpretarFala('comprei um pao de 3 reais no cartao Nubank Roxinho categoria compras', ctx());
+      expect(r.parcelas).toBeUndefined();
+    });
+
+    it('divisao torta vem marcada; parcela dita, nao', () => {
+      const torta = fala.interpretarFala('comprei 20 em 3x no cartao Nubank Roxinho categoria compras', ctx());
+      expect(torta.valorDito).toBe(20);
+      const dita = fala.interpretarFala('comprei 3x de 20 no cartao Nubank Roxinho categoria compras', ctx());
+      expect(dita.valorDito).toBeUndefined();
+      expect([dita.parcelas, dita.valor, dita.valorTotal]).toEqual([3, 20, 60]);
+    });
+
+    it('divisao exata nao tem o que avisar', () => {
+      const r = fala.interpretarFala('comprei 30 em 3x no cartao Nubank Roxinho categoria compras', ctx());
+      expect([r.parcelas, r.valor, r.valorTotal]).toEqual([3, 10, 30]);
+      expect(r.valorDito).toBeUndefined();
+    });
+  });
+
   it('sem contexto, estoura dizendo o que faltou', () => {
     // Falha fechada: sem isto a frase seria lida contra listas vazias e a
     // resposta diria "não identifiquei a conta" sem explicação nenhuma.

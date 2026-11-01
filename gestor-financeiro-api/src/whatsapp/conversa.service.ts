@@ -875,8 +875,15 @@ export class ConversaService {
       '📝 Descrição: ' + (r.desc || '—'),
     ];
     if (r.parcelas) {
+      // O centavo da divisão torta é dito, e não escondido: R$ 20,00 em 3x
+      // dá parcelas de 6,67 que somam 20,01. A série tem um valor só, então
+      // o total REAL é esse — mostrar 20,00 aqui seria prometer um número
+      // que o extrato depois não teria.
+      const sobra = r.valorDito
+        ? ' (' + this.brl(r.valorDito) + ' não divide certo por ' + r.parcelas + ')'
+        : '';
       linhas.push(
-        '🔢 Parcelas: ' + r.parcelas + 'x — total ' + this.brl(r.valorTotal),
+        '🔢 Parcelas: ' + r.parcelas + 'x — total ' + this.brl(r.valorTotal) + sobra,
       );
     }
     const cartao = ctx.cartoes.find((k: any) => k.id === r.cartaoId);

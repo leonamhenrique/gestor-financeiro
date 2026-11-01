@@ -106,7 +106,7 @@ var RE_PARCELA = /^(.*?)\s*-\s*Parcela\s+(\d+)\/(\d+)$/i;
 
 var RE_PARCELA_DE = /\b(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\s+de\s+(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)/;
 
-var RE_PARCELA_EM = /\b(?:em|parcelad[oa] em|dividid[oa] em)\s*(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\b/;
+var RE_PARCELA_EM = /\b(?:em|de)\s*(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\b/;
 
 var RE_PARCELA_X = /\b(\d{1,2})\s*x\b/;
 
@@ -285,6 +285,8 @@ function parcelamentoDaFala(texto, valorLido) {
       var nDe = quantidadeDita(m[1]);
       var parcela = numeroBR(m[2]);
       if (nDe >= 2 && nDe <= 60 && parcela) {
+        // Aqui a parcela foi DITA, então o total é consequência: não há
+        // divisão para sair torta.
         return { quantidade: nDe, parcela: parcela, total: Math.round(parcela * nDe * 100) / 100 };
       }
       return null;
@@ -294,7 +296,13 @@ function parcelamentoDaFala(texto, valorLido) {
     var n = quantidadeDita(m[1]);
     if (n < 2 || n > 60) return null;
     var cada = Math.round((valorLido * 100) / n) / 100;
-    return { quantidade: n, parcela: cada, total: Math.round(cada * n * 100) / 100 };
+    var total = Math.round(cada * n * 100) / 100;
+    /* R$ 20,00 em 3x dá 6,666...: parcelas iguais de 6,67 somam 20,01, um
+     * centavo a mais do que a pessoa disse. O cartão de verdade resolve
+     * fazendo a última parcela diferente, e a série deste app tem um valor
+     * só — então o jeito honesto é FALAR do centavo, em vez de mostrar um
+     * total que não é o dito e deixar quem lê descobrir sozinho. */
+    return { quantidade: n, parcela: cada, total: total, dito: valorLido, exato: total === valorLido };
   }
 
 function mesPorNome(nome) {
@@ -598,6 +606,9 @@ function interpretarFala(frase, ctx) {
       r.parcelas = parc.quantidade;
       r.valor = parc.parcela;
       r.valorTotal = parc.total;
+      // Só quando houve divisão e ela não fechou: quem disse a parcela
+      // ("3x de 20") não tem centavo nenhum para conferir.
+      if (parc.exato === false) r.valorDito = parc.dito;
     }
     if (!r.valor) r.faltando.push("valor");
 

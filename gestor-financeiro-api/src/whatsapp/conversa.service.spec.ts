@@ -857,6 +857,42 @@ describe('ConversaService', () => {
       expect(series).toHaveLength(0);
     });
 
+    it('falado e digitado dao o MESMO lancamento', async () => {
+      /* O caso real, da tela do usuario: digitando "3x" a frase virava
+       * parcelamento, e o audio da MESMA compra -- que o transcritor escreve
+       * como "parcelados de 3 vezes" -- virava uma despesa unica de 20. A
+       * frase nao muda de significado por ter sido falada. */
+      const formas = [
+        'comprei 20 parcelado de 3x nas casas bahia no credito do nubank categoria compras',
+        'Comprei 20 parcelados de 3 vezes nas Casas Bahia no crédito do Nubank, categoria compras.',
+        'comprei 20 em 3 vezes nas casas bahia no credito do nubank categoria compras',
+        'comprei 20 em tres vezes nas casas bahia no credito do nubank categoria compras',
+      ];
+      for (const f of formas) {
+        const r = await service.responderA(msg(f));
+        expect(r?.texto).toContain('💵 Valor: R$ 6,67 por parcela');
+        expect(r?.texto).toContain('🔢 Parcelas: 3x — total R$ 20,01');
+      }
+    });
+
+    it('o centavo da divisao torta e dito, nao escondido', async () => {
+      // A serie tem um valor so: tres parcelas iguais de 6,67 somam 20,01, e
+      // nao os 20,00 ditos. Mostrar 20,00 seria prometer um numero que o
+      // extrato depois nao teria.
+      const r = await service.responderA(
+        msg('comprei 20 em 3x nas casas bahia no credito do nubank categoria compras'),
+      );
+      expect(r?.texto).toContain('total R$ 20,01 (R$ 20,00 não divide certo por 3)');
+    });
+
+    it('parcela DITA nao tem centavo a conferir', async () => {
+      const r = await service.responderA(
+        msg('comprei 3x de 20 nas casas bahia no credito do nubank categoria compras'),
+      );
+      expect(r?.texto).toContain('🔢 Parcelas: 3x — total R$ 60,00');
+      expect(r?.texto).not.toContain('não divide certo');
+    });
+
     it('o sim cria uma SERIE, nao tres lancamentos soltos', async () => {
       await service.responderA(msg(frase));
       const r = await service.responderA(msg('sim'));
