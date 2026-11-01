@@ -20,6 +20,7 @@ import {
   perguntaDeFatura,
   perguntaDeResultado,
   perguntaDeSaldo,
+  regimeDaPergunta,
 } from './conversa.service';
 import type { FaturasDoMes, RelatorioService, ResultadoDoMes } from '../relatorio/relatorio.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
@@ -48,7 +49,9 @@ describe('ConversaService', () => {
    * este mock nao consegue inventar um campo que o servico nao devolve. */
   let resultado: ResultadoDoMes;
   let faturasDoMes: FaturasDoMes;
-  let relatorio: Pick<RelatorioService, 'doMes' | 'faturasDoMes'>;
+  let relatorio: Pick<RelatorioService, 'doMes' | 'faturasDoMes' | 'regime'>;
+  /** O regime guardado no cadastro de quem perguntou. */
+  let preferido: 'compra' | 'fatura';
 
   beforeEach(() => {
     criados = [];
@@ -183,9 +186,11 @@ describe('ConversaService', () => {
       ],
       cartoes: 2,
     };
+    preferido = 'fatura';
     relatorio = {
       doMes: jest.fn(async () => resultado),
       faturasDoMes: jest.fn(async () => faturasDoMes),
+      regime: jest.fn(async () => preferido),
     };
 
     service = new ConversaService(
@@ -543,11 +548,43 @@ describe('ConversaService', () => {
       expect(outra?.texto).toContain('Contado pela data da compra');
     });
 
+    it('sem regime na frase, vale o do cadastro', async () => {
+      const r = await service.responderA(msg('qual meu resultado nesse mes?'));
+      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-11', 'fatura');
+      expect(r?.texto).toContain('Contado pelo vencimento da fatura');
+      expect(r?.texto).not.toContain('só nesta resposta');
+    });
+
+    it('a frase pode pedir o outro regime, so para aquela resposta', async () => {
+      // Trocar a preferencia porque alguem fez uma pergunta mudaria TODAS as
+      // telas da pessoa por causa de uma consulta.
+      resultado = { ...resultado, regime: 'compra' };
+      const r = await service.responderA(msg('qual meu resultado nesse mes pela data da compra?'));
+      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-11', 'compra');
+      expect(r?.texto).toContain('Contado pela data da compra, só nesta resposta');
+      expect(r?.texto).toContain('continua sendo o vencimento da fatura');
+    });
+
+    it('quem conta por compra pode pedir o resultado pela fatura', async () => {
+      preferido = 'compra';
+      const r = await service.responderA(msg('qual meu resultado nesse mes pela fatura?'));
+      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-11', 'fatura');
+      // E a palavra "fatura" nao pode desviar para a lista de faturas.
+      expect(relatorio.faturasDoMes).not.toHaveBeenCalled();
+      expect(r?.texto).toContain('só nesta resposta');
+      expect(r?.texto).toContain('continua sendo a data da compra');
+    });
+
+    it('regime pedido igual ao do cadastro nao vira aviso', async () => {
+      const r = await service.responderA(msg('qual meu resultado pelo vencimento da fatura?'));
+      expect(r?.texto).not.toContain('só nesta resposta');
+    });
+
     it('o mes dito na frase e o mes consultado', async () => {
       await service.responderA(msg('qual meu resultado em outubro?'));
-      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-10');
+      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-10', 'fatura');
       await service.responderA(msg('e o resultado do mes passado?'));
-      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-10');
+      expect(relatorio.doMes).toHaveBeenLastCalledWith('user-1', '2026-10', 'fatura');
     });
   });
 
@@ -877,6 +914,36 @@ describe('perguntaDeResultado', () => {
   });
 });
 
+describe('regimeDaPergunta', () => {
+  it('reconhece o pedido de contar por compra', () => {
+    for (const f of [
+      'qual meu resultado nesse mes pela data da compra',
+      'resultado do mes por compra',
+      'resultado de outubro pela compra',
+      'quanto gastei esse mes pela data de compra',
+    ]) {
+      expect(regimeDaPergunta(f)).toBe('compra');
+    }
+  });
+
+  it('reconhece o pedido de contar pela fatura', () => {
+    for (const f of [
+      'qual meu resultado nesse mes pela fatura',
+      'resultado do mes pelo vencimento',
+      'resultado por fatura',
+    ]) {
+      expect(regimeDaPergunta(f)).toBe('fatura');
+    }
+  });
+
+  it('frase sem pedido de regime devolve null', () => {
+    expect(regimeDaPergunta('qual meu resultado nesse mes')).toBeNull();
+    // "Na compra do mercado" e onde se gastou, e nao um jeito de contar.
+    expect(regimeDaPergunta('quanto gastei esse mes na compra do mercado')).toBeNull();
+    expect(regimeDaPergunta('qual o valor das minhas faturas')).toBeNull();
+  });
+});
+
 describe('perguntaDeFatura', () => {
   it('reconhece as formas comuns', () => {
     for (const f of [
@@ -900,6 +967,12 @@ describe('perguntaDeFatura', () => {
   it('frase sem fatura nao e dela', () => {
     expect(perguntaDeFatura('qual meu resultado nesse mes', false)).toBe(false);
     expect(perguntaDeFatura('qual meu saldo', false)).toBe(false);
+  });
+
+  it('"resultado pela fatura" pede um regime, e nao a lista de faturas', () => {
+    expect(perguntaDeFatura('qual meu resultado nesse mes pela fatura', false)).toBe(false);
+    // Mas "das minhas faturas" continua sendo sobre as faturas.
+    expect(perguntaDeFatura('qual o resultado das minhas faturas em novembro', false)).toBe(true);
   });
 });
 

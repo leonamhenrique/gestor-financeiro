@@ -139,6 +139,32 @@ export function perguntaDeResultado(texto: string, temValor: boolean): boolean {
 }
 
 /**
+ * A frase PEDE um regime? Devolve 'compra', 'fatura' ou null.
+ *
+ * Serve para olhar o mês pelo outro regime sem trocar a preferência: "qual
+ * meu resultado nesse mês pela data da compra" responde por competência e vai
+ * embora, deixando a escolha das Configurações onde estava. Trocar uma
+ * preferência porque alguém fez uma pergunta seria mudar TODAS as telas da
+ * pessoa por causa de uma consulta — e ela descobriria dias depois, pelos
+ * números que mudaram sozinhos.
+ *
+ * Só a forma "pela/por" conta. "Das minhas faturas" fala das faturas em si,
+ * que é outra pergunta (ver `perguntaDeFatura`), e não um jeito de contar.
+ */
+export function regimeDaPergunta(texto: string): 'compra' | 'fatura' | null {
+  const t = semAcento(texto);
+  // Só "pela/por": "na compra do mercado" é onde se gastou, e não um jeito
+  // de contar. Era falso positivo em "quanto gastei esse mes na compra...".
+  if (/(pel[ao]|por) (data da )?compra\b|data (da|de) compra|data do lancamento|competencia/.test(t)) {
+    return 'compra';
+  }
+  if (/(pel[ao]|por) fatura|pelo vencimento|data (de|do) vencimento|regime de caixa/.test(t)) {
+    return 'fatura';
+  }
+  return null;
+}
+
+/**
  * A frase é uma pergunta sobre FATURA?
  *
  * "Qual o valor das minhas faturas em novembro" não é o resultado do mês nem
@@ -153,6 +179,11 @@ export function perguntaDeFatura(texto: string, temValor: boolean): boolean {
   if (temValor) return false;
   const t = semAcento(texto);
   if (!/\bfatura\b|\bfaturas\b/.test(t)) return false;
+  // "qual meu resultado nesse mês PELA FATURA" nomeia a fatura como jeito de
+  // contar, e não como assunto: quem pede um regime está pedindo o resultado
+  // por ele. Sem esta linha, a palavra "fatura" sequestrava a pergunta e a
+  // pessoa recebia a lista de faturas em vez do resultado do mês.
+  if (perguntaDeResultado(texto, temValor) && regimeDaPergunta(texto)) return false;
   // "gastei na fatura de dezembro" sem valor nenhum ainda é tentativa de
   // lançamento, e não pergunta: o verbo de gasto manda.
   return !/\b(gastei|gasto|paguei|comprei|lancei|lanca|recebi)\b/.test(t);
@@ -635,12 +666,18 @@ export class ConversaService {
    */
   private async responderResultado(userId: string, texto: string): Promise<string> {
     const mes = mesDaPergunta(texto, diaDoUsuario());
-    const r = await this.relatorio.doMes(userId, mes);
+    // A preferência é lida sempre, e não só quando a frase cala: é dela que a
+    // resposta precisa para avisar que o regime pedido vale SÓ ali. Sem esse
+    // aviso, a pessoa veria "contado pela data da compra" e teria motivo para
+    // achar que a pergunta mudou a configuração dela.
+    const preferido = await this.relatorio.regime(userId);
+    const pedido = regimeDaPergunta(texto);
+    const r = await this.relatorio.doMes(userId, mes, pedido ?? preferido);
 
     if (r.vazio) {
       return (
         '📊 ' + this.rotuloMes(mes) + '\n\nSem movimento neste mês.' +
-        '\n\n' + this.notaDoRegime(r.regime)
+        '\n\n' + this.notaDoRegime(r.regime, preferido)
       );
     }
 
@@ -674,7 +711,7 @@ export class ConversaService {
       '🧾 ' + r.lancamentos + (r.lancamentos === 1 ? ' lançamento' : ' lançamentos') +
       ', previstos incluídos.',
     );
-    linhas.push(this.notaDoRegime(r.regime));
+    linhas.push(this.notaDoRegime(r.regime, preferido));
     return linhas.join('\n');
   }
 
@@ -742,8 +779,19 @@ export class ConversaService {
   }
 
   /** O regime, em uma linha — e no vocabulário das Configurações. */
-  private notaDoRegime(regime: string): string {
-    return regime === 'compra'
+  private notaDoRegime(usado: string, preferido: string): string {
+    const porCompra = usado === 'compra';
+    if (usado !== preferido) {
+      // Pedido na frase: a linha diz que foi só aqui, e qual continua sendo a
+      // escolha — o aviso vale mais que a explicação do regime, que a pessoa
+      // acabou de dar.
+      return (
+        '🧮 Contado pel' + (porCompra ? 'a data da compra' : 'o vencimento da fatura') +
+        ', só nesta resposta. Nas Configurações a sua escolha continua sendo ' +
+        (preferido === 'compra' ? 'a data da compra' : 'o vencimento da fatura') + '.'
+      );
+    }
+    return porCompra
       ? '🧮 Contado pela data da compra, como você escolheu nas Configurações.'
       : '🧮 Contado pelo vencimento da fatura: compra no cartão pesa no mês em que a fatura vence.';
   }
