@@ -142,11 +142,14 @@ export class ConversaService {
     if (r.transferencia) return this.lerTransferencia(userId, r, ctx);
 
     if (r.faltando.length) {
+      const nomes = r.faltando.includes('destino') ? ' ' + this.nomesDeDestino(ctx) : '';
       return (
         this.resumo(r, ctx) +
         '\n\nFaltou ' +
         r.faltando.join(', ') +
-        '. Mande a frase de novo com essa parte, ou lance no app.'
+        '.' +
+        nomes +
+        ' Mande a frase de novo com essa parte, ou lance no app.'
       );
     }
 
@@ -178,7 +181,9 @@ export class ConversaService {
         this.resumoTransferencia(r, ctx) +
         '\n\nFaltou ' +
         r.faltando.join(', ') +
-        '. A primeira conta dita é a que paga, a segunda é a que recebe.'
+        '. ' +
+        this.nomesDeConta(ctx) +
+        ' A primeira conta dita é a que paga, a segunda é a que recebe.'
       );
     }
 
@@ -359,6 +364,39 @@ export class ConversaService {
     linhas.push('Data: ' + this.dataBR(r.data));
     linhas.push('Situação: ' + (r.confirmada ? 'confirmado' : 'previsto'));
     return linhas.join('\n');
+  }
+
+  /**
+   * Os nomes que a frase podia ter dito.
+   *
+   * "Faltou destino" sozinho é um beco sem saída: quem está no WhatsApp não
+   * tem a tela à mão e não lembra se cadastrou "Itaú" ou "Itaú Corrente".
+   * Dizer a lista transforma a recusa em resposta.
+   *
+   * Categoria fica de fora de propósito: são dezenas, e uma parede de texto no
+   * lugar de um recado curto não ajuda ninguém — para ela o caminho é a regra
+   * de lojista, que aprende sozinha.
+   */
+  private nomesDeConta(ctx: any): string {
+    const contas = ctx.contas
+      .filter((c: any) => c.isActive !== false)
+      .map((c: any) => c.nome)
+      .filter(Boolean);
+    return contas.length ? 'Suas contas: ' + this.ateOito(contas) + '.' : '';
+  }
+
+  private nomesDeDestino(ctx: any): string {
+    const cartoes = ctx.cartoes.map((k: any) => k.nome).filter(Boolean);
+    const partes = [this.nomesDeConta(ctx)];
+    if (cartoes.length) partes.push('Seus cartões: ' + this.ateOito(cartoes) + '.');
+    return partes.filter(Boolean).join(' ');
+  }
+
+  /** Lista longa vira recado ilegível; o corte diz quantos ficaram de fora. */
+  private ateOito(nomes: string[]): string {
+    const TETO = 8;
+    if (nomes.length <= TETO) return nomes.join(', ');
+    return nomes.slice(0, TETO).join(', ') + ' e mais ' + (nomes.length - TETO);
   }
 
   /** O resumo da transferência diz a DIREÇÃO. Dizer "Conta" duas vezes

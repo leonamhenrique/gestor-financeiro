@@ -284,6 +284,29 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('quando o nome nao bate, a resposta diz quais existem', () => {
+    // "Faltou destino" sozinho e um beco: quem esta no WhatsApp nao tem a tela
+    // a mao para conferir se cadastrou "Itau" ou "Itau Corrente".
+    it('no destino de despesa, lista contas e cartoes', async () => {
+      const r = await service.responderA(msg('gastei 30 reais em alimentacao'));
+      expect(r).toContain('Suas contas: Nubank, Cofre.');
+      expect(r).toContain('Seus cartões: Nubank Roxinho.');
+    });
+
+    it('na transferencia, lista so as contas', async () => {
+      const r = await service.responderA(msg('transferi 50 do Nubank'));
+      expect(r).toContain('Suas contas: Nubank, Cofre.');
+      expect(r).not.toContain('cartões');
+    });
+
+    // Categoria nao entra: sao dezenas, e a parede de texto nao ajuda.
+    it('faltando so a categoria, nao despeja lista nenhuma', async () => {
+      const r = await service.responderA(msg('gastei 30 reais no debito da conta Nubank'));
+      expect(r).toMatch(/Faltou categoria/);
+      expect(r).not.toContain('Suas contas');
+    });
+  });
+
   describe('transferencia entre contas', () => {
     it('o resumo diz a DIRECAO, e nao "Conta" duas vezes', async () => {
       const r = await service.responderA(msg('transferencia de 100 do Nubank para o Cofre'));
