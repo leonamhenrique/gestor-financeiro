@@ -9,7 +9,7 @@
 // ============================================================
 
 import type { BankAccount, Category, CategoryRule, CreditCard } from '@prisma/client';
-import { ConversaService } from './conversa.service';
+import { ConversaService, diaDoUsuario } from './conversa.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
 import { createHmac } from 'node:crypto';
 
@@ -254,6 +254,29 @@ describe('ConversaService', () => {
     await service.responderA(msg('sim', 'r2'));
     expect(criados[0]).toMatchObject({ type: 'INCOME', amount: 500, categoryId: 'c4' });
     expect(criados[0].clientKey).toMatch(/^wa-/);
+  });
+});
+
+describe('que dia e hoje para quem falou', () => {
+  const dia = (d: Date) => [d.getFullYear(), d.getMonth() + 1, d.getDate()];
+
+  // O caso real: 21h06 de 31 de outubro no Brasil ja e 1o de novembro em UTC,
+  // e o lancamento nascia com a data de amanha.
+  it('as 21h de ca, ainda e ontem la', () => {
+    expect(dia(diaDoUsuario(new Date('2026-11-01T00:06:00Z')))).toEqual([2026, 10, 31]);
+  });
+
+  it('de dia os dois fusos concordam, e e por isso que ninguem notava', () => {
+    expect(dia(diaDoUsuario(new Date('2026-10-31T15:00:00Z')))).toEqual([2026, 10, 31]);
+  });
+
+  it('a virada do ano tambem anda com o fuso', () => {
+    expect(dia(diaDoUsuario(new Date('2027-01-01T02:00:00Z')))).toEqual([2026, 12, 31]);
+  });
+
+  it('o fuso entra por parametro, para o dia nao ser sempre o do Brasil', () => {
+    expect(dia(diaDoUsuario(new Date('2026-11-01T00:06:00Z'), 'UTC'))).toEqual([2026, 11, 1]);
+    expect(dia(diaDoUsuario(new Date('2026-11-01T00:06:00Z'), 'Asia/Tokyo'))).toEqual([2026, 11, 1]);
   });
 });
 

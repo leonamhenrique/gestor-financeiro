@@ -32,6 +32,33 @@ const RASCUNHO_MINUTOS = 15;
  * gravar id de mensagem seria guardar conversa, que este app não faz. */
 const LEMBRAR_IDS = 500;
 
+/** O fuso em que o app vive. O saldonline é brasileiro: as telas, a moeda, a
+ * política, o CNPJ. Quando houver usuário fora daqui isto vira coluna no
+ * cadastro — até lá, um fuso fixo é mais honesto que o do servidor. */
+const FUSO = process.env.APP_TIMEZONE || 'America/Sao_Paulo';
+
+/**
+ * Que dia é hoje para QUEM FALOU.
+ *
+ * O servidor do Render roda em UTC. Uma mensagem das 21h06 de 31 de outubro
+ * chega lá como 00h06 de 1º de novembro, e o lançamento nascia com a data de
+ * amanhã — sem ninguém notar, porque das 00h às 21h os dois fusos concordam.
+ * Das 21h à meia-noite, todo lançamento caa no dia errado.
+ *
+ * Devolve um Date cujos componentes LOCAIS são a data brasileira, que é o que
+ * `isoDate` e as contas de dia da leitura ("ontem", "dia 12") usam.
+ */
+export function diaDoUsuario(agora: Date = new Date(), fuso: string = FUSO): Date {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: fuso,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(agora);
+  const num = (tipo: string) => Number(partes.find((p) => p.type === tipo)?.value);
+  return new Date(num('year'), num('month') - 1, num('day'));
+}
+
 const SIM = /^(sim|s|ok|okay|confirmo?|confirmar|pode|pode lan[çc]ar|isso|claro|beleza|positivo|👍)$/i;
 const NAO = /^(n[ãa]o|n|cancela(r)?|deixa|esquece|negativo)$/i;
 
@@ -204,9 +231,8 @@ export class ConversaService {
         paiId: c.parentId || null,
       })),
       regras: regras.map((r) => ({ lojista: r.merchant, categoriaId: r.categoryId })),
-      // O dia é o de quem falou, não o do servidor: "ontem" tem de ser ontem
-      // para a pessoa.
-      hoje: new Date(),
+      // O dia é o de quem falou, não o do servidor — ver `diaDoUsuario`.
+      hoje: diaDoUsuario(),
     };
   }
 
