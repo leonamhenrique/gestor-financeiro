@@ -6,6 +6,7 @@
 // demais — nesse caso ele é recusado antes de ser baixado.
 // ============================================================
 
+import { Logger } from '@nestjs/common';
 import { AudioService } from './audio.service';
 
 describe('AudioService', () => {
@@ -84,6 +85,26 @@ describe('AudioService', () => {
       { ok: false, status: 429, json: async () => ({}) },
     ]);
     await expect(service.ouvir('media-1')).resolves.toBeNull();
+  });
+
+  it('e o log diz o MOTIVO que o servico deu, nao so o status', async () => {
+    const avisos: string[] = [];
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation((m: any) => {
+      avisos.push(String(m));
+    });
+    responder([
+      ok({ url: 'https://lookaside.fb/audio', file_size: 100 }),
+      bytes(100),
+      {
+        ok: false,
+        status: 404,
+        json: async () => ({ error: { message: "The model 'whisper-9' does not exist" } }),
+      },
+    ]);
+    await service.ouvir('media-1');
+    jest.restoreAllMocks();
+    expect(avisos.join(' ')).toContain('HTTP 404');
+    expect(avisos.join(' ')).toContain('whisper-9');
   });
 
   it('provedor desconhecido nao manda audio para lugar nenhum', async () => {

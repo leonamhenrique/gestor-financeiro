@@ -126,7 +126,19 @@ export class AudioService {
       body: form,
     });
     if (!r.ok) {
-      this.log.warn('transcrição recusada: HTTP ' + r.status);
+      // O motivo junto, pela mesma razão do `responder`: "HTTP 401" sozinho
+      // não distingue chave errada de crédito acabado, e "HTTP 404" não diz
+      // que o nome do modelo em STT_MODEL não existe mais. O serviço responde
+      // isso em uma frase — jogá-la fora é transformar meia hora de conserto
+      // em noite de adivinhação.
+      let detalhe = '';
+      try {
+        const corpo: any = await r.json();
+        detalhe = corpo?.error?.message || '';
+      } catch {
+        /* resposta sem JSON: fica só o status */
+      }
+      this.log.warn('transcrição recusada: HTTP ' + r.status + (detalhe ? ' — ' + detalhe : ''));
       return null;
     }
     const dados: any = await r.json();
