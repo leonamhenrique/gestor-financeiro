@@ -81,6 +81,26 @@ export interface Resposta {
   confirmar?: boolean;
 }
 
+/**
+ * A frase é uma PERGUNTA de saldo, e não um lançamento?
+ *
+ * O guarda é o valor: pergunta não traz dinheiro. "Quanto tenho?" pergunta;
+ * "gastei 30 no saldo do nubank" é gasto, mesmo com a palavra saldo dentro.
+ * Sem isso, uma frase com as duas coisas responderia o saldo e engoliria o
+ * lançamento em silêncio — e silêncio aqui é o defeito que mais custou caro
+ * neste módulo.
+ */
+export function perguntaDeSaldo(texto: string, temValor: boolean): boolean {
+  if (temValor) return false;
+  const t = String(texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\bsaldo\b|\bsaldos\b|quanto (eu )?tenho|quanto (eu )?sobra|quanto ha na conta/.test(
+    t,
+  );
+}
+
 interface Rascunho {
   lancamento: any;
   criadoEm: number;
@@ -164,6 +184,15 @@ export class ConversaService {
         texto:
           'Antes de lançar por aqui, cadastre uma conta ou um cartão no app.',
       };
+    }
+
+    // A pergunta vem ANTES da leitura do lançamento: lida como lançamento,
+    // "qual meu saldo" responderia "faltou valor, destino, categoria" — o
+    // app tratando uma pergunta como um formulário mal preenchido.
+    if (
+      perguntaDeSaldo(texto, !!fala.valorDaFala(fala.normalizarFala(texto)))
+    ) {
+      return { texto: await this.responderSaldo(userId, ctx) };
     }
 
     const r = fala.interpretarFala(texto, ctx);
@@ -398,6 +427,73 @@ export class ConversaService {
     };
   }
 
+  /**
+   * O saldo de hoje, pela MESMA conta que a tela de Resumo faz.
+   *
+   * Duas regras vêm de lá e não podem ser reinventadas aqui, sob pena de o
+   * WhatsApp dizer um número e o app mostrar outro:
+   *
+   *   1. conta arquivada ou OCULTA não entra. Ocultar existe justamente para
+   *      tirar uma conta do número do topo, e quem oculta não quer vê-la
+   *      aparecer por outra porta;
+   *   2. o que está guardado em objetivo CONTINUA sendo saldo. Aplicar não é
+   *      gastar — o dinheiro só mudou de lugar —, e sem essa parcela o total
+   *      cairia toda vez que alguém guardasse dinheiro.
+   *
+   * As linhas somam o total exibido. Um total que não fecha com a lista
+   * embaixo dele é um número que ninguém consegue conferir.
+   */
+  private async responderSaldo(userId: string, ctx: any): Promise<string> {
+    const visiveis = await this.prisma.bankAccount.findMany({
+      where: { userId, isActive: true, isHidden: false },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    // Só os movimentos das contas visíveis, pelo mesmo motivo do item 1.
+    const movimentos = await this.prisma.goalMovement.findMany({
+      where: { userId, bankAccount: { isHidden: false, isActive: true } },
+      select: { goalId: true, type: true, amount: true },
+    });
+
+    const porObjetivo = new Map<string, number>();
+    for (const m of movimentos) {
+      const sinal = m.type === 'DEPOSIT' ? 1 : -1;
+      porObjetivo.set(
+        m.goalId,
+        (porObjetivo.get(m.goalId) ?? 0) + sinal * Number(m.amount),
+      );
+    }
+    // Piso em zero por objetivo, como no app: quem resgatou mais do que
+    // aplicou tirou do saldo inicial do objetivo, que o total nunca contou.
+    const guardado = [...porObjetivo.values()].reduce(
+      (s, v) => s + Math.max(0, v),
+      0,
+    );
+
+    const nasContas = visiveis.reduce(
+      (s, c) => s + Number(c.currentBalance),
+      0,
+    );
+
+    if (!visiveis.length && !guardado) {
+      return 'Você ainda não tem conta cadastrada. Crie uma no app, em Contas.';
+    }
+
+    const linhas = visiveis.map(
+      (c) =>
+        '🏦 ' + c.institutionName + ': ' + this.brl(Number(c.currentBalance)),
+    );
+    if (guardado)
+      linhas.push('🎯 Guardado em objetivos: ' + this.brl(guardado));
+
+    return (
+      '💰 Saldo de hoje: ' +
+      this.brl(nasContas + guardado) +
+      '\n\n' +
+      linhas.join('\n')
+    );
+  }
+
   // ----------------------------------------------------------
   // o contexto, traduzido do banco
   // ----------------------------------------------------------
@@ -482,7 +578,8 @@ export class ConversaService {
         (r.categoriaDoLojista ? ' (do lojista)' : ''),
     );
     // "2026-12" é chave, não data: quem lê quer o mês.
-    if (r.cartaoId && r.faturaMes) linhas.push('Fatura: ' + this.mesBR(r.faturaMes));
+    if (r.cartaoId && r.faturaMes)
+      linhas.push('Fatura: ' + this.mesBR(r.faturaMes));
     linhas.push('Data: ' + this.dataBR(r.data));
     linhas.push(
       r.confirmada ? '✅ Situação: confirmado' : '🕒 Situação: previsto',

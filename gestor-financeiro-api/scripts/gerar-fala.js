@@ -101,6 +101,9 @@ const FUNCOES = [
 
 const EXPORTADAS = [
   'interpretarFala',
+  // A conversa precisa saber se a frase traz dinheiro: e isso que separa
+  // uma pergunta de saldo de um lancamento.
+  'valorDaFala',
   // O aprendizado do lojista também roda no servidor, e tem de usar a MESMA
   // chave e a MESMA regra de "já sei isto" da tela — senão os dois lados
   // ensinam coisas diferentes para a mesma tabela.

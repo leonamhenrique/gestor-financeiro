@@ -8,8 +8,12 @@
 // aparece dias depois, num saldo que não fecha.
 // ============================================================
 
+import { Prisma } from '@prisma/client';
 import type { BankAccount, Category, CategoryRule, CreditCard } from '@prisma/client';
-import { ConversaService, diaDoUsuario } from './conversa.service';
+
+/** Decimal como o Prisma devolve, para o mock nao mentir sobre o tipo. */
+const dec = (n: number) => new Prisma.Decimal(n);
+import { ConversaService, diaDoUsuario, perguntaDeSaldo } from './conversa.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
 import { createHmac } from 'node:crypto';
 
@@ -24,6 +28,7 @@ describe('ConversaService', () => {
   let transferidas: any[];
   let series: any[];
   let contaUnica: any;
+  let movimentos: any[];
   let whatsapp: any;
   let audio: any;
   let criados: any[];
@@ -46,9 +51,12 @@ describe('ConversaService', () => {
      * crença, os dois concordaram, e o teste passou verde enquanto, em
      * produção, nenhuma conta era encontrada — a coluna é `institutionName`.
      * Um mock tipado não consegue concordar com uma crença errada. */
-    const contas: Pick<BankAccount, 'id' | 'institutionName' | 'isActive'>[] = [
-      { id: 'a1', institutionName: 'Nubank', isActive: true },
-      { id: 'a2', institutionName: 'Cofre', isActive: true },
+    const contas: Pick<
+      BankAccount,
+      'id' | 'institutionName' | 'isActive' | 'isHidden' | 'currentBalance'
+    >[] = [
+      { id: 'a1', institutionName: 'Nubank', isActive: true, isHidden: false, currentBalance: dec(2500) },
+      { id: 'a2', institutionName: 'Cofre', isActive: true, isHidden: false, currentBalance: dec(230) },
     ];
     contaUnica = contas[0];
     const cartoes: Pick<CreditCard, 'id' | 'name' | 'bankAccountId' | 'closingDay'>[] = [
@@ -63,9 +71,16 @@ describe('ConversaService', () => {
     const regrasDoBanco: Pick<CategoryRule, 'merchant' | 'categoryId'>[] = [
       { merchant: 'magazine', categoryId: 'c9' },
     ];
+    movimentos = [];
 
     prisma = {
-      bankAccount: { findMany: jest.fn(async () => contas) },
+      bankAccount: {
+        findMany: jest.fn(async ({ where }: any) =>
+          // O filtro de oculta/arquivada e o mesmo da tela de Resumo.
+          where?.isHidden === false ? contas.filter((c) => !c.isHidden && c.isActive) : contas,
+        ),
+      },
+      goalMovement: { findMany: jest.fn(async () => movimentos) },
       creditCard: { findMany: jest.fn(async () => cartoes) },
       category: { findMany: jest.fn(async () => categorias) },
       categoryRule: {
@@ -359,6 +374,46 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('a pergunta de saldo', () => {
+    it('responde o total e as contas que o compoem', async () => {
+      const r = await service.responderA(msg('qual meu saldo'));
+      expect(r?.texto).toContain('Saldo de hoje: R$ 2.730,00');
+      expect(r?.texto).toContain('Nubank: R$ 2.500,00');
+      expect(r?.texto).toContain('Cofre: R$ 230,00');
+      // Pergunta nao grava nada, e nao pede confirmacao.
+      expect(criados).toHaveLength(0);
+      expect(r?.confirmar).toBeFalsy();
+    });
+
+    it('o que esta guardado em objetivo continua sendo saldo', async () => {
+      // Aplicar nao e gastar: o dinheiro so mudou de lugar. Sem esta parcela
+      // o total cairia toda vez que alguem guardasse dinheiro.
+      movimentos = [
+        { goalId: 'g1', type: 'DEPOSIT', amount: dec(1000) },
+        { goalId: 'g1', type: 'WITHDRAW', amount: dec(200) },
+      ];
+      const r = await service.responderA(msg('quanto eu tenho'));
+      expect(r?.texto).toContain('Guardado em objetivos: R$ 800,00');
+      expect(r?.texto).toContain('Saldo de hoje: R$ 3.530,00');
+    });
+
+    it('objetivo resgatado alem do aplicado nao vira divida', async () => {
+      movimentos = [
+        { goalId: 'g1', type: 'DEPOSIT', amount: dec(100) },
+        { goalId: 'g1', type: 'WITHDRAW', amount: dec(300) },
+      ];
+      const r = await service.responderA(msg('saldo'));
+      expect(r?.texto).toContain('Saldo de hoje: R$ 2.730,00');
+      expect(r?.texto).not.toContain('objetivos');
+    });
+
+    it('sem conta nenhuma, manda cadastrar', async () => {
+      prisma.bankAccount.findMany = jest.fn(async () => []);
+      const r = await service.responderA(msg('qual meu saldo'));
+      expect(r?.texto).toMatch(/ainda n[ãa]o tem conta cadastrada/i);
+    });
+  });
+
   describe('a fatura da compra no cartao', () => {
     // O caso que o usuario encontrou: comprando no DIA do fechamento, a fala
     // mandava para a fatura que estava fechando naquele dia -- as vezes ja
@@ -533,6 +588,25 @@ describe('ConversaService', () => {
     await service.responderA(msg('sim', 'r2'));
     expect(criados[0]).toMatchObject({ type: 'INCOME', amount: 500, categoryId: 'c4' });
     expect(criados[0].clientKey).toMatch(/^wa-/);
+  });
+});
+
+describe('perguntaDeSaldo', () => {
+  it('reconhece as formas comuns', () => {
+    for (const f of ['qual meu saldo', 'saldo', 'quanto eu tenho', 'quanto tenho hoje?']) {
+      expect(perguntaDeSaldo(f, false)).toBe(true);
+    }
+  });
+
+  it('frase com dinheiro nao e pergunta, mesmo falando em saldo', () => {
+    // Senao uma frase com as duas coisas responderia o saldo e engoliria o
+    // lancamento em silencio.
+    expect(perguntaDeSaldo('gastei 30 no saldo do nubank', true)).toBe(false);
+  });
+
+  it('lancamento comum nao vira pergunta', () => {
+    expect(perguntaDeSaldo('gastei 40 no mercado pelo debito', true)).toBe(false);
+    expect(perguntaDeSaldo('bom dia', false)).toBe(false);
   });
 });
 
