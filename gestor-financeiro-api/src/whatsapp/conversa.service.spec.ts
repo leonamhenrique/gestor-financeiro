@@ -8,6 +8,7 @@
 // aparece dias depois, num saldo que não fecha.
 // ============================================================
 
+import type { BankAccount, Category, CategoryRule, CreditCard } from '@prisma/client';
 import { ConversaService } from './conversa.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
 import { createHmac } from 'node:crypto';
@@ -30,28 +31,34 @@ describe('ConversaService', () => {
     dono = 'user-1';
     ouvido = null;
 
+    /* Os tipos do Prisma nas linhas de mentira, e não um objeto solto.
+     *
+     * Este mock foi escrito uma vez com `name` na conta, porque era isso que
+     * eu achava que a coluna se chamava. O serviço lia `c.name` pela mesma
+     * crença, os dois concordaram, e o teste passou verde enquanto, em
+     * produção, nenhuma conta era encontrada — a coluna é `institutionName`.
+     * Um mock tipado não consegue concordar com uma crença errada. */
+    const contas: Pick<BankAccount, 'id' | 'institutionName' | 'isActive'>[] = [
+      { id: 'a1', institutionName: 'Nubank', isActive: true },
+      { id: 'a2', institutionName: 'Cofre', isActive: true },
+    ];
+    const cartoes: Pick<CreditCard, 'id' | 'name' | 'bankAccountId'>[] = [
+      { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1' },
+    ];
+    const categorias: Pick<Category, 'id' | 'name' | 'type' | 'parentId'>[] = [
+      { id: 'c1', name: 'Alimentação', type: 'EXPENSE', parentId: null },
+      { id: 'c9', name: 'Compras', type: 'EXPENSE', parentId: null },
+      { id: 'c4', name: 'Freelance', type: 'INCOME', parentId: null },
+    ];
+    const regrasDoBanco: Pick<CategoryRule, 'merchant' | 'categoryId'>[] = [
+      { merchant: 'magazine', categoryId: 'c9' },
+    ];
+
     prisma = {
-      bankAccount: {
-        findMany: jest.fn(async () => [
-          { id: 'a1', name: 'Nubank', isActive: true },
-          { id: 'a2', name: 'Cofre', isActive: true },
-        ]),
-      },
-      creditCard: {
-        findMany: jest.fn(async () => [
-          { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1' },
-        ]),
-      },
-      category: {
-        findMany: jest.fn(async () => [
-          { id: 'c1', name: 'Alimentação', type: 'EXPENSE', parentId: null },
-          { id: 'c9', name: 'Compras', type: 'EXPENSE', parentId: null },
-          { id: 'c4', name: 'Freelance', type: 'INCOME', parentId: null },
-        ]),
-      },
-      categoryRule: {
-        findMany: jest.fn(async () => [{ merchant: 'magazine', categoryId: 'c9' }]),
-      },
+      bankAccount: { findMany: jest.fn(async () => contas) },
+      creditCard: { findMany: jest.fn(async () => cartoes) },
+      category: { findMany: jest.fn(async () => categorias) },
+      categoryRule: { findMany: jest.fn(async () => regrasDoBanco) },
     };
 
     transactions = {
@@ -106,6 +113,15 @@ describe('ConversaService', () => {
     expect(r).toContain('Alimentação');
     expect(r).toMatch(/Confirma\?/);
     expect(criados).toHaveLength(0);
+  });
+
+  it('a conta e achada pelo nome que esta no banco', async () => {
+    // O defeito que isto pega: a conta vinha sem nome do tradutor, o ditado
+    // nao achava nenhuma, e a resposta dizia "Faltou destino" para uma frase
+    // que nomeava a conta corretamente.
+    const r = await service.responderA(msg('despesa de 10 reais no pix conta do nubank'));
+    expect(r).toContain('Conta: Nubank');
+    expect(r).not.toMatch(/Faltou destino/);
   });
 
   it('o sim grava, e so entao', async () => {

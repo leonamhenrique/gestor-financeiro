@@ -190,16 +190,20 @@ export class ConversaService {
       this.prisma.categoryRule.findMany({ where: { userId } }),
     ]);
 
+    // Sem `any` nos parâmetros, de propósito: o tipo vem do Prisma, e foi um
+    // `any` aqui que deixou passar `c.name` numa tabela cujo campo se chama
+    // `institutionName` — conta nenhuma era achada, e o teste não viu porque o
+    // mock tinha sido escrito com a mesma crença errada.
     return {
-      contas: contas.map((c: any) => ({ id: c.id, nome: c.name, isActive: c.isActive })),
-      cartoes: cartoes.map((k: any) => ({ id: k.id, nome: k.name, contaId: k.bankAccountId })),
-      categorias: categorias.map((c: any) => ({
+      contas: contas.map((c) => ({ id: c.id, nome: c.institutionName, isActive: c.isActive })),
+      cartoes: cartoes.map((k) => ({ id: k.id, nome: k.name, contaId: k.bankAccountId })),
+      categorias: categorias.map((c) => ({
         id: c.id,
         nome: c.name,
         tipo: c.type,
         paiId: c.parentId || null,
       })),
-      regras: regras.map((r: any) => ({ lojista: r.merchant, categoriaId: r.categoryId })),
+      regras: regras.map((r) => ({ lojista: r.merchant, categoriaId: r.categoryId })),
       // O dia é o de quem falou, não o do servidor: "ontem" tem de ser ontem
       // para a pessoa.
       hoje: new Date(),
