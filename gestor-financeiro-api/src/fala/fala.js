@@ -435,7 +435,15 @@ function descricaoDaFala(frase, texto, ctx, semDestino) {
     String(frase || "").split(/\s+/).forEach(function (bruta) {
       var palavra = semPontuacao(bruta);
       var chave = normalizarFala(palavra);
-      var usada = !chave || /\d/.test(chave) || doCadastro[chave] === true ||
+      // Número escrito por extenso conta como número: "em DOIS dias" é data,
+      // não nome de lugar. Sem isto sobrava o trecho "em dois", que tem duas
+      // palavras e vencia "na padaria", de uma — e a descrição virava "Dois".
+      // "um" e "uma" ficam de fora: neste tipo de frase eles são artigo
+      // ("comprei uma pizza") muito mais vezes do que quantidade, e como
+      // ligação eles são aparados das pontas em vez de cortar o trecho.
+      var porExtenso =
+        NUMERO_PALAVRA[chave] !== undefined && LIGACAO_DA_FALA.indexOf(chave) < 0;
+      var usada = !chave || /\d/.test(chave) || porExtenso || doCadastro[chave] === true ||
         COMANDO_DA_FALA.indexOf(chave) >= 0 || mesPorNome(chave) >= 0 ||
         DIAS_SEMANA[chave] !== undefined;
       if (usada) {

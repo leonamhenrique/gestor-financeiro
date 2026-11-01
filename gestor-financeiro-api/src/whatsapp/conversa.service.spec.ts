@@ -284,6 +284,16 @@ describe('ConversaService', () => {
     });
   });
 
+  // A frase que o usuario mandou, inteira: "em dois dias" e data, e a
+  // descricao e o que sobra depois dela.
+  it('numero por extenso nao rouba o lugar da descricao', async () => {
+    const r = await service.responderA(
+      msg('Vou gastar em dois dias 10 na padaria pelo cartao de credito do nubank'),
+    );
+    expect(r?.texto).toContain('Descrição: Padaria');
+    expect(r?.texto).not.toContain('Descrição: Dois');
+  });
+
   describe('a pergunta de confirmacao pede botao', () => {
     // Digitar "sim" erra: um "aim" vira frase nova, que o app tenta ler como
     // lancamento. So a pergunta fechada ganha botao.
