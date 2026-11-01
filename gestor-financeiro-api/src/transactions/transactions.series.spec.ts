@@ -203,14 +203,31 @@ describe('TransactionsService — séries e fatura escolhida', () => {
       expect(transacoes.size).toBe(12);
     });
 
-    it('a fatura escolhida vale só para a primeira ocorrência', async () => {
+    // Este teste dizia o contrário até 01/11/2026: a fatura escolhida valia
+    // só para a primeira, e a segunda caía na fatura da própria data. O
+    // resultado, medido em produção, era "3x" com duas parcelas na MESMA
+    // fatura — o que acontece sempre que a escolha empurra a primeira para
+    // frente, como ao comprar no dia do fechamento. Parcela é uma por
+    // fatura; a regra antiga estava documentada, e estava errada.
+    it('a fatura escolhida arrasta as ocorrências seguintes', async () => {
       const { transactions } = await service.createSeries(base({ invoiceMonth: '2026-10' }), parcelado(2));
       expect(transactions[0].invoiceMonthOverride).toEqual(utc('2026-10-01'));
-      expect(transactions[1].invoiceMonthOverride).toBeNull();
-      // As duas parcelas acabam em outubro: a primeira pela fatura escolhida,
-      // a segunda pela própria data — e as duas nascem confirmadas.
-      expect(totalDe('2026-10')).toBe(200);
+      expect(transactions[1].invoiceMonthOverride).toEqual(utc('2026-11-01'));
+      expect(totalDe('2026-10')).toBe(100);
+      expect(totalDe('2026-11')).toBe(100);
       expect(totalDe('2026-09')).toBe(0);
+    });
+
+    it('quinzenal nao tenta casar fatura com data', async () => {
+      // Quinze dias não é um número inteiro de faturas; ali quem decide
+      // continua sendo a data de cada ocorrência.
+      const { transactions } = await service.createSeries(base({ invoiceMonth: '2026-10' }), {
+        kind: SeriesKind.INSTALLMENT,
+        frequency: SeriesFrequency.BIWEEKLY,
+        count: 2,
+      });
+      expect(transactions[0].invoiceMonthOverride).toEqual(utc('2026-10-01'));
+      expect(transactions[1].invoiceMonthOverride).toBeNull();
     });
 
     it.each([1, 61])('rejeita %i ocorrências', async (n) => {

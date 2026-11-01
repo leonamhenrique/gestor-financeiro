@@ -11596,6 +11596,26 @@
    * a mês, uma dívida que já existe. Série de conta (aluguel, assinatura)
    * segue diferente: as próximas ainda não aconteceram.
    */
+  /**
+   * A fatura da ocorrência `i`, quando a PRIMEIRA teve fatura escolhida.
+   *
+   * Sem isto, só a primeira respeitava a escolha e as seguintes caíam na
+   * fatura da própria data — o que junta duas parcelas na MESMA fatura toda
+   * vez que a escolha empurra a primeira para frente, como ao comprar no dia
+   * do fechamento. Parcela é uma por fatura: é isso que "3x" quer dizer.
+   *
+   * Quinzenal fica de fora: 15 dias não é um número inteiro de faturas.
+   */
+  function faturaDaOcorrencia(override, freq, i) {
+    if (!override) return null;
+    if (i === 0) return override;
+    if (freq === "QUINZENAL") return null;
+    var passo = freq === "TRIMESTRAL" ? 3 : freq === "ANUAL" ? 12 : 1;
+    var p = parseMonthKey(override);
+    var d = adicionarMeses(new Date(p.y, p.m, 1), passo * i);
+    return monthKey({ y: d.getFullYear(), m: d.getMonth() });
+  }
+
   function criarSerieLocal(o) {
     var serieId = uid("serie");
     var corrente = new Date(o.data + "T00:00:00");
@@ -11613,7 +11633,7 @@
         // quando é parcelamento no cartão (ver acima). Desmarcar vale para
         // todas: quem planeja uma compra parcelada não quer nada confirmado.
         confirmada: (primeira || parceladoNoCartao) ? o.confirmada : false,
-        faturaMesOverride: primeira ? o.override : null,
+        faturaMesOverride: faturaDaOcorrencia(o.override, o.freq, i),
         serieId: serieId, serieIndex: i
       };
       state.transactions.push(oc);

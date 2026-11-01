@@ -22,6 +22,38 @@ function somarMeses(inicio: Date, meses: number): Date {
   return new Date(Date.UTC(ano, mes0, Math.min(inicio.getUTCDate(), diasNoMes(ano, mes0))));
 }
 
+/**
+ * A fatura da ocorrência `i`, quando a PRIMEIRA teve fatura escolhida.
+ *
+ * Sem isto, só a primeira respeitava a escolha e as seguintes caíam na fatura
+ * da própria data — o que junta duas parcelas na MESMA fatura toda vez que a
+ * escolha empurra a primeira para frente. É o que acontece ao comprar no dia
+ * do fechamento: a parcela 1 vai para dezembro por escolha, a 2 cai em
+ * dezembro pela data, e a 3 em janeiro. Parcela é uma por fatura — é isso que
+ * "3x" quer dizer.
+ *
+ * Quinzenal fica de fora: 15 dias não é um número inteiro de faturas, e
+ * inventar uma correspondência ali seria pior do que deixar a data decidir.
+ */
+export function faturaDaOcorrencia(
+  override: Date | null | undefined,
+  frequencia: SeriesFrequency,
+  i: number,
+): Date | null {
+  if (!override) return null;
+  if (i === 0) return override;
+  switch (frequencia) {
+    case SeriesFrequency.MONTHLY:
+      return somarMeses(override, i);
+    case SeriesFrequency.QUARTERLY:
+      return somarMeses(override, 3 * i);
+    case SeriesFrequency.YEARLY:
+      return somarMeses(override, 12 * i);
+    default:
+      return null;
+  }
+}
+
 /** Data da ocorrência `i` (0 = a primeira, que é a própria data inicial). */
 export function dataDaOcorrencia(inicio: Date, frequencia: SeriesFrequency, i: number): Date {
   switch (frequencia) {

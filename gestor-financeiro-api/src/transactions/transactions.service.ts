@@ -41,15 +41,7 @@ import {
 import { resolveInvoicePeriod, validateAmount, validateAccountXorCard } from './transaction.utils';
 import { datasDoMesChave } from '../credit-cards/billing-cycle';
 import { FaturaCalculada, faturaAtual, hojeNoFuso, montarFaturas } from '../credit-cards/invoice-statement';
-import {
-  MAX_OCORRENCIAS,
-  MIN_OCORRENCIAS,
-  dataDaOcorrencia,
-  dataParaMes,
-  mesParaData,
-  moverParaOMes,
-  somarMesesNoMes,
-} from './series.utils';
+import { MAX_OCORRENCIAS, MIN_OCORRENCIAS, dataDaOcorrencia, dataParaMes, faturaDaOcorrencia, mesParaData, moverParaOMes, somarMesesNoMes } from './series.utils';
 
 const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -413,7 +405,7 @@ export class TransactionsService {
             ),
             transactionDate: dataDaOcorrencia(input.transactionDate, repeat.frequency, i),
             isConfirmed: primeira || parceladoNoCartao ? confirmadaEscolhida : false,
-            invoiceMonthOverride: primeira ? override : null,
+            invoiceMonthOverride: faturaDaOcorrencia(override, repeat.frequency, i),
             isRecurring: true,
             seriesId: series.id,
             seriesIndex: i,
