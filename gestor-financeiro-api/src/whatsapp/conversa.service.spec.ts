@@ -51,8 +51,9 @@ describe('ConversaService', () => {
       { id: 'a2', institutionName: 'Cofre', isActive: true },
     ];
     contaUnica = contas[0];
-    const cartoes: Pick<CreditCard, 'id' | 'name' | 'bankAccountId'>[] = [
-      { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1' },
+    const cartoes: Pick<CreditCard, 'id' | 'name' | 'bankAccountId' | 'closingDay'>[] = [
+      // Fecha dia 1: é o dia em que as duas regras de fatura do app discordam.
+      { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1', closingDay: 1 },
     ];
     const categorias: Pick<Category, 'id' | 'name' | 'type' | 'parentId'>[] = [
       { id: 'c1', name: 'Alimentação', type: 'EXPENSE', parentId: null },
@@ -355,6 +356,40 @@ describe('ConversaService', () => {
       const r = await service.responderA(msg('gastei 30 reais no debito da conta Nubank'));
       expect(r?.texto).toMatch(/Faltou categoria/);
       expect(r?.texto).not.toContain('Suas contas');
+    });
+  });
+
+  describe('a fatura da compra no cartao', () => {
+    // O caso que o usuario encontrou: comprando no DIA do fechamento, a fala
+    // mandava para a fatura que estava fechando naquele dia -- as vezes ja
+    // fechada -- enquanto a tela mandava para a seguinte. O mesmo gasto ia
+    // para faturas diferentes conforme a porta.
+    it('a compra no dia do fechamento vai para a fatura seguinte', async () => {
+      const r = await service.responderA(
+        msg('gastei 10 na padaria no cartao nubank roxinho categoria alimentacao'),
+      );
+      // Com fechamento no dia 1, QUALQUER compra do mes vai para a fatura do
+      // mes seguinte: depois do dia 1 pelo agrupamento, e no proprio dia 1
+      // pela sugestao. Por isso a conta aqui nao depende de que dia e hoje.
+      const hoje = new Date();
+      const proxima = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1);
+      const esperado =
+        String(proxima.getMonth() + 1).padStart(2, '0') + '/' + proxima.getFullYear();
+      expect(r?.texto).toContain('Fatura: ' + esperado);
+    });
+
+    it('a fatura dita na frase continua mandando', async () => {
+      const r = await service.responderA(
+        msg('gastei 10 na padaria no cartao nubank roxinho categoria alimentacao fatura de marco'),
+      );
+      expect(r?.texto).toMatch(/Fatura: 03\/\d{4}/);
+    });
+
+    it('lancamento em conta nao fala de fatura', async () => {
+      const r = await service.responderA(
+        msg('gastei 10 no debito da conta Nubank categoria alimentacao'),
+      );
+      expect(r?.texto).not.toContain('Fatura:');
     });
   });
 

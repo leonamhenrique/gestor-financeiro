@@ -426,10 +426,13 @@ export class ConversaService {
         nome: c.institutionName,
         isActive: c.isActive,
       })),
+      // `fechamento` vai junto porque a leitura precisa dele para escolher a
+      // fatura da compra — a mesma conta que a tela faz.
       cartoes: cartoes.map((k) => ({
         id: k.id,
         nome: k.name,
         contaId: k.bankAccountId,
+        fechamento: k.closingDay,
       })),
       categorias: categorias.map((c) => ({
         id: c.id,
@@ -478,7 +481,8 @@ export class ConversaService {
         (cat?.nome || '—') +
         (r.categoriaDoLojista ? ' (do lojista)' : ''),
     );
-    if (r.cartaoId && r.faturaMes) linhas.push('Fatura: ' + r.faturaMes);
+    // "2026-12" é chave, não data: quem lê quer o mês.
+    if (r.cartaoId && r.faturaMes) linhas.push('Fatura: ' + this.mesBR(r.faturaMes));
     linhas.push('Data: ' + this.dataBR(r.data));
     linhas.push(
       r.confirmada ? '✅ Situação: confirmado' : '🕒 Situação: previsto',
@@ -570,6 +574,11 @@ export class ConversaService {
         .replace('.', ',')
         .replace(/\B(?=(\d{3})+(?!\d))/g, '.')
     );
+  }
+
+  private mesBR(chave: string): string {
+    const p = String(chave || '').split('-');
+    return p.length === 2 ? p[1] + '/' + p[0] : chave;
   }
 
   private dataBR(iso: string): string {

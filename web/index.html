@@ -5988,6 +5988,18 @@
       var mf = mesPorNome(mFat[1]);
       if (mf >= 0) r.faturaMes = monthKey({ y: mFat[2] ? parseInt(mFat[2], 10) : hoje.getFullYear(), m: mf });
     }
+    // Sem fatura dita, vale a MESMA sugestão da tela de lançamento, e não o
+    // agrupamento por data. As duas diferem num dia por mês, o do fechamento:
+    // pela data, a compra do dia 1 cai na fatura que fecha naquele dia — uma
+    // fatura que está fechando agora, e às vezes já fechada. A tela sempre
+    // mandou essa compra para a seguinte; a fala mandava para a de trás, e o
+    // mesmo gasto ia parar em faturas diferentes conforme a porta usada.
+    if (r.cartaoId && !r.faturaMes) {
+      var cartaoDoLancamento = byId(ctx.cartoes, r.cartaoId);
+      if (cartaoDoLancamento && cartaoDoLancamento.fechamento) {
+        r.faturaMes = monthKey(faturaSugerida(r.data, cartaoDoLancamento));
+      }
+    }
 
     // Verbo no passado JÁ ACONTECEU: "recebi", "gastei", "comprei" e "paguei"
     // são dinheiro que entrou ou saiu, não promessa. Antes, só a forma de

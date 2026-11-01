@@ -120,6 +120,30 @@ function monthKey(vm) { return vm.y + "-" + String(vm.m + 1).padStart(2, "0"); }
 
 function adicionarDias(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
 
+function adicionarMeses(d, n) {
+    var dia = d.getDate();
+    var alvo = new Date(d.getFullYear(), d.getMonth() + n, 1);
+    var ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate();
+    alvo.setDate(Math.min(dia, ultimo));
+    return alvo;
+  }
+
+function resolveInvoicePeriodFromDate(dataIso, closingDay) {
+    var d = new Date(dataIso + "T00:00:00");
+    var day = d.getDate(), m = d.getMonth(), y = d.getFullYear();
+    if (day > closingDay) { m++; if (m > 11) { m = 0; y++; } }
+    return { y: y, m: m };
+  }
+
+function faturaSugerida(dataIso, card) {
+    var p = resolveInvoicePeriodFromDate(dataIso, card.fechamento);
+    if (new Date(dataIso + "T00:00:00").getDate() === card.fechamento) {
+      var d = adicionarMeses(new Date(p.y, p.m, 1), 1);
+      return { y: d.getFullYear(), m: d.getMonth() };
+    }
+    return p;
+  }
+
 function diaValido(y, m, dia) { return Math.min(dia, new Date(y, m + 1, 0).getDate()); }
 
 function dataDeHoje() { return new Date(); }
@@ -617,6 +641,18 @@ function interpretarFala(frase, ctx) {
     if (r.cartaoId && mFat) {
       var mf = mesPorNome(mFat[1]);
       if (mf >= 0) r.faturaMes = monthKey({ y: mFat[2] ? parseInt(mFat[2], 10) : hoje.getFullYear(), m: mf });
+    }
+    // Sem fatura dita, vale a MESMA sugestão da tela de lançamento, e não o
+    // agrupamento por data. As duas diferem num dia por mês, o do fechamento:
+    // pela data, a compra do dia 1 cai na fatura que fecha naquele dia — uma
+    // fatura que está fechando agora, e às vezes já fechada. A tela sempre
+    // mandou essa compra para a seguinte; a fala mandava para a de trás, e o
+    // mesmo gasto ia parar em faturas diferentes conforme a porta usada.
+    if (r.cartaoId && !r.faturaMes) {
+      var cartaoDoLancamento = byId(ctx.cartoes, r.cartaoId);
+      if (cartaoDoLancamento && cartaoDoLancamento.fechamento) {
+        r.faturaMes = monthKey(faturaSugerida(r.data, cartaoDoLancamento));
+      }
     }
 
     // Verbo no passado JÁ ACONTECEU: "recebi", "gastei", "comprei" e "paguei"
