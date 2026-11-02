@@ -516,10 +516,9 @@ function palavrasDeCadastroNaFala(texto, ctx) {
     return fora;
   }
 
-function descricaoDaFala(frase, texto, ctx, semDestino) {
-    ctx = ctx || contextoDaFala();
+function trechosDaFala(frase, texto, ctx) {
     var doCadastro = palavrasDeCadastroNaFala(texto, ctx);
-    var trechos = [], atual = null, aposForma = false;
+    var trechos = [], atual = null, aposForma = false, depoisDe = "";
     String(frase || "").split(/\s+/).forEach(function (bruta) {
       var palavra = semPontuacao(bruta);
       var chave = normalizarFala(palavra);
@@ -538,34 +537,58 @@ function descricaoDaFala(frase, texto, ctx, semDestino) {
         if (atual) trechos.push(atual);
         atual = null;
         aposForma = FORMA_DA_FALA.indexOf(chave) >= 0;
+        depoisDe = chave;
         return;
       }
-      if (!atual) atual = { palavras: [], aposForma: aposForma };
+      if (!atual) atual = { palavras: [], aposForma: aposForma, depoisDe: depoisDe };
       atual.palavras.push({ palavra: palavra, chave: chave });
     });
     if (atual) trechos.push(atual);
+    return trechos;
+  }
 
+function cortarLigacoes(lista) {
+    var i = 0, f = lista.length;
+    while (i < f && LIGACAO_DA_FALA.indexOf(lista[i].chave) >= 0) i++;
+    while (f > i && LIGACAO_DA_FALA.indexOf(lista[f - 1].chave) >= 0) f--;
+    return lista.slice(i, f);
+  }
+
+function nomeDoTrecho(corte) {
+    var t = corte.map(function (x) { return x.palavra; }).join(" ").slice(0, 60).trim();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+  }
+
+function categoriaDaFala(frase, texto, ctx) {
+    ctx = ctx || contextoDaFala();
+    var achado = "";
+    trechosDaFala(frase, texto, ctx).forEach(function (trecho) {
+      if (achado || trecho.depoisDe !== "categoria") return;
+      var corte = cortarLigacoes(trecho.palavras);
+      // O mesmo piso da descrição: uma letra solta não é o nome de nada.
+      if (!corte.some(function (x) { return x.chave.length >= 3; })) return;
+      achado = nomeDoTrecho(corte);
+    });
+    return achado;
+  }
+
+function descricaoDaFala(frase, texto, ctx, semDestino) {
+    ctx = ctx || contextoDaFala();
     var melhor = null;
-    trechos.forEach(function (trecho) {
+    trechosDaFala(frase, texto, ctx).forEach(function (trecho) {
       // "no crédito do Fulano" com Fulano fora do cadastro: o destino ficou
       // "não identificado", e essa palavra é o banco que a pessoa disse — não
       // o que ela comprou. Chamá-la de descrição guardaria o erro com nome de
       // compra. Com o destino achado a mesma palavra já saiu por outro
       // caminho, e este corte não tem o que cortar.
       if (semDestino && trecho.aposForma) return;
-      var lista = trecho.palavras;
-      var i = 0, f = lista.length;
-      while (i < f && LIGACAO_DA_FALA.indexOf(lista[i].chave) >= 0) i++;
-      while (f > i && LIGACAO_DA_FALA.indexOf(lista[f - 1].chave) >= 0) f--;
-      var corte = lista.slice(i, f);
+      var corte = cortarLigacoes(trecho.palavras);
       // Uma letra solta não é o nome de nada, e "ok" no meio da frase também
       // não: sem este piso, qualquer ruído do microfone viraria descrição.
       if (!corte.some(function (x) { return x.chave.length >= 3; })) return;
       if (!melhor || corte.length > melhor.length) melhor = corte;
     });
-    if (!melhor) return "";
-    var desc = melhor.map(function (x) { return x.palavra; }).join(" ").slice(0, 60).trim();
-    return desc ? desc.charAt(0).toUpperCase() + desc.slice(1) : "";
+    return melhor ? nomeDoTrecho(melhor) : "";
   }
 
 function transferenciaDaFala(texto, frase, r, ctx) {
@@ -663,7 +686,15 @@ function interpretarFala(frase, ctx) {
       if (serve) { cat = daRegra; r.categoriaDoLojista = true; }
     }
     if (cat) r.categoriaId = cat.id;
-    else r.faltando.push("categoria");
+    else {
+      r.faltando.push("categoria");
+      // O nome que a frase DECLAROU e que não é de nenhuma categoria existente.
+      // Quem lê a frase não cria nada: ele só diz qual nome foi dito, e quem
+      // recebe decide o que fazer com isso — a tela mostra, o WhatsApp
+      // pergunta se cria. Criar aqui seria gravar no meio de uma leitura.
+      var dita = categoriaDaFala(frase, texto, ctx);
+      if (dita) r.categoriaDita = dita;
+    }
 
     // Data: hoje, ontem, amanhã, depois de amanhã, "dia 12", "12 de setembro",
     // "em 3 dias", "semana que vem", "próxima sexta", "fim do mês".

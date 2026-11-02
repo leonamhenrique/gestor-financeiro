@@ -18,6 +18,7 @@ import { TransactionsService } from '../transactions/transactions.service';
 import { TransfersService } from '../transfers/transfers.service';
 import { LinhaDeFatura, RelatorioService } from '../relatorio/relatorio.service';
 import { chaveDoMes, dia } from '../credit-cards/invoice-statement';
+import { CategoriesService } from '../categories/categories.service';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -246,6 +247,10 @@ export function mesDaPergunta(texto: string, hoje: Date): string {
 interface Rascunho {
   lancamento: any;
   criadoEm: number;
+  /** A categoria que o "sim" cria antes de lançar. Fica no rascunho, e não
+   * gravada na hora da leitura, porque nada nasce nesta conversa sem a pessoa
+   * confirmar — nem lançamento, nem categoria. */
+  categoriaNova?: { nome: string; tipo: string };
 }
 
 @Injectable()
@@ -262,6 +267,7 @@ export class ConversaService {
     private readonly audio: AudioService,
     private readonly cupom: CupomService,
     private readonly relatorio: RelatorioService,
+    private readonly categorias: CategoriesService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -355,6 +361,9 @@ export class ConversaService {
     }
 
     const r = this.juntarCupomComLegenda(lido, legenda, ctx);
+
+    const criarDoCupom = this.ofereceCriarCategoria(userId, r, ctx);
+    if (criarDoCupom) return criarDoCupom;
 
     if (r.faltando.length) {
       const nomes = r.faltando.includes('destino') ? ' ' + this.nomesDeDestino(ctx) : '';
@@ -489,6 +498,9 @@ export class ConversaService {
     // caminho é o mesmo — resumo, "sim", grava.
     if (r.transferencia) return this.lerTransferencia(userId, r, ctx);
 
+    const criar = this.ofereceCriarCategoria(userId, r, ctx);
+    if (criar) return criar;
+
     if (r.faltando.length) {
       const nomes = r.faltando.includes('destino')
         ? ' ' + this.nomesDeDestino(ctx)
@@ -587,6 +599,20 @@ export class ConversaService {
     const r = rascunho.lancamento;
     if (r.transferencia)
       return this.gravarTransferencia(userId, r, rascunho.criadoEm);
+
+    if (rascunho.categoriaNova) {
+      const criada = await this.criarCategoria(userId, rascunho.categoriaNova);
+      if (!criada) {
+        return {
+          texto:
+            'Não consegui criar a categoria ' +
+            rascunho.categoriaNova.nome +
+            '. Crie no app, em Categorias, e mande a frase de novo.',
+        };
+      }
+      r.categoriaId = criada;
+    }
+
     const pedido = {
       userId,
       type: r.tipo,
@@ -634,6 +660,34 @@ export class ConversaService {
     }
 
     return { texto: '✅ Lançado. ' + this.linhaCurta(r) };
+  }
+
+  /**
+   * A categoria nova, criada no "sim" — pelo mesmo serviço que o formulário
+   * usa, e não por um `prisma.create` daqui. É ele que confere o nome repetido
+   * e dá a ordem na lista, e duas portas para a mesma criação viram duas
+   * regras na primeira correção.
+   *
+   * Nasce sem pai: escolher subcategoria por frase é outra gramática, e no app
+   * a pessoa move depois. Devolve o id, ou `null` quando não deu — e aí o
+   * lançamento não acontece, porque lançar sem a categoria que a pessoa pediu
+   * seria gravar outra coisa.
+   */
+  private async criarCategoria(
+    userId: string,
+    nova: { nome: string; tipo: string },
+  ): Promise<string | null> {
+    try {
+      const criada = await this.categorias.create({
+        userId,
+        name: nova.nome,
+        type: nova.tipo as any,
+      });
+      return criada.id;
+    } catch (e: any) {
+      this.log.warn('não consegui criar a categoria: ' + (e?.message || e));
+      return null;
+    }
   }
 
   /**
@@ -1087,6 +1141,63 @@ export class ConversaService {
    * A lista respeita o tipo e a regra de "lançável" do app (categoria mãe com
    * filhas não recebe lançamento), porque é a mesma função da tela.
    */
+  /**
+   * A frase nomeou uma categoria que não existe: ofereço criar, em vez de
+   * mandar a pessoa para o app.
+   *
+   * Quatro condições, e cada uma tira um jeito de isso dar errado:
+   *
+   *   1. a categoria tem de ter sido DITA ("categoria doação"). O nome sai de
+   *      `categoriaDaFala`, que só olha o pedaço logo depois da palavra
+   *      "categoria" — sem isso, cada lojista desconhecido viraria categoria;
+   *   2. ela tem de ser a ÚNICA coisa faltando. Faltando valor ou destino, a
+   *      pergunta é outra, e empilhar duas perguntas numa resposta só é o que
+   *      faz ninguém responder nenhuma;
+   *   3. o nome não pode ser de uma categoria que já existe, comparado sem
+   *      acento e sem maiúscula — é o mesmo `acharPorNome` do lançamento. Sem
+   *      isso, "alimentacao" criaria a gêmea de "Alimentação";
+   *   4. nada é gravado agora. O que sai daqui é uma PERGUNTA; a categoria
+   *      nasce no "sim", junto com o lançamento.
+   *
+   * O tipo vem do lançamento, como no formulário: categoria de receita não
+   * nasce dentro de uma despesa.
+   */
+  private ofereceCriarCategoria(userId: string, r: any, ctx: any): Resposta | null {
+    if (!r.categoriaDita) return null;
+    if (r.faltando.length !== 1 || !r.faltando.includes('categoria')) return null;
+
+    // A comparação é a mesma do lançamento, e de propósito: o que a leitura
+    // reconhece como "é esta categoria" não pode divergir do que aqui conta
+    // como "já existe".
+    const existente = fala.acharPorNome(
+      fala.categoriasLancaveis(r.tipo, ctx.categorias),
+      fala.normalizarFala(r.categoriaDita),
+    );
+    if (existente) {
+      r.categoriaId = existente.id;
+      r.faltando = [];
+      this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
+      return { texto: this.resumo(r, ctx) + '\n\nConfirma?', confirmar: true };
+    }
+
+    const quais = r.tipo === 'INCOME' ? 'receita' : 'despesa';
+    this.rascunhos.set(userId, {
+      lancamento: r,
+      criadoEm: Date.now(),
+      categoriaNova: { nome: r.categoriaDita, tipo: r.tipo },
+    });
+    return {
+      texto:
+        this.resumo(r, ctx) +
+        '\n\nVocê ainda não tem a categoria ' +
+        r.categoriaDita +
+        ' em ' +
+        quais +
+        '. Criar e lançar?',
+      confirmar: true,
+    };
+  }
+
   private ajudaDeCategoria(texto: string, tipo: string, ctx: any): string {
     const nomes = fala
       .categoriasLancaveis(tipo, ctx.categorias)

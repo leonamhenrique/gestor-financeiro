@@ -23,6 +23,7 @@ import {
   regimeDaPergunta,
 } from './conversa.service';
 import type { FaturasDoMes, RelatorioService, ResultadoDoMes } from '../relatorio/relatorio.service';
+import type { CategoriesService } from '../categories/categories.service';
 import type { Cupom, CupomService } from './cupom.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
 import { createHmac } from 'node:crypto';
@@ -42,6 +43,10 @@ describe('ConversaService', () => {
   /** As faturas VIRADAS que o banco devolve. Vazio no caminho normal; o teste
    * da virada põe uma aqui. */
   let viradasDoBanco: any[];
+  /** O serviço de categorias e o que ele criou — a criação pela mensagem passa
+   * pelo mesmo caminho do formulário. */
+  let servicoDeCategorias: any;
+  let criadas: any[];
   let whatsapp: any;
   let audio: any;
   /* Tipado como o servico: um mock solto poderia devolver um campo que o
@@ -98,6 +103,7 @@ describe('ConversaService', () => {
     ];
     movimentos = [];
     viradasDoBanco = [];
+    criadas = [];
 
     prisma = {
       bankAccount: {
@@ -216,6 +222,14 @@ describe('ConversaService', () => {
       regime: jest.fn(async () => preferido),
     };
 
+    servicoDeCategorias = {
+      create: jest.fn(async ({ name, type }: any) => {
+        const nova = { id: 'cat-nova', name, type, parentId: null };
+        criadas.push(nova);
+        return nova;
+      }),
+    };
+
     service = new ConversaService(
       prisma,
       transactions,
@@ -224,6 +238,7 @@ describe('ConversaService', () => {
       audio,
       cupom as CupomService,
       relatorio as RelatorioService,
+      servicoDeCategorias as CategoriesService,
     );
   });
 
@@ -671,18 +686,95 @@ describe('ConversaService', () => {
       expect(criados).toHaveLength(0);
     });
 
-    it('categoria dita que nao existe: a resposta diz que nao achou', async () => {
-      // Antes, a resposta era so "Faltou categoria": quem dizia "categoria
-      // doacao" sem ter criado a categoria repetia a mesma frase e recebia a
-      // mesma coisa, sem nunca saber que o nome dito nao existia.
+    it('categoria dita que nao existe: oferece criar, e nao manda para o app', async () => {
+      // Antes, a resposta era "Não achei essa categoria. Suas categorias de
+      // despesa: ... crie no app". Quem dizia "categoria doacao" repetia a
+      // frase e recebia a mesma coisa, sem jeito de sair do lugar por aqui.
       const r = await service.responderA(msg(frase + ' categoria doacao'));
-      expect(r?.texto).toContain('Não achei essa categoria.');
-      expect(r?.texto).toContain('Suas categorias de despesa:');
+      expect(r?.texto).toContain('Você ainda não tem a categoria Doacao em despesa. Criar e lançar?');
+      expect(r?.confirmar).toBe(true);
+      // A PERGUNTA nao cria nada: a categoria nasce no "sim".
+      expect(criadas).toHaveLength(0);
+      expect(criados).toHaveLength(0);
     });
 
     it('quem so esqueceu a categoria nao e acusado de engano', async () => {
       const r = await service.responderA(msg(frase));
       expect(r?.texto).not.toContain('Não achei essa categoria');
+    });
+
+    it('o sim cria a categoria e lanca nela', async () => {
+      await service.responderA(msg(frase + ' categoria doacao'));
+      const r = await service.responderA(msg('sim'));
+
+      expect(criadas).toEqual([
+        { id: 'cat-nova', name: 'Doacao', type: 'EXPENSE', parentId: null },
+      ]);
+      expect(criados).toHaveLength(1);
+      expect(criados[0]).toMatchObject({ categoryId: 'cat-nova', amount: 10 });
+      expect(r?.texto).toMatch(/^✅ Lançado\./);
+    });
+
+    it('o nome guarda a grafia de quem escreveu', async () => {
+      await service.responderA(msg(frase + ' categoria doação'));
+      await service.responderA(msg('sim'));
+      expect(criadas[0].name).toBe('Doação');
+    });
+
+    it('nome de mais de uma palavra vem inteiro', async () => {
+      await service.responderA(msg(frase + ' categoria material de construção'));
+      await service.responderA(msg('sim'));
+      expect(criadas[0].name).toBe('Material de construção');
+    });
+
+    it('o tipo e o do lancamento: receita nao nasce categoria de despesa', async () => {
+      await service.responderA(msg('recebi 500 reais na conta nubank categoria aluguel'));
+      await service.responderA(msg('sim'));
+      expect(criadas[0]).toMatchObject({ name: 'Aluguel', type: 'INCOME' });
+    });
+
+    it('nome que JA existe nao vira categoria nova, nem com outro acento', async () => {
+      // "alimentacao" sem acento e "Alimentação": a mesma comparacao do
+      // lancamento. Sem isto, a gemea nasceria a cada frase.
+      const r = await service.responderA(msg(frase + ' categoria alimentacao'));
+      expect(r?.texto).toContain('🏷️ Categoria: Alimentação');
+      expect(r?.texto).toContain('Confirma?');
+      await service.responderA(msg('sim'));
+      expect(criadas).toHaveLength(0);
+      expect(criados[0]).toMatchObject({ categoryId: 'c1' });
+    });
+
+    it('nao oferece criar quando falta mais alguma coisa', async () => {
+      // Sem destino, a pergunta e outra. Duas perguntas numa resposta so e o
+      // que faz ninguem responder nenhuma.
+      const r = await service.responderA(msg('gastei 10 hoje categoria doacao'));
+      expect(r?.texto).toContain('Faltou destino, categoria.');
+      expect(r?.texto).not.toContain('Criar e lançar?');
+    });
+
+    it('sem a palavra categoria, nada e oferecido', async () => {
+      // O lojista desconhecido nao vira categoria: o nome tem de ter sido dito
+      // COMO categoria.
+      const r = await service.responderA(msg(frase));
+      expect(r?.texto).not.toContain('Criar e lançar?');
+      expect(r?.texto).toContain('crie no app, em Categorias');
+    });
+
+    it('o nao descarta a categoria junto com o lancamento', async () => {
+      await service.responderA(msg(frase + ' categoria doacao'));
+      await service.responderA(msg('nao'));
+      expect(criadas).toHaveLength(0);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('a categoria falhando, o lancamento nao acontece', async () => {
+      servicoDeCategorias.create = jest.fn(async () => {
+        throw new Error('nome repetido');
+      });
+      await service.responderA(msg(frase + ' categoria doacao'));
+      const r = await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(0);
+      expect(r?.texto).toContain('Não consegui criar a categoria Doacao');
     });
 
     it('a lista respeita o tipo do lancamento', async () => {

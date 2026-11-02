@@ -99,6 +99,12 @@ const FUNCOES = [
   'destinoDaFala',
   'semPontuacao',
   'palavrasDeCadastroNaFala',
+  'trechosDaFala',
+  'cortarLigacoes',
+  'nomeDoTrecho',
+  // O nome de categoria que a frase declara: e com ele que a conversa pergunta
+  // se cria a categoria nova, em vez de mandar a pessoa para o app.
+  'categoriaDaFala',
   'descricaoDaFala',
   'transferenciaDaFala',
   'interpretarFala',

@@ -5890,10 +5890,16 @@
    * Vale o maior TRECHO SEGUIDO que restou, e não as palavras soltas: juntar
    * pedaços de dois cantos da frase escreveria uma descrição que ninguém
    * falou. */
-  function descricaoDaFala(frase, texto, ctx, semDestino) {
-    ctx = ctx || contextoDaFala();
+  /** Os pedaços LIVRES da frase: o que sobra depois de tirar número, comando,
+   * mês, dia da semana e as palavras dos nomes já cadastrados.
+   *
+   * Cada pedaço lembra a palavra que o fechou (`depoisDe`). É isso que permite
+   * perguntar "este veio logo depois de 'categoria'?" sem uma segunda gramática
+   * — a descrição e o nome de categoria nova saem da MESMA varredura, e o que
+   * for comando para uma é comando para a outra. */
+  function trechosDaFala(frase, texto, ctx) {
     var doCadastro = palavrasDeCadastroNaFala(texto, ctx);
-    var trechos = [], atual = null, aposForma = false;
+    var trechos = [], atual = null, aposForma = false, depoisDe = "";
     String(frase || "").split(/\s+/).forEach(function (bruta) {
       var palavra = semPontuacao(bruta);
       var chave = normalizarFala(palavra);
@@ -5912,34 +5918,70 @@
         if (atual) trechos.push(atual);
         atual = null;
         aposForma = FORMA_DA_FALA.indexOf(chave) >= 0;
+        depoisDe = chave;
         return;
       }
-      if (!atual) atual = { palavras: [], aposForma: aposForma };
+      if (!atual) atual = { palavras: [], aposForma: aposForma, depoisDe: depoisDe };
       atual.palavras.push({ palavra: palavra, chave: chave });
     });
     if (atual) trechos.push(atual);
+    return trechos;
+  }
 
+  /** Ligação não começa nem termina nome nenhum — "de queijo" não é descrição,
+   * "pao de queijo" é. */
+  function cortarLigacoes(lista) {
+    var i = 0, f = lista.length;
+    while (i < f && LIGACAO_DA_FALA.indexOf(lista[i].chave) >= 0) i++;
+    while (f > i && LIGACAO_DA_FALA.indexOf(lista[f - 1].chave) >= 0) f--;
+    return lista.slice(i, f);
+  }
+
+  /** O pedaço virando texto: com a grafia ORIGINAL, que é o que a pessoa
+   * escreveu ou ditou — a varredura compara sem acento, mas o que vai para a
+   * tela tem acento. */
+  function nomeDoTrecho(corte) {
+    var t = corte.map(function (x) { return x.palavra; }).join(" ").slice(0, 60).trim();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+  }
+
+  /** O nome de categoria que a frase DECLAROU — "categoria doação" —, para
+   * quando ele não é o de nenhuma categoria existente.
+   *
+   * Só o pedaço logo depois da palavra "categoria", e nada mais: o nome tem de
+   * ter sido dito COMO categoria. Colhê-lo de qualquer lugar da frase faria
+   * cada lojista desconhecido virar categoria nova, que é exatamente o que não
+   * pode acontecer sozinho. */
+  function categoriaDaFala(frase, texto, ctx) {
+    ctx = ctx || contextoDaFala();
+    var achado = "";
+    trechosDaFala(frase, texto, ctx).forEach(function (trecho) {
+      if (achado || trecho.depoisDe !== "categoria") return;
+      var corte = cortarLigacoes(trecho.palavras);
+      // O mesmo piso da descrição: uma letra solta não é o nome de nada.
+      if (!corte.some(function (x) { return x.chave.length >= 3; })) return;
+      achado = nomeDoTrecho(corte);
+    });
+    return achado;
+  }
+
+  function descricaoDaFala(frase, texto, ctx, semDestino) {
+    ctx = ctx || contextoDaFala();
     var melhor = null;
-    trechos.forEach(function (trecho) {
+    trechosDaFala(frase, texto, ctx).forEach(function (trecho) {
       // "no crédito do Fulano" com Fulano fora do cadastro: o destino ficou
       // "não identificado", e essa palavra é o banco que a pessoa disse — não
       // o que ela comprou. Chamá-la de descrição guardaria o erro com nome de
       // compra. Com o destino achado a mesma palavra já saiu por outro
       // caminho, e este corte não tem o que cortar.
       if (semDestino && trecho.aposForma) return;
-      var lista = trecho.palavras;
-      var i = 0, f = lista.length;
-      while (i < f && LIGACAO_DA_FALA.indexOf(lista[i].chave) >= 0) i++;
-      while (f > i && LIGACAO_DA_FALA.indexOf(lista[f - 1].chave) >= 0) f--;
-      var corte = lista.slice(i, f);
+      var corte = cortarLigacoes(trecho.palavras);
       // Uma letra solta não é o nome de nada, e "ok" no meio da frase também
       // não: sem este piso, qualquer ruído do microfone viraria descrição.
       if (!corte.some(function (x) { return x.chave.length >= 3; })) return;
       if (!melhor || corte.length > melhor.length) melhor = corte;
     });
-    if (!melhor) return "";
-    var desc = melhor.map(function (x) { return x.palavra; }).join(" ").slice(0, 60).trim();
-    return desc ? desc.charAt(0).toUpperCase() + desc.slice(1) : "";
+    return melhor ? nomeDoTrecho(melhor) : "";
   }
 
   /** Interpreta a frase ditada e devolve o lançamento que ela descreve, mais a
@@ -6043,7 +6085,15 @@
       if (serve) { cat = daRegra; r.categoriaDoLojista = true; }
     }
     if (cat) r.categoriaId = cat.id;
-    else r.faltando.push("categoria");
+    else {
+      r.faltando.push("categoria");
+      // O nome que a frase DECLAROU e que não é de nenhuma categoria existente.
+      // Quem lê a frase não cria nada: ele só diz qual nome foi dito, e quem
+      // recebe decide o que fazer com isso — a tela mostra, o WhatsApp
+      // pergunta se cria. Criar aqui seria gravar no meio de uma leitura.
+      var dita = categoriaDaFala(frase, texto, ctx);
+      if (dita) r.categoriaDita = dita;
+    }
 
     // Data: hoje, ontem, amanhã, depois de amanhã, "dia 12", "12 de setembro",
     // "em 3 dias", "semana que vem", "próxima sexta", "fim do mês".
@@ -12218,6 +12268,13 @@
       return "Você falou em pagamento pela conta, mas não achei conta com esse nome. Confira como ela está cadastrada em Contas.";
     }
     if (semCategoria) return "Você ainda não tem categoria de " + tipo + ". Crie uma na tela de Categorias.";
+    // Disse o nome de uma categoria que não existe: dizer só "faltou
+    // categoria" esconderia que ela FOI dita, e a pessoa repetiria a frase
+    // igual. O "+" ao lado do seletor é onde isso se resolve sem sair daqui.
+    if (r.categoriaDita) {
+      return "Não tenho a categoria " + r.categoriaDita + " em " + tipo +
+        ". Crie no “+” ao lado do seletor de categoria, ou escolha outra.";
+    }
     var falta = r.faltando.join(", ");
     if (r.faltando.indexOf("destino") >= 0 || r.faltando.indexOf("categoria") >= 0) {
       return "Faltou " + falta + ". Diga o nome como está cadastrado, ou complete no formulário.";

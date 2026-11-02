@@ -7,6 +7,9 @@ import { garantirCategoriasPadrao } from './default-categories';
 @Module({
   controllers: [CategoriesController],
   providers: [CategoriesService],
+  // Exportado para o WhatsApp: a categoria que nasce de uma mensagem passa
+  // pelo MESMO serviço do formulário, com as mesmas conferências.
+  exports: [CategoriesService],
 })
 export class CategoriesModule implements OnModuleInit {
   private readonly logger = new Logger(CategoriesModule.name);
