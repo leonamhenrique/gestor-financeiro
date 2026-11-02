@@ -98,7 +98,14 @@ describe('TransactionsService — séries e fatura escolhida', () => {
         if (f) f.totalAmount += Number(update.totalAmount.increment);
         else faturas.set(mes, { id: 'f-' + mes, payments: [], ...create, totalAmount: Number(create.totalAmount) });
       }),
-      findMany: jest.fn(async () => [...faturas.values()].map((f) => ({ ...f }))),
+      // O filtro de fatura VIRADA é respeitado: quem busca as viradas recebe
+      // só as viradas, como o banco faria. Sem isso o mock devolveria a fatura
+      // inteira para uma pergunta que não era essa.
+      findMany: jest.fn(async ({ where }: any = {}) =>
+        [...faturas.values()]
+          .filter((f: any) => (where?.earlyClosedAt ? f.earlyClosedAt != null : true))
+          .map((f) => ({ ...f })),
+      ),
     },
   };
 
@@ -609,6 +616,67 @@ describe('TransactionsService — séries e fatura escolhida', () => {
       await expect(
         service.anticipate('user-1', id, { destinationMonth: '2026-12', quantity: 1 }),
       ).rejects.toThrow(/Nenhuma parcela prevista/);
+    });
+  });
+  describe('fatura VIRADA', () => {
+    /** A fatura de `mes` foi virada no dia `dia` — fechou antes do calendário. */
+    function virar(mes: string, dia: string) {
+      faturas.set(mes, {
+        id: 'f-' + mes,
+        creditCardId: CARTAO.id,
+        referenceMonth: utc(mes + '-01'),
+        earlyClosedAt: utc(dia),
+        totalAmount: 0,
+        payments: [],
+      });
+    }
+
+    it('a compra depois da virada nasce com a fatura SEGUINTE escolhida', async () => {
+      virar('2026-09', '2026-09-03');
+      const t = await service.create(base({ transactionDate: utc('2026-09-05') }));
+      // Sem a virada, 05/09 cairia na fatura de setembro (fecha dia 10).
+      expect(t.invoiceMonthOverride?.toISOString().slice(0, 7)).toBe('2026-10');
+      expect([totalDe('2026-09'), totalDe('2026-10')]).toEqual([0, 100]);
+    });
+
+    it('a compra de ANTES da virada continua na fatura que fechou', async () => {
+      virar('2026-09', '2026-09-03');
+      const t = await service.create(base({ transactionDate: utc('2026-09-02') }));
+      expect(t.invoiceMonthOverride).toBeNull();
+      expect(totalDe('2026-09')).toBe(100);
+    });
+
+    it('sem virada nenhuma, nada muda: a fatura não é escolhida', async () => {
+      const t = await service.create(base({ transactionDate: utc('2026-09-05') }));
+      expect(t.invoiceMonthOverride).toBeNull();
+      expect(totalDe('2026-09')).toBe(100);
+    });
+
+    it('3x depois da virada: três faturas seguidas, a partir da seguinte', async () => {
+      // É o que o mecanismo da fatura escolhida já garante: sem passar a
+      // virada para a PRIMEIRA parcela, a 1 iria para outubro pela virada e a
+      // 2 cairia em outubro pela data — duas parcelas na mesma fatura.
+      virar('2026-09', '2026-09-03');
+      const { transactions } = await service.createSeries(base({ transactionDate: utc('2026-09-05') }), parcelado(3));
+      expect(transactions.map((t) => t.invoiceMonthOverride?.toISOString().slice(0, 7))).toEqual([
+        '2026-10',
+        '2026-11',
+        '2026-12',
+      ]);
+      expect([totalDe('2026-09'), totalDe('2026-10'), totalDe('2026-11'), totalDe('2026-12')]).toEqual([0, 100, 100, 100]);
+    });
+
+    it('a fatura DITA na frase ganha da virada', async () => {
+      // Quem escolheu a fatura no seletor mandou; a virada é só a sugestão.
+      virar('2026-09', '2026-09-03');
+      const t = await service.create(base({ transactionDate: utc('2026-09-05'), invoiceMonth: '2026-09' }));
+      expect(t.invoiceMonthOverride?.toISOString().slice(0, 7)).toBe('2026-09');
+    });
+
+    it('lançamento em CONTA não pergunta por virada nenhuma', async () => {
+      virar('2026-09', '2026-09-03');
+      const t = await service.create(base({ creditCardId: undefined, bankAccountId: 'acc-1' }));
+      expect(t.invoiceMonthOverride).toBeNull();
     });
   });
 });

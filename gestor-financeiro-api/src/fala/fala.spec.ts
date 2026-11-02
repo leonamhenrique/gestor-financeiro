@@ -180,6 +180,36 @@ describe('fala.js — a mesma leitura da tela, fora dela', () => {
     });
   });
 
+  describe('fatura virada: a fala escolhe a mesma que a tela', () => {
+    // Cartão que fecha dia 1, o do caso. A fatura de dezembro junta 02/11 a
+    // 01/12; virada em 23/11, a compra de 25/11 vai para a de janeiro.
+    const cartao = (viradas: Record<string, string> = {}) => ({
+      id: 'k1',
+      nome: 'Nubank Roxinho',
+      contaId: 'a1',
+      fechamento: 1,
+      viradas,
+    });
+
+    it('sem virada, a compra de 25/11 cai na fatura de dezembro', () => {
+      expect(fala.monthKey(fala.faturaSugerida('2026-11-25', cartao()))).toBe('2026-12');
+    });
+
+    it('com a de dezembro virada em 23/11, ela cai na de janeiro', () => {
+      expect(fala.monthKey(fala.faturaSugerida('2026-11-25', cartao({ '2026-12': '2026-11-23' })))).toBe('2027-01');
+    });
+
+    it('a compra do dia da virada já vai para a seguinte; a de antes, não', () => {
+      const k = cartao({ '2026-12': '2026-11-23' });
+      expect(fala.monthKey(fala.faturaSugerida('2026-11-23', k))).toBe('2027-01');
+      expect(fala.monthKey(fala.faturaSugerida('2026-11-22', k))).toBe('2026-12');
+    });
+
+    it('cartão sem o campo (estado antigo) não quebra a conta', () => {
+      expect(fala.monthKey(fala.faturaSugerida('2026-11-25', { id: 'k1', nome: 'X', fechamento: 1 }))).toBe('2026-12');
+    });
+  });
+
   it('sem contexto, estoura dizendo o que faltou', () => {
     // Falha fechada: sem isto a frase seria lida contra listas vazias e a
     // resposta diria "não identifiquei a conta" sem explicação nenhuma.

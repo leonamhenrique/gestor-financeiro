@@ -67,7 +67,7 @@ describe('TransactionsService — reclassificar em lote', () => {
       },
       // Nenhum destes deveria ser tocado. Se forem, os testes do fim contam.
       bankAccount: { update: jest.fn(async () => { mexeuEmSaldo++; }) },
-      creditCardInvoice: { upsert: jest.fn(async () => { mexeuEmFatura++; }) },
+      creditCardInvoice: { upsert: jest.fn(async () => { mexeuEmFatura++; }), findMany: jest.fn(async () => []) },
     };
     service = new TransactionsService(prisma);
   });

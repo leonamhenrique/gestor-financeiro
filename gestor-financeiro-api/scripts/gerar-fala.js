@@ -62,6 +62,10 @@ const FUNCOES = [
   'adicionarDias',
   'adicionarMeses',
   'resolveInvoicePeriodFromDate',
+  'faturaPelaData',
+  // Fatura VIRADA (fechada antes do dia, como no Itaú/Iti): quem lança pelo
+  // WhatsApp tem de cair na mesma fatura que a tela diria.
+  'depoisDaVirada',
   'faturaSugerida',
   'diaValido',
   'dataDeHoje',

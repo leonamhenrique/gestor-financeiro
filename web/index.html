@@ -2791,9 +2791,11 @@
               <div class="seg-cell"><div class="lbl">Vence</div><div class="seg-val num" id="k-det-vence"></div></div>
             </div>
             <div class="field-help" id="k-det-transporte" hidden></div>
+            <div class="field-help" id="k-det-virada" hidden></div>
             <div class="pills" id="k-acoes">
               <button class="ghost" type="button" id="k-pagar">Pagar fatura</button>
               <button class="ghost" type="button" id="k-add-lancamento">Adicionar lançamento</button>
+              <button class="ghost" type="button" id="k-virar" hidden>Virar fatura</button>
             </div>
             <div class="lbl-row" id="k-pag-head" hidden>
               <div class="lbl">Pagamentos</div>
@@ -4106,7 +4108,7 @@
   // ao percorrê-la.
   if (!Array.isArray(state.regrasCategoria)) state.regrasCategoria = [];
   (state.objetivos || []).forEach(function (o) { if (!Array.isArray(o.movimentos)) o.movimentos = []; });
-  (state.cards || []).forEach(function (k) { if (!k.pagamentos) k.pagamentos = []; });
+  (state.cards || []).forEach(function (k) { if (!k.pagamentos) k.pagamentos = []; if (!k.viradas) k.viradas = {}; });
   (state.accounts || []).forEach(function (a) {
     if (typeof a.isActive !== "boolean") a.isActive = true;
     if (typeof a.oculto !== "boolean") a.oculto = false;
@@ -4373,7 +4375,13 @@
     if (f.confirmado > 0 && pago >= f.confirmado) return "PAID";
     var fechamento = fechamentoDaFatura(card, y, m);
     var vencimento = vencimentoDaFatura(card, y, m);
-    if (HOJE < fechamento) return "OPEN";
+    // Virada fecha a fatura NO DIA, e o VENCIMENTO não se mexe: ele é
+    // calculado comparando com o fechamento do calendário, e trocar um pelo
+    // outro adiantaria o vencimento em um mês num cartão que fecha depois do
+    // dia de vencer (fecha 25, vence 20: virar dia 17 faria vencer dia 20
+    // deste mês, e não do seguinte).
+    var virada = (card.viradas || {})[key];
+    if (virada ? isoDate(HOJE) < virada : HOJE < fechamento) return "OPEN";
     if (HOJE > vencimento) return "OVERDUE";
     return "CLOSED";
   }
@@ -4818,11 +4826,54 @@
    * mas lançar EM CIMA do dia do fechamento deve cair na fatura seguinte: a
    * do mês já está fechando naquele dia. A diferença é registrada como
    * faturaMesOverride, e o usuário pode trocar no seletor. */
-  function faturaSugerida(dataIso, card) {
+  /** A frase embaixo do seletor de fatura, igual nos dois formulários (avulso e
+   * compartilhado): eles fazem a MESMA sugestão, e duas explicações diferentes
+   * para a mesma escolha é como uma delas fica velha sozinha.
+   *
+   * A virada vem primeiro porque ela é o motivo mais forte: com a fatura
+   * virada, dizer "a data cai depois do fechamento" seria explicar pelo
+   * calendário um pulo que não foi do calendário. */
+  function ajudaDaFatura(dataIso, card, sugerido) {
+    var pelaData = faturaPelaData(dataIso, card);
+    var virada = (card.viradas || {})[monthKey(pelaData)];
+    if (virada && monthKey(sugerido) !== monthKey(pelaData)) {
+      return "A fatura de " + rotuloMes(pelaData).toLowerCase() + " foi virada em " + fmtDia(virada) +
+        ": a sugestão é a seguinte.";
+    }
+    var dia = new Date(dataIso + "T00:00:00").getDate();
+    if (dia === card.fechamento) return "Esta é a data de fechamento (dia " + card.fechamento + "): o lançamento vai para a fatura seguinte.";
+    if (dia > card.fechamento) return "A data cai depois do fechamento (dia " + card.fechamento + "), então a sugestão é a fatura seguinte.";
+    return "Fatura sugerida pela data; troque se quiser lançar em outra.";
+  }
+
+  function faturaPelaData(dataIso, card) {
     var p = resolveInvoicePeriodFromDate(dataIso, card.fechamento);
     if (new Date(dataIso + "T00:00:00").getDate() === card.fechamento) {
       var d = adicionarMeses(new Date(p.y, p.m, 1), 1);
       return { y: d.getFullYear(), m: d.getMonth() };
+    }
+    return p;
+  }
+  function faturaSugerida(dataIso, card) {
+    return depoisDaVirada(faturaPelaData(dataIso, card), dataIso, card);
+  }
+
+  /** A fatura seguinte, quando a que a data indica já foi VIRADA.
+   *
+   * Virar é fechar a fatura antes do dia do calendário — o botão que o Itaú e o
+   * Iti oferecem alguns dias antes. Quem virou no banco ganha os dias seguintes
+   * na fatura SEGUINTE: a compra de 25/11 que ia vencer em dezembro passa a
+   * vencer em janeiro. A compra do dia da virada já conta como depois dela.
+   *
+   * O laço existe porque dá para virar duas vezes no mesmo mês: virada a de
+   * dezembro, a atual passa a ser a de janeiro, e ela também pode ser virada. */
+  function depoisDaVirada(p, dataIso, card) {
+    var viradas = card.viradas || {};
+    for (var guarda = 0; guarda < 24; guarda++) {
+      var virada = viradas[monthKey(p)];
+      if (!virada || dataIso < virada) return p;
+      var d = adicionarMeses(new Date(p.y, p.m, 1), 1);
+      p = { y: d.getFullYear(), m: d.getMonth() };
     }
     return p;
   }
@@ -6424,7 +6475,10 @@
   function cartaoDaApi(j) {
     return {
       id: j.id, nome: j.name, limite: Number(j.limitAmount), fechamento: j.closingDay,
-      vencimento: j.dueDay, cor: j.color || CORES[0], contaId: j.bankAccountId || null, pagamentos: []
+      vencimento: j.dueDay, cor: j.color || CORES[0], contaId: j.bankAccountId || null, pagamentos: [],
+      // Faturas viradas: { '2026-12': '2026-11-23' }. Vêm no próprio cartão
+      // porque toda tela de lançamento precisa delas.
+      viradas: j.earlyClosures || {}
     };
   }
   function lancamentoDaApi(j) {
@@ -9405,6 +9459,41 @@
     if (!faturaMes) faturaMes = periodoAtualCartao(byId(state.cards, cartaoSel));
   }
 
+  /** Virar a fatura: o botão, e a linha que conta que ela já foi virada.
+   *
+   * O botão só aparece na fatura do CICLO DE HOJE — a que recebe a compra de
+   * agora —, e é o mesmo teste que o servidor faz. Numa fatura futura virar não
+   * quer dizer nada, e numa fatura passada já é tarde.
+   *
+   * Desfazer aparece só enquanto a fatura não tem pagamento, e só na virada
+   * mais recente. Depois de pagar, a virada é história — a mesma regra que o
+   * app já usa para não deixar remover lançamento de fatura paga. */
+  function atualizarVirada(card, key, status, pago) {
+    var viradas = card.viradas || {};
+    var virada = viradas[key];
+    // `HOJE`, e não `dataDeHoje()`: é o mesmo relógio que decide Aberta ou
+    // Fechada logo acima. Com dois relógios diferentes, o botão apareceria numa
+    // fatura e o status falaria de outra.
+    var doCiclo = monthKey(faturaSugerida(isoDate(HOJE), card));
+    var ultima = Object.keys(viradas).sort().pop();
+
+    var linha = document.getElementById("k-det-virada");
+    linha.hidden = !virada;
+    if (virada) {
+      linha.textContent = "Fatura virada em " + fmtDia(virada) + ": fechou antes do dia " +
+        card.fechamento + ", e as compras desse dia em diante entraram na fatura seguinte. " +
+        "O vencimento não mudou.";
+    }
+
+    var botao = document.getElementById("k-virar");
+    var acao = status === "OPEN" && key === doCiclo ? "virar"
+      : virada && key === ultima && !pago ? "desfazer"
+      : "";
+    botao.hidden = !acao;
+    botao.dataset.acao = acao;
+    botao.textContent = acao === "desfazer" ? "Desfazer a virada" : "Virar fatura";
+  }
+
   function renderCartoes() {
     garantirSelecao();
     document.getElementById("k-sub").textContent = state.cards.length + (state.cards.length === 1 ? " cartão" : " cartões");
@@ -9454,6 +9543,8 @@
     // a tela inteira parecer desligada.
     botaoPagar.classList.toggle("ghost--acento", podePagar);
     document.getElementById("k-add-lancamento").classList.toggle("ghost--acento", !podePagar);
+
+    atualizarVirada(card, key, status, pago);
 
     var pagamentos = (card.pagamentos || []).filter(function (p) { return p.mesKey === key; });
     document.getElementById("k-pag-head").hidden = !pagamentos.length;
@@ -11622,12 +11713,7 @@
     }
     var atual = faturaTocada ? document.getElementById("l-fatura").value : monthKey(sugerido);
     preencherSelect(document.getElementById("l-fatura"), opcoes, atual);
-    var dia = new Date(dataIso + "T00:00:00").getDate();
-    var help;
-    if (dia === card.fechamento) help = "Esta é a data de fechamento (dia " + card.fechamento + "): o lançamento vai para a fatura seguinte.";
-    else if (dia > card.fechamento) help = "A data cai depois do fechamento (dia " + card.fechamento + "), então a sugestão é a fatura seguinte.";
-    else help = "Fatura sugerida pela data; troque se quiser lançar em outra.";
-    document.getElementById("l-fatura-help").textContent = help;
+    document.getElementById("l-fatura-help").textContent = ajudaDaFatura(dataIso, card, sugerido);
     calLancamento.atualizar();
   }
   /** Garante que um mês de fatura exista entre as opções antes de selecioná-lo
@@ -12914,6 +13000,46 @@
 
   document.getElementById("k-pagar").addEventListener("click", function () {
     abrirPagarFatura(cartaoSel, monthKey(faturaMes));
+  });
+
+  /** Virar a fatura, ou desfazer.
+   *
+   * O texto diz o que isso é: o app NÃO vira nada no banco. Quem virou foi o
+   * usuário, no aplicativo do Itaú ou do Iti, e aqui ele registra — senão o app
+   * continua mandando compra nova para uma fatura que já fechou de verdade, e
+   * os dois deixam de bater. */
+  document.getElementById("k-virar").addEventListener("click", function (e) {
+    var card = byId(state.cards, cartaoSel);
+    if (!card) return;
+    var key = monthKey(faturaMes);
+    var desfazer = e.currentTarget.dataset.acao === "desfazer";
+    var seguinte = { y: faturaMes.m === 11 ? faturaMes.y + 1 : faturaMes.y, m: (faturaMes.m + 1) % 12 };
+    // O mesmo relógio do status e do botão — ver `atualizarVirada`.
+    var hojeIso = isoDate(HOJE);
+    botaoDaAcao = e.currentTarget;
+
+    pedirConfirmacao({
+      titulo: desfazer ? "Desfazer a virada?" : "Virar a fatura de " + rotuloMes(faturaMes).toLowerCase() + "?",
+      ctx: card.nome,
+      detalhe: desfazer
+        ? "A fatura volta a fechar no dia " + card.fechamento + ". O que já foi lançado não muda de fatura: " +
+          "a fatura de cada compra fica gravada no lançamento."
+        : "Ela fecha hoje, e não no dia " + card.fechamento + ", como seria. As compras de hoje em diante entram na fatura de " +
+          rotuloMes(seguinte).toLowerCase() + ", que vence em " + fmtDia(isoDate(vencimentoDaFatura(card, seguinte.y, seguinte.m))) +
+          ". O vencimento desta não muda. Registre aqui depois de virar no banco.",
+      acao: desfazer ? "Desfazer" : "Virar fatura"
+    }, async function () {
+      if (MODO_API) {
+        await comServidor(desfazer ? "desfazer a virada" : "virar a fatura", function () {
+          return api("/credit-cards/" + card.id + "/invoices/" + key + "/early-close", null, desfazer ? "DELETE" : "POST");
+        });
+        return;
+      }
+      card.viradas = card.viradas || {};
+      if (desfazer) delete card.viradas[key];
+      else card.viradas[key] = hojeIso;
+      persist(); renderAll();
+    });
   });
 
   function abrirEdicaoPagamento(pagamentoId) {
@@ -15823,13 +15949,7 @@
     var atual = cpdFaturaTocada ? document.getElementById("cpd-fatura").value : monthKey(sugerido);
     preencherSelect(document.getElementById("cpd-fatura"), opcoes, atual);
 
-    var dia = new Date(dataIso + "T00:00:00").getDate();
-    document.getElementById("cpd-fatura-help").textContent =
-      dia === card.fechamento
-        ? "Esta é a data de fechamento (dia " + card.fechamento + "): o gasto vai para a fatura seguinte."
-        : dia > card.fechamento
-        ? "A data cai depois do fechamento (dia " + card.fechamento + "), então a sugestão é a fatura seguinte."
-        : "Fatura sugerida pela data; troque se quiser lançar em outra.";
+    document.getElementById("cpd-fatura-help").textContent = ajudaDaFatura(dataIso, card, sugerido);
   }
 
   function cpdDesenhar() {

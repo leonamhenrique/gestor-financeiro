@@ -128,6 +128,8 @@ describe('TransactionsService (fluxo com Prisma mockado)', () => {
       },
       category: CATEGORIA_FOLHA(),
       creditCardInvoice: {
+        // Faturas viradas: nenhuma, no caminho normal.
+        findMany: jest.fn(async () => []),
         upsert: jest.fn(),
         update: jest.fn(),
       },
@@ -286,6 +288,8 @@ describe('TransactionsService — fatura de cartão', () => {
       creditCard: { findUnique: jest.fn(async () => CARTAO), findFirst: jest.fn(async () => CARTAO) },
       category: CATEGORIA_FOLHA(),
       creditCardInvoice: {
+        // Faturas viradas: nenhuma, no caminho normal.
+        findMany: jest.fn(async () => []),
         upsert: jest.fn(async ({ where, create, update }: any) => {
           const chave = where.creditCardId_referenceMonth.referenceMonth.toISOString();
           const atual = faturas.get(chave);
@@ -451,6 +455,8 @@ describe('TransactionsService — previsto × confirmado', () => {
       creditCard: { findUnique: jest.fn(async () => CARTAO), findFirst: jest.fn(async () => CARTAO) },
       category: CATEGORIA_FOLHA(),
       creditCardInvoice: {
+        // Faturas viradas: nenhuma, no caminho normal.
+        findMany: jest.fn(async () => []),
         upsert: jest.fn(async ({ create, update }: any) => {
           fatura += fatura === 0 && create ? Number(create.totalAmount) : Number(update.totalAmount.increment);
         }),
@@ -739,6 +745,7 @@ describe('TransactionsService — trocar destino e tipo na edição', () => {
         findFirst: jest.fn(async () => ({ id: 'card-1', closingDay: 25, dueDay: 5 })),
       },
       creditCardInvoice: {
+        // Faturas viradas: nenhuma, no caminho normal.
         findMany: jest.fn(async () => []),
         upsert: jest.fn(async ({ where, create, update }: any) => {
           const k = where.creditCardId_referenceMonth.referenceMonth.toISOString();

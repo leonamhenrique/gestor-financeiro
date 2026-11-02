@@ -51,8 +51,11 @@ describe('RelatorioService — do banco para a conta da tela', () => {
   let lancamentos: LancamentoLinha[];
   let pagamentos: any[];
   let regime: Pick<User, 'reportRegime'>;
+  /** Faturas VIRADAS: vazio no caminho normal. */
+  let viradas: { creditCardId: string; referenceMonth: Date; earlyClosedAt: Date }[];
 
   beforeEach(() => {
+    viradas = [];
     contas = [
       {
         id: 'a1',
@@ -85,6 +88,9 @@ describe('RelatorioService — do banco para a conta da tela', () => {
       creditCard: { findMany: jest.fn(async () => cartoes) },
       transaction: { findMany: jest.fn(async () => lancamentos) },
       invoicePayment: { findMany: jest.fn(async () => pagamentos) },
+      // As faturas viradas do usuário, na forma da consulta do service
+      // (apenas `creditCardId`, `referenceMonth` e `earlyClosedAt`).
+      creditCardInvoice: { findMany: jest.fn(async () => viradas) },
     };
     service = new RelatorioService(prisma);
   });
@@ -148,6 +154,32 @@ describe('RelatorioService — do banco para a conta da tela', () => {
     expect(r.faturas).toEqual([
       { cartaoId: 'k1', cartao: 'Nubank Roxinho', referencia: '2026-11', vencimento: '2026-11-17', valor: 100, status: 'PAID', situacao: 'Paga' },
     ]);
+  });
+
+  it('a fatura VIRADA aparece como Fechada, com o vencimento do calendário', async () => {
+    // A pergunta "qual o valor das minhas faturas" lê o status pelo mesmo
+    // recorte da tela. Sem a virada chegando até aqui, ela diria Aberta para
+    // uma fatura que a tela já mostra Fechada.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+    jest.setSystemTime(new Date('2026-11-23T15:00:00Z'));
+    try {
+      lancamentos = [
+        lancamento({ amount: dec(30), bankAccountId: null, creditCardId: 'k1', transactionDate: data('2026-11-20') }),
+      ];
+      const aberta = await service.faturasDoMes('u1', '2026-12');
+      expect(aberta.faturas[0]).toMatchObject({ status: 'OPEN', situacao: 'Aberta' });
+
+      viradas = [{ creditCardId: 'k1', referenceMonth: data('2026-12-01'), earlyClosedAt: data('2026-11-23') }];
+      const virada = await service.faturasDoMes('u1', '2026-12');
+      expect(virada.faturas[0]).toMatchObject({
+        status: 'CLOSED',
+        situacao: 'Fechada',
+        vencimento: '2026-12-17',
+        valor: 30,
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('o regime do usuário manda, e não o padrão', async () => {

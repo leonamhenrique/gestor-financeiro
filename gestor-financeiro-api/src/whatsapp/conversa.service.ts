@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { TransfersService } from '../transfers/transfers.service';
 import { LinhaDeFatura, RelatorioService } from '../relatorio/relatorio.service';
+import { chaveDoMes, dia } from '../credit-cards/invoice-statement';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -950,14 +951,26 @@ export class ConversaService {
    * conta, cartão e categoria; o banco fala `bankAccount`, `creditCard` e
    * `category`. */
   async contextoDoUsuario(userId: string) {
-    const [contas, cartoes, categorias, regras] = await Promise.all([
+    const [contas, cartoes, categorias, regras, viradas] = await Promise.all([
       this.prisma.bankAccount.findMany({ where: { userId } }),
       this.prisma.creditCard.findMany({ where: { userId } }),
       this.prisma.category.findMany({
         where: { OR: [{ userId }, { userId: null }] },
       }),
       this.prisma.categoryRule.findMany({ where: { userId } }),
+      // As faturas VIRADAS: sem elas, a compra lançada pelo WhatsApp cairia na
+      // fatura que o calendário indica, enquanto a tela — que conhece a virada
+      // — mostraria a seguinte. A mesma compra em dois lugares diferentes.
+      this.prisma.creditCardInvoice.findMany({
+        where: { creditCard: { userId }, earlyClosedAt: { not: null } },
+        select: { creditCardId: true, referenceMonth: true, earlyClosedAt: true },
+      }),
     ]);
+
+    const viradasDoCartao: Record<string, Record<string, string>> = {};
+    for (const v of viradas) {
+      (viradasDoCartao[v.creditCardId] ??= {})[chaveDoMes(v.referenceMonth)] = dia(v.earlyClosedAt!);
+    }
 
     // Sem `any` nos parâmetros, de propósito: o tipo vem do Prisma, e foi um
     // `any` aqui que deixou passar `c.name` numa tabela cujo campo se chama
@@ -976,6 +989,7 @@ export class ConversaService {
         nome: k.name,
         contaId: k.bankAccountId,
         fechamento: k.closingDay,
+        viradas: viradasDoCartao[k.id] ?? {},
       })),
       categorias: categorias.map((c) => ({
         id: c.id,

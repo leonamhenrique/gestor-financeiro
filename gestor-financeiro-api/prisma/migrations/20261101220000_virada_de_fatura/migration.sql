@@ -1,0 +1,27 @@
+-- ============================================================
+-- Virar fatura: a fatura fechou antes do dia do calendário
+-- ============================================================
+-- Itaú e Iti deixam fechar a fatura aberta antes da data ("Virar fatura").
+-- Quem faz isso ganha os dias seguintes na fatura SEGUINTE: a compra de 25/11
+-- que ia vencer em dezembro passa a vencer em janeiro. O app precisa saber a
+-- mesma coisa, senão continua mandando essas compras para uma fatura que, no
+-- banco, já fechou.
+--
+-- A coluna guarda o DIA em que a virada foi registrada, e não um booleano:
+-- a data é o que decide se uma compra entra antes ou depois dela.
+--
+-- Ela NÃO substitui `closing_date`, e isso é o ponto mais importante aqui.
+-- O vencimento é calculado comparando com o fechamento do calendário (ver
+-- `datasDoCiclo`, em billing-cycle.ts): num cartão que fecha dia 25 e vence
+-- dia 20, a fatura fecha 25/12 e vence 20/01. Se a virada de 17/12 entrasse
+-- como fechamento, 20/12 passaria a ser "depois do fechamento" e o vencimento
+-- viraria 20/12 — um mês antes, com a fatura nascendo quase vencida. Por isso
+-- a virada é um fato à parte, lido em dois lugares só: se a fatura ainda está
+-- aberta, e em qual fatura uma compra cai.
+--
+-- NULL = fatura normal, que é o caso de todas as que já existem. Nada a
+-- preencher, nada a converter.
+-- ============================================================
+
+-- AlterTable
+ALTER TABLE "credit_card_invoices" ADD COLUMN "early_closed_at" DATE;

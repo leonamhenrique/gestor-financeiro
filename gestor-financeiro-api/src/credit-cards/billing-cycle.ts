@@ -71,6 +71,50 @@ export function cicloDaData(data: Date, closingDay: number, dueDay: number): Dat
   return datasDoCiclo(ano, mes0, closingDay, dueDay);
 }
 
+/** As faturas VIRADAS de um cartão: mês de referência ('AAAA-MM') → o dia em
+ * que a virada foi registrada ('AAAA-MM-DD'). */
+export type Viradas = Record<string, string>;
+
+/** Mês de referência de um ciclo, como 'AAAA-MM'. */
+function mesDoCiclo(c: DatasDoCiclo): string {
+  return c.referenceMonth.toISOString().slice(0, 7);
+}
+
+function cicloSeguinte(c: DatasDoCiclo, closingDay: number, dueDay: number): DatasDoCiclo {
+  const ano = c.referenceMonth.getUTCFullYear();
+  const mes0 = c.referenceMonth.getUTCMonth();
+  return mes0 === 11 ? datasDoCiclo(ano + 1, 0, closingDay, dueDay) : datasDoCiclo(ano, mes0 + 1, closingDay, dueDay);
+}
+
+/**
+ * Em qual fatura cai uma compra quando faturas foram VIRADAS — fechadas antes
+ * do dia do calendário, como o "Virar fatura" do Itaú/Iti.
+ *
+ * Virada é fato de UMA fatura, e não um fechamento novo do cartão: a compra do
+ * dia da virada, ou de depois dela, cai na fatura SEGUINTE; a de antes continua
+ * na fatura que fechou. É daí que vem o ganho de quem vira — a compra de 25/11
+ * que ia vencer em dezembro passa a vencer em janeiro.
+ *
+ * O laço existe porque virar duas vezes seguidas é possível: virada a fatura de
+ * dezembro, a atual passa a ser a de janeiro, e ela também pode ser virada no
+ * mesmo mês. Sem o laço, a segunda virada seria ignorada.
+ */
+export function cicloDaDataVirada(
+  data: Date,
+  closingDay: number,
+  dueDay: number,
+  viradas: Viradas,
+): DatasDoCiclo {
+  let ciclo = cicloDaData(data, closingDay, dueDay);
+  const diaDaCompra = data.toISOString().slice(0, 10);
+  for (let guarda = 0; guarda < 24; guarda++) {
+    const virada = viradas[mesDoCiclo(ciclo)];
+    if (!virada || diaDaCompra < virada) return ciclo;
+    ciclo = cicloSeguinte(ciclo, closingDay, dueDay);
+  }
+  return ciclo;
+}
+
 /** Ciclo corrente para um "hoje" dado como dia do calendário ('AAAA-MM-DD'),
  * já no fuso do app — ver `hojeNoFuso` em invoice-statement.ts. */
 export function cicloDoDia(hoje: string, closingDay: number, dueDay: number): DatasDoCiclo {

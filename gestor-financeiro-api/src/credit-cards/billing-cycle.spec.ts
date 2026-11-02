@@ -1,4 +1,4 @@
-import { cicloDaData, cicloDoDia, datasDoCiclo, datasDoMesChave, diasNoMes } from './billing-cycle';
+import { cicloDaData, cicloDaDataVirada, cicloDoDia, datasDoCiclo, datasDoMesChave, diasNoMes } from './billing-cycle';
 
 const utc = (s: string) => new Date(s + 'T00:00:00.000Z');
 const dia = (d: Date) => d.toISOString().slice(0, 10);
@@ -100,5 +100,69 @@ describe('billing-cycle — entradas', () => {
   it('tudo sai em meia-noite UTC (convenção das colunas @db.Date)', () => {
     const c = datasDoCiclo(2026, 8, 28, 5);
     [c.referenceMonth, c.closingDate, c.dueDate].forEach((d) => expect(d.toISOString().endsWith('T00:00:00.000Z')).toBe(true));
+  });
+});
+
+describe('billing-cycle — fatura VIRADA (fechada antes do dia, como no Itaú/Iti)', () => {
+  // Fecha dia 1: a fatura 12/2026 junta as compras de 02/11 a 01/12 e vence
+  // em 10/12. É o cartão do caso que trouxe isso.
+  const FECHA = 1;
+  const VENCE = 10;
+
+  it('sem virada nenhuma, a conta é a de sempre', () => {
+    expect(ciclo(cicloDaDataVirada(utc('2026-11-25'), FECHA, VENCE, {}))).toEqual(
+      ciclo(cicloDaData(utc('2026-11-25'), FECHA, VENCE)),
+    );
+  });
+
+  it('virada em 23/11: a compra de 25/11 pula para a fatura de janeiro', () => {
+    const viradas = { '2026-12': '2026-11-23' };
+    expect(ciclo(cicloDaDataVirada(utc('2026-11-25'), FECHA, VENCE, viradas))).toEqual({
+      ref: '2027-01-01',
+      fecha: '2027-01-01',
+      vence: '2027-01-10',
+    });
+  });
+
+  it('a compra do PRÓPRIO dia da virada já vai para a seguinte', () => {
+    const viradas = { '2026-12': '2026-11-23' };
+    expect(ciclo(cicloDaDataVirada(utc('2026-11-23'), FECHA, VENCE, viradas))).toMatchObject({ ref: '2027-01-01' });
+  });
+
+  it('a compra de ANTES da virada continua na fatura que fechou', () => {
+    const viradas = { '2026-12': '2026-11-23' };
+    expect(ciclo(cicloDaDataVirada(utc('2026-11-22'), FECHA, VENCE, viradas))).toMatchObject({ ref: '2026-12-01' });
+  });
+
+  it('virada de outro mês não mexe em compra que nem cairia nela', () => {
+    const viradas = { '2026-10': '2026-09-20' };
+    expect(ciclo(cicloDaDataVirada(utc('2026-11-25'), FECHA, VENCE, viradas))).toMatchObject({ ref: '2026-12-01' });
+  });
+
+  it('virar duas vezes seguidas empurra duas faturas', () => {
+    // Virou dezembro dia 23/11 e, dia 05/12, virou janeiro também.
+    const viradas = { '2026-12': '2026-11-23', '2027-01': '2026-12-05' };
+    expect(ciclo(cicloDaDataVirada(utc('2026-12-10'), FECHA, VENCE, viradas))).toMatchObject({ ref: '2027-02-01' });
+  });
+
+  it('O VENCIMENTO NÃO SE MEXE — fecha 25 e vence 20, virada dia 17', () => {
+    // Era a armadilha: tratar a virada como fechamento novo. A fatura 12/2026
+    // fecha 25/12 e vence 20/01, porque dia 20 vem ANTES do fechamento. Com a
+    // virada de 17/12 no lugar do fechamento, dia 20 passaria a vir DEPOIS e o
+    // vencimento cairia em 20/12 — um mês antes, com a fatura quase vencida ao
+    // nascer.
+    const viradas = { '2026-12': '2026-12-17' };
+    expect(ciclo(datasDoCiclo(2026, 11, 25, 20))).toEqual({ ref: '2026-12-01', fecha: '2026-12-25', vence: '2027-01-20' });
+    // A compra de 18/12 vai para a fatura de janeiro, com as datas de janeiro.
+    expect(ciclo(cicloDaDataVirada(utc('2026-12-18'), 25, 20, viradas))).toEqual({
+      ref: '2027-01-01',
+      fecha: '2027-01-25',
+      vence: '2027-02-20',
+    });
+  });
+
+  it('a virada atravessa a virada do ano', () => {
+    const viradas = { '2027-01': '2026-12-20' };
+    expect(ciclo(cicloDaDataVirada(utc('2026-12-28'), FECHA, VENCE, viradas))).toMatchObject({ ref: '2027-02-01' });
   });
 });

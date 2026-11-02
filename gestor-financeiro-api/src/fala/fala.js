@@ -137,13 +137,28 @@ function resolveInvoicePeriodFromDate(dataIso, closingDay) {
     return { y: y, m: m };
   }
 
-function faturaSugerida(dataIso, card) {
+function faturaPelaData(dataIso, card) {
     var p = resolveInvoicePeriodFromDate(dataIso, card.fechamento);
     if (new Date(dataIso + "T00:00:00").getDate() === card.fechamento) {
       var d = adicionarMeses(new Date(p.y, p.m, 1), 1);
       return { y: d.getFullYear(), m: d.getMonth() };
     }
     return p;
+  }
+
+function depoisDaVirada(p, dataIso, card) {
+    var viradas = card.viradas || {};
+    for (var guarda = 0; guarda < 24; guarda++) {
+      var virada = viradas[monthKey(p)];
+      if (!virada || dataIso < virada) return p;
+      var d = adicionarMeses(new Date(p.y, p.m, 1), 1);
+      p = { y: d.getFullYear(), m: d.getMonth() };
+    }
+    return p;
+  }
+
+function faturaSugerida(dataIso, card) {
+    return depoisDaVirada(faturaPelaData(dataIso, card), dataIso, card);
   }
 
 function diaValido(y, m, dia) { return Math.min(dia, new Date(y, m + 1, 0).getDate()); }

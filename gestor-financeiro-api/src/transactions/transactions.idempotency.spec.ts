@@ -83,7 +83,7 @@ describe('idempotência de create()', () => {
         findFirst: jest.fn(async () => ({ id: 'cat-1', name: 'Mercado' })),
         count: jest.fn(async () => 0),
       },
-      creditCardInvoice: { upsert: jest.fn(), update: jest.fn() },
+      creditCardInvoice: { upsert: jest.fn(), update: jest.fn(), findMany: jest.fn(async () => []) },
     };
 
     const module: TestingModule = await Test.createTestingModule({

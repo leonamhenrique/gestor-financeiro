@@ -169,3 +169,51 @@ describe('hojeNoFuso', () => {
     expect(hojeNoFuso(new Date('2026-09-18T02:00:00Z'), 'America/Sao_Paulo')).toBe('2026-09-17');
   });
 });
+
+describe('montarFaturas — fatura VIRADA', () => {
+  const virada = (mes: string, compras: number, dia: string, pagamentos: [number, string][] = []): FaturaGravada => ({
+    ...fatura(mes, compras, pagamentos),
+    earlyClosedAt: d(dia),
+  });
+
+  it('sem virada, no dia 05 a fatura de setembro está aberta', () => {
+    expect(status(montarFaturas(CARTAO, [fatura('2026-09', 500)], '2026-09-05'), '2026-09').status).toBe('OPEN');
+  });
+
+  it('virada no dia 05, ela já está FECHADA no dia 05', () => {
+    const r = montarFaturas(CARTAO, [virada('2026-09', 500, '2026-09-05')], '2026-09-05');
+    expect(status(r, '2026-09').status).toBe('CLOSED');
+  });
+
+  it('no dia anterior à virada ainda está aberta', () => {
+    const r = montarFaturas(CARTAO, [virada('2026-09', 500, '2026-09-05')], '2026-09-04');
+    expect(status(r, '2026-09').status).toBe('OPEN');
+  });
+
+  it('o fechamento e o vencimento que ela informa são os do CALENDÁRIO', () => {
+    const f = status(montarFaturas(CARTAO, [virada('2026-09', 500, '2026-09-05')], '2026-09-05'), '2026-09');
+    expect(f).toMatchObject({ closingDate: '2026-09-10', dueDate: '2026-09-17', earlyClosedAt: '2026-09-05' });
+  });
+
+  it('fatura normal informa earlyClosedAt nulo', () => {
+    expect(status(montarFaturas(CARTAO, [fatura('2026-09', 500)], '2026-09-05'), '2026-09').earlyClosedAt).toBeNull();
+  });
+
+  it('virada e paga é PAID: pagamento continua ganhando do calendário', () => {
+    const r = montarFaturas(CARTAO, [virada('2026-09', 500, '2026-09-05', [[500, '2026-09-06']])], '2026-09-07');
+    expect(status(r, '2026-09').status).toBe('PAID');
+  });
+
+  it('virada e não paga vence no dia de sempre, não antes', () => {
+    const umaVirada = [virada('2026-09', 500, '2026-09-05')];
+    expect(status(montarFaturas(CARTAO, umaVirada, '2026-09-17'), '2026-09').status).toBe('CLOSED');
+    expect(status(montarFaturas(CARTAO, umaVirada, '2026-09-18'), '2026-09').status).toBe('OVERDUE');
+  });
+
+  it('o rotativo não muda: virada, paga em parte e vencida ainda transporta', () => {
+    const lista = [virada('2026-09', 1000, '2026-09-05', [[400, '2026-09-15']]), fatura('2026-10', 200)];
+    const r = montarFaturas(CARTAO, lista, '2026-09-20');
+    expect(status(r, '2026-09')).toMatchObject({ status: 'CARRIED', carriedOut: 600 });
+    expect(status(r, '2026-10')).toMatchObject({ carriedIn: 600 });
+  });
+});

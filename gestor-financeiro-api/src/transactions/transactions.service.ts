@@ -39,8 +39,8 @@ import {
   SeriesFrequency,
 } from '@prisma/client';
 import { resolveInvoicePeriod, validateAmount, validateAccountXorCard } from './transaction.utils';
-import { datasDoMesChave } from '../credit-cards/billing-cycle';
-import { FaturaCalculada, faturaAtual, hojeNoFuso, montarFaturas } from '../credit-cards/invoice-statement';
+import { Viradas, cicloDaDataVirada, datasDoMesChave } from '../credit-cards/billing-cycle';
+import { FaturaCalculada, chaveDoMes, dia, faturaAtual, hojeNoFuso, montarFaturas, viradasDe } from '../credit-cards/invoice-statement';
 import { MAX_OCORRENCIAS, MIN_OCORRENCIAS, dataDaOcorrencia, dataParaMes, faturaDaOcorrencia, mesParaData, moverParaOMes, somarMesesNoMes } from './series.utils';
 
 const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -158,9 +158,13 @@ export class TransactionsService {
     await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
     await this.conferirCategoria(tx, input.userId, input.categoryId);
 
+    // Só depois de o cartão ser reconhecido como DELE: perguntar pelas faturas
+    // de um cartão antes da conferência é consultar o que talvez não seja dele.
+    const escolhida = override ?? (await this.faturaPelaVirada(tx, input));
+
     // 1. Cria a transação
     const transaction = await tx.transaction.create({
-      data: { ...this.dadosDoLancamento(input), invoiceMonthOverride: override },
+      data: { ...this.dadosDoLancamento(input), invoiceMonthOverride: escolhida },
     });
 
     // 2. Atualiza o saldo (conta) ou a fatura (cartão), dentro da mesma tx
@@ -386,6 +390,11 @@ export class TransactionsService {
 
       await this.conferirDestino(tx, input.userId, input.bankAccountId, input.creditCardId);
       await this.conferirCategoria(tx, input.userId, input.categoryId);
+      // A virada da fatura entra como fatura escolhida da PRIMEIRA parcela, e
+      // é `faturaDaOcorrencia` que leva as outras — uma por fatura. Sem passar
+      // por aqui, a parcela 1 iria para janeiro pela virada e a 2 cairia em
+      // janeiro pela data: duas parcelas na mesma fatura.
+      const escolhida = override ?? (await this.faturaPelaVirada(tx, input));
       const series = await tx.transactionSeries.create({
         data: { userId: input.userId, kind: repeat.kind, frequency: repeat.frequency, count: repeat.count },
       });
@@ -405,7 +414,7 @@ export class TransactionsService {
             ),
             transactionDate: dataDaOcorrencia(input.transactionDate, repeat.frequency, i),
             isConfirmed: primeira || parceladoNoCartao ? confirmadaEscolhida : false,
-            invoiceMonthOverride: faturaDaOcorrencia(override, repeat.frequency, i),
+            invoiceMonthOverride: faturaDaOcorrencia(escolhida, repeat.frequency, i),
             isRecurring: true,
             seriesId: series.id,
             seriesIndex: i,
@@ -745,7 +754,7 @@ export class TransactionsService {
       }
       // A mais antiga com algo a pagar; se ela é futura (a de agora já foi
       // paga), vale o ciclo de hoje.
-      const doCiclo = this.mesDoCicloDeHoje(card);
+      const doCiclo = this.mesDoCicloDeHoje(card, viradasDe([...faturas.values()]));
       const aPagar = faturaAtual([...faturas.values()])?.referenceMonth;
       const atual = aPagar && aPagar < doCiclo ? aPagar : doCiclo;
       if (destino < atual) {
@@ -1132,8 +1141,52 @@ export class TransactionsService {
       : resolveInvoicePeriod(t.transactionDate, card.closingDay, card.dueDay);
   }
 
-  private mesDoCicloDeHoje(card: { closingDay: number; dueDay: number }) {
-    return this.mesDaFatura({ transactionDate: new Date(hojeNoFuso() + 'T00:00:00.000Z') }, card);
+  /**
+   * A fatura de uma compra nova quando o cartão tem fatura VIRADA — fechada
+   * antes do dia do calendário, porque o usuário virou no banco (Itaú/Iti).
+   *
+   * Devolve a fatura seguinte como ESCOLHIDA (`invoiceMonthOverride`), em vez
+   * de recalcular em cada leitura. É o mesmo mecanismo da compra feita no dia
+   * do fechamento, e é deliberado: gravada no lançamento, a fatura dele não se
+   * mexe se a virada for desfeita depois. Recalculada, desfazer a virada moveria
+   * compras de mês caladas.
+   *
+   * `null` quando não há virada que mude nada — e é o caso de quase todo
+   * lançamento, por isso a consulta só busca as faturas viradas.
+   */
+  private async faturaPelaVirada(
+    db: Prisma.TransactionClient,
+    input: { creditCardId?: string | null; transactionDate: Date },
+  ): Promise<Date | null> {
+    if (!input.creditCardId) return null;
+    const viradas = await this.viradasDoCartao(db, input.creditCardId);
+    if (!Object.keys(viradas).length) return null;
+
+    const card = await db.creditCard.findUnique({ where: { id: input.creditCardId } });
+    if (!card) return null;
+
+    const natural = resolveInvoicePeriod(input.transactionDate, card.closingDay, card.dueDay);
+    const comVirada = cicloDaDataVirada(input.transactionDate, card.closingDay, card.dueDay, viradas);
+    return comVirada.referenceMonth.getTime() === natural.referenceMonth.getTime()
+      ? null
+      : comVirada.referenceMonth;
+  }
+
+  private async viradasDoCartao(db: Prisma.TransactionClient, creditCardId: string): Promise<Viradas> {
+    const linhas = await db.creditCardInvoice.findMany({
+      where: { creditCardId, earlyClosedAt: { not: null } },
+      select: { referenceMonth: true, earlyClosedAt: true },
+    });
+    const viradas: Viradas = {};
+    for (const l of linhas) viradas[chaveDoMes(l.referenceMonth)] = dia(l.earlyClosedAt!);
+    return viradas;
+  }
+
+  private mesDoCicloDeHoje(card: { closingDay: number; dueDay: number }, viradas: Viradas = {}) {
+    // Com fatura virada, o ciclo de hoje já é o seguinte: é nele que a compra
+    // de hoje cai, e é ele que `anticipate` tem de tratar como fatura atual.
+    const hoje = new Date(hojeNoFuso() + 'T00:00:00.000Z');
+    return dataParaMes(cicloDaDataVirada(hoje, card.closingDay, card.dueDay, viradas).referenceMonth);
   }
 
   private async faturasDoCartao(

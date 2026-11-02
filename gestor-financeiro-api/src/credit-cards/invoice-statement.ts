@@ -17,9 +17,13 @@
 // - O dia do vencimento ainda é dia de pagar: "venceu" é a partir do dia
 //   seguinte. Por isso as datas são comparadas como dia do calendário no
 //   fuso do app, nunca como instante.
+// - Fatura VIRADA (fechada antes da data, como no Itaú/Iti) está fechada a
+//   partir do próprio dia da virada. O VENCIMENTO não muda: ele é calculado
+//   comparando com o fechamento do calendário, e usar a virada ali adiantaria
+//   o vencimento em um mês num cartão que fecha depois do dia de vencer.
 // ============================================================
 
-import { datasDoMesChave } from './billing-cycle';
+import { Viradas, datasDoMesChave } from './billing-cycle';
 
 export type StatusFatura = 'OPEN' | 'CLOSED' | 'OVERDUE' | 'PAID' | 'CARRIED';
 
@@ -29,6 +33,7 @@ export interface FaturaGravada {
   closingDate: Date;
   dueDate: Date;
   totalAmount: unknown; // Decimal do Prisma: soma das compras CONFIRMADAS
+  earlyClosedAt?: Date | null; // virada: fechou neste dia, antes do calendário
   payments: { id: string; amount: unknown; paidAt: Date; bankAccountId: string }[];
 }
 
@@ -36,6 +41,9 @@ export interface FaturaCalculada {
   id: string | null; // null = fatura que só existe porque recebeu transporte
   referenceMonth: string; // 'YYYY-MM'
   closingDate: string; // 'YYYY-MM-DD'
+  // O dia em que a fatura foi VIRADA, ou null. A tela usa para dizer "fechada
+  // antes" e para não oferecer virar de novo.
+  earlyClosedAt: string | null;
   dueDate: string;
   purchases: number; // compras confirmadas do mês
   carriedIn: number; // veio da fatura anterior (rotativo)
@@ -118,7 +126,11 @@ export function montarFaturas(
       const devido = compras + transporte;
       const restante = devido - pago;
       const venceu = hoje > datas.dueStr;
-      const fechou = hoje > datas.closingStr;
+      // Virada fecha a fatura NO PRÓPRIO dia (`>=`), e o fechamento do
+      // calendário no dia seguinte (`>`): quem vira hoje quer a fatura fechada
+      // hoje, enquanto o dia do fechamento ainda é dia de compra entrar.
+      const virada = gravada?.earlyClosedAt ? dia(gravada.earlyClosedAt) : null;
+      const fechou = virada ? hoje >= virada : hoje > datas.closingStr;
       const levado = pago > 0 && restante > 0 && venceu ? restante : 0;
 
       let status: StatusFatura;
@@ -132,6 +144,7 @@ export function montarFaturas(
         id: gravada?.id ?? null,
         referenceMonth: chave,
         closingDate: datas.closingStr,
+        earlyClosedAt: virada,
         dueDate: datas.dueStr,
         purchases: reais(compras),
         carriedIn: reais(transporte),
@@ -155,6 +168,15 @@ export function montarFaturas(
     chave = proximoMes(chave);
   }
   return resultado;
+}
+
+/** As faturas já viradas, no formato que `cicloDaDataVirada` lê: mês de
+ * referência → dia da virada. Quem já calculou as faturas não precisa de
+ * outra consulta ao banco para saber disso. */
+export function viradasDe(faturas: FaturaCalculada[]): Viradas {
+  const v: Viradas = {};
+  for (const f of faturas) if (f.earlyClosedAt) v[f.referenceMonth] = f.earlyClosedAt;
+  return v;
 }
 
 /** Quanto do limite está em uso: a soma do que está em aberto em todas as

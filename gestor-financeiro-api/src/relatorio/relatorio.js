@@ -159,7 +159,13 @@ function statusFatura(card, y, m) {
     if (f.confirmado > 0 && pago >= f.confirmado) return "PAID";
     var fechamento = fechamentoDaFatura(card, y, m);
     var vencimento = vencimentoDaFatura(card, y, m);
-    if (HOJE < fechamento) return "OPEN";
+    // Virada fecha a fatura NO DIA, e o VENCIMENTO não se mexe: ele é
+    // calculado comparando com o fechamento do calendário, e trocar um pelo
+    // outro adiantaria o vencimento em um mês num cartão que fecha depois do
+    // dia de vencer (fecha 25, vence 20: virar dia 17 faria vencer dia 20
+    // deste mês, e não do seguinte).
+    var virada = (card.viradas || {})[key];
+    if (virada ? isoDate(HOJE) < virada : HOJE < fechamento) return "OPEN";
     if (HOJE > vencimento) return "OVERDUE";
     return "CLOSED";
   }
@@ -264,7 +270,10 @@ function contaDaApi(j) {
 function cartaoDaApi(j) {
     return {
       id: j.id, nome: j.name, limite: Number(j.limitAmount), fechamento: j.closingDay,
-      vencimento: j.dueDay, cor: j.color || CORES[0], contaId: j.bankAccountId || null, pagamentos: []
+      vencimento: j.dueDay, cor: j.color || CORES[0], contaId: j.bankAccountId || null, pagamentos: [],
+      // Faturas viradas: { '2026-12': '2026-11-23' }. Vêm no próprio cartão
+      // porque toda tela de lançamento precisa delas.
+      viradas: j.earlyClosures || {}
     };
   }
 

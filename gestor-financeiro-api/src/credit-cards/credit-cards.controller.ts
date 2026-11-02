@@ -51,6 +51,21 @@ export class CreditCardsController {
     return this.invoicesService.findByMonth(req.user.id, id, month);
   }
 
+  // Virar fatura: ela fecha hoje, antes do dia do calendário (Itaú/Iti), e as
+  // compras de hoje em diante entram na seguinte. O app não vira no banco —
+  // registra que o usuário virou lá.
+  @Post(':id/invoices/:month/early-close')
+  earlyClose(@Req() req: any, @Param('id') id: string, @Param('month') month: string) {
+    return this.invoicesService.virar(req.user.id, id, month);
+  }
+
+  // Desfazer a virada: só a mais recente, e só enquanto a fatura não tiver
+  // pagamento. Lançamento já gravado não muda de fatura.
+  @Delete(':id/invoices/:month/early-close')
+  undoEarlyClose(@Req() req: any, @Param('id') id: string, @Param('month') month: string) {
+    return this.invoicesService.desfazerVirada(req.user.id, id, month);
+  }
+
   // Registra um pagamento (total ou parcial). Pode haver vários na mesma
   // fatura, até o vencimento; depois dele, o que sobrou vai para a seguinte.
   @Post(':id/invoices/:month/payments')

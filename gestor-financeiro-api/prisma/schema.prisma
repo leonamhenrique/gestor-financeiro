@@ -104,18 +104,18 @@ enum PaymentProvider {
 // ------------------------------------------------------------
 
 model User {
-  id                  String    @id @default(uuid())
+  id                  String       @id @default(uuid())
   name                String
-  email               String    @unique
-  passwordHash        String    @map("password_hash")
+  email               String       @unique
+  passwordHash        String       @map("password_hash")
   // Bloqueio temporário contra adivinhação de senha. Fica no banco, e não em
   // memória, para valer igual com mais de uma instância da API rodando.
   // O regime dos relatórios (ver ReportRegime). FATURA é o padrão do app.
   reportRegime        ReportRegime @default(FATURA) @map("report_regime")
-  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
-  lockedUntil         DateTime? @map("locked_until")
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  failedLoginAttempts Int          @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?    @map("locked_until")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
 
   bankAccounts        BankAccount[]
   categories          Category[]
@@ -692,6 +692,13 @@ model CreditCardInvoice {
   // Preenchido quando os pagamentos cobrem o devido (registro/consulta em
   // massa). A regra de verdade é calculada em `invoice-statement.ts`.
   paidAt         DateTime?     @map("paid_at")
+  // A fatura foi VIRADA neste dia: fechou antes de `closingDate`, como o
+  // "Virar fatura" do Itaú/Iti. NÃO substitui `closingDate` — o vencimento
+  // é calculado comparando com o fechamento do calendário, e trocar um pelo
+  // outro adianta o vencimento em um mês (ver billing-cycle.ts). Serve para
+  // duas perguntas só: a fatura ainda está aberta, e uma compra desta data
+  // cai nela ou na seguinte.
+  earlyClosedAt  DateTime?     @map("early_closed_at") @db.Date
   createdAt      DateTime      @default(now()) @map("created_at")
 
   creditCard CreditCard       @relation(fields: [creditCardId], references: [id], onDelete: Cascade)

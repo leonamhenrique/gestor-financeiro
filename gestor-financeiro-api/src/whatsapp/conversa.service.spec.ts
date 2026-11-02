@@ -39,6 +39,9 @@ describe('ConversaService', () => {
   let series: any[];
   let contaUnica: any;
   let movimentos: any[];
+  /** As faturas VIRADAS que o banco devolve. Vazio no caminho normal; o teste
+   * da virada põe uma aqui. */
+  let viradasDoBanco: any[];
   let whatsapp: any;
   let audio: any;
   /* Tipado como o servico: um mock solto poderia devolver um campo que o
@@ -94,6 +97,7 @@ describe('ConversaService', () => {
       { merchant: 'magazine', categoryId: 'c9' },
     ];
     movimentos = [];
+    viradasDoBanco = [];
 
     prisma = {
       bankAccount: {
@@ -104,6 +108,9 @@ describe('ConversaService', () => {
       },
       goalMovement: { findMany: jest.fn(async () => movimentos) },
       creditCard: { findMany: jest.fn(async () => cartoes) },
+      // As faturas viradas do usuário. `viradasDoBanco` é vazio por padrão: o
+      // caminho normal é o cartão que fecha no dia do calendário.
+      creditCardInvoice: { findMany: jest.fn(async () => viradasDoBanco) },
       category: { findMany: jest.fn(async () => categorias) },
       categoryRule: {
         findMany: jest.fn(async () => regrasDoBanco),
@@ -938,6 +945,29 @@ describe('ConversaService', () => {
       const proxima = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1);
       const esperado =
         String(proxima.getMonth() + 1).padStart(2, '0') + '/' + proxima.getFullYear();
+      expect(r?.texto).toContain('Fatura: ' + esperado);
+    });
+
+    it('a fatura VIRADA empurra a compra para a seguinte', async () => {
+      // Fecha dia 1: a compra de hoje iria para a fatura do mes que vem. Com
+      // ELA virada, vai para a de depois -- a mesma conta que a tela faz, pelo
+      // mesmo recorte.
+      const hoje = new Date();
+      const proxima = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1);
+      const depois = new Date(hoje.getFullYear(), hoje.getMonth() + 2, 1);
+      const chave = (d: Date) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      viradasDoBanco = [
+        {
+          creditCardId: 'k1',
+          referenceMonth: new Date(chave(proxima) + '-01T00:00:00.000Z'),
+          // Virada ANTES de hoje, para a compra de hoje contar como depois.
+          earlyClosedAt: new Date(new Date().getTime() - 24 * 3600 * 1000),
+        },
+      ];
+      const r = await service.responderA(
+        msg('gastei 10 na padaria no cartao nubank roxinho categoria alimentacao'),
+      );
+      const esperado = String(depois.getMonth() + 1).padStart(2, '0') + '/' + depois.getFullYear();
       expect(r?.texto).toContain('Fatura: ' + esperado);
     });
 

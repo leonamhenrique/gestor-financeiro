@@ -29,7 +29,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceStatus } from '@prisma/client';
 import { cicloDoDia } from './billing-cycle';
 import { ORDEM_DA_LISTA, gravarOrdem, novaOrdem } from '../common/ordering';
-import { faturaAtual, hojeNoFuso, limiteEmUso, montarFaturas } from './invoice-statement';
+import { chaveDoMes, dia, faturaAtual, hojeNoFuso, limiteEmUso, montarFaturas } from './invoice-statement';
 
 interface CreateCreditCardInput {
   userId: string;
@@ -103,10 +103,36 @@ export class CreditCardsService {
   }
 
   async findAllByUser(userId: string, includeInactive = false) {
-    return this.prisma.creditCard.findMany({
+    const cards = await this.prisma.creditCard.findMany({
       where: { userId, isActive: includeInactive ? undefined : true },
       orderBy: ORDEM_DA_LISTA,
     });
+    return this.comViradas(cards);
+  }
+
+  /**
+   * As faturas VIRADAS entram no próprio cartão: `{ '2026-12': '2026-11-23' }`.
+   *
+   * O app precisa delas em toda tela de lançamento — é o que diz se a compra de
+   * hoje cai na fatura deste mês ou na seguinte — e lê-las fatura por fatura
+   * seria uma requisição por cartão para buscar um campo. Aqui é uma consulta
+   * para todos os cartões, e ela só traz as viradas, que são a exceção.
+   */
+  private async comViradas<T extends { id: string }>(cards: T[]) {
+    const vazio: Record<string, string> = {};
+    if (!cards.length) return cards.map((c) => ({ ...c, earlyClosures: vazio }));
+
+    const linhas = await this.prisma.creditCardInvoice.findMany({
+      where: { creditCardId: { in: cards.map((c) => c.id) }, earlyClosedAt: { not: null } },
+      select: { creditCardId: true, referenceMonth: true, earlyClosedAt: true },
+    });
+    const porCartao = new Map<string, Record<string, string>>();
+    for (const l of linhas) {
+      const mapa = porCartao.get(l.creditCardId) ?? {};
+      mapa[chaveDoMes(l.referenceMonth)] = dia(l.earlyClosedAt!);
+      porCartao.set(l.creditCardId, mapa);
+    }
+    return cards.map((c) => ({ ...c, earlyClosures: porCartao.get(c.id) ?? vazio }));
   }
 
   /** Nova ordem dos cartões (arrastar na lista). Ver common/ordering.ts. */

@@ -17,7 +17,7 @@ import { Injectable } from '@nestjs/common';
 import { ReportRegime } from '@prisma/client';
 import { ORDEM_DA_LISTA } from '../common/ordering';
 import { PrismaService } from '../prisma/prisma.service';
-import { FUSO_DO_APP, chaveDoMes } from '../credit-cards/invoice-statement';
+import { FUSO_DO_APP, chaveDoMes, dia } from '../credit-cards/invoice-statement';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const relatorio = require('./relatorio.js');
@@ -190,6 +190,21 @@ export class RelatorioService {
       });
     }
 
-    return JSON.parse(JSON.stringify({ contas, cartoes, lancamentos, pagamentos }));
+    // As faturas VIRADAS entram no cartão com o mesmo nome que a rota
+    // /credit-cards usa (`earlyClosures`), porque quem as lê aqui é o
+    // `cartaoDaApi` do app, recortado para cá. Sem elas, a pergunta "qual o
+    // valor das minhas faturas" diria Aberta para uma fatura que a tela já
+    // mostra Fechada.
+    const viradas = await this.prisma.creditCardInvoice.findMany({
+      where: { creditCard: { userId }, earlyClosedAt: { not: null } },
+      select: { creditCardId: true, referenceMonth: true, earlyClosedAt: true },
+    });
+    const porCartao: Record<string, Record<string, string>> = {};
+    for (const v of viradas) {
+      (porCartao[v.creditCardId] ??= {})[chaveDoMes(v.referenceMonth)] = dia(v.earlyClosedAt!);
+    }
+    const comViradas = cartoes.map((k) => ({ ...k, earlyClosures: porCartao[k.id] ?? {} }));
+
+    return JSON.parse(JSON.stringify({ contas, cartoes: comViradas, lancamentos, pagamentos }));
   }
 }
