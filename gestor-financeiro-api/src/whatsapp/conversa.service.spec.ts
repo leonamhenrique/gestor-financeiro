@@ -23,6 +23,7 @@ import {
   regimeDaPergunta,
 } from './conversa.service';
 import type { FaturasDoMes, RelatorioService, ResultadoDoMes } from '../relatorio/relatorio.service';
+import type { BankAccountsService } from '../bank-accounts/bank-accounts.service';
 import type { CategoriesService } from '../categories/categories.service';
 import type { Cupom, CupomService } from './cupom.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
@@ -47,6 +48,8 @@ describe('ConversaService', () => {
    * pelo mesmo caminho do formulário. */
   let servicoDeCategorias: any;
   let criadas: any[];
+  let servicoDeContas: any;
+  let contasCriadas: any[];
   let whatsapp: any;
   let audio: any;
   /* Tipado como o servico: um mock solto poderia devolver um campo que o
@@ -104,6 +107,7 @@ describe('ConversaService', () => {
     movimentos = [];
     viradasDoBanco = [];
     criadas = [];
+    contasCriadas = [];
 
     prisma = {
       bankAccount: {
@@ -222,6 +226,14 @@ describe('ConversaService', () => {
       regime: jest.fn(async () => preferido),
     };
 
+    servicoDeContas = {
+      create: jest.fn(async ({ institutionName, accountType, initialBalance }: any) => {
+        const nova = { id: 'acc-nova', institutionName, accountType, initialBalance };
+        contasCriadas.push(nova);
+        return nova;
+      }),
+    };
+
     servicoDeCategorias = {
       create: jest.fn(async ({ name, type }: any) => {
         const nova = { id: 'cat-nova', name, type, parentId: null };
@@ -239,6 +251,7 @@ describe('ConversaService', () => {
       cupom as CupomService,
       relatorio as RelatorioService,
       servicoDeCategorias as CategoriesService,
+      servicoDeContas as BankAccountsService,
     );
   });
 
@@ -672,6 +685,67 @@ describe('ConversaService', () => {
           'Confirma?',
         ].join('\n'),
       );
+    });
+  });
+
+  describe('quando a conta dita nao existe', () => {
+    const frase = 'gastei 50 na igreja no debito da conta picpay categoria alimentacao';
+
+    it('oferece criar, dizendo o saldo com que ela nasce', async () => {
+      const r = await service.responderA(msg(frase));
+      expect(r?.texto).toContain(
+        'Você ainda não tem a conta Picpay. Criar (conta corrente, saldo R$ 0,00) e lançar?',
+      );
+      expect(r?.confirmar).toBe(true);
+      expect(contasCriadas).toHaveLength(0);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('o sim cria a conta e lanca nela', async () => {
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('sim'));
+      expect(contasCriadas).toEqual([
+        { id: 'acc-nova', institutionName: 'Picpay', accountType: 'CHECKING', initialBalance: 0 },
+      ]);
+      expect(criados[0]).toMatchObject({ bankAccountId: 'acc-nova', amount: 50 });
+      expect(r?.texto).toMatch(/^✅ Lançado\./);
+    });
+
+    it('conta que JA existe nao vira conta nova, nem escrita diferente', async () => {
+      const r = await service.responderA(msg('gastei 50 no debito da conta NUBANK categoria alimentacao'));
+      expect(r?.texto).toContain('🏦 Conta: Nubank');
+      expect(r?.texto).toContain('Confirma?');
+      await service.responderA(msg('sim'));
+      expect(contasCriadas).toHaveLength(0);
+      expect(criados[0]).toMatchObject({ bankAccountId: 'a1' });
+    });
+
+    it('pagar A conta de luz nao oferece conta nenhuma', async () => {
+      // "a conta de luz" e "da conta PicPay" tem a palavra conta no mesmo
+      // lugar; o que separa as duas e a preposicao.
+      const r = await service.responderA(msg('paguei a conta de luz de 120 no pix categoria alimentacao'));
+      expect(r?.texto).not.toContain('Criar (conta corrente');
+    });
+
+    it('no cartao, o nome que falta nao vira conta', async () => {
+      const r = await service.responderA(msg('comprei 50 no cartao picpay categoria alimentacao'));
+      expect(r?.texto).not.toContain('Criar (conta corrente');
+    });
+
+    it('a conta e a categoria faltando: pergunta uma coisa de cada vez', async () => {
+      const r = await service.responderA(msg('gastei 50 no debito da conta picpay categoria doacao'));
+      expect(r?.texto).toContain('Faltou destino, categoria.');
+      expect(r?.texto).not.toContain('Criar');
+    });
+
+    it('a conta falhando, o lancamento nao acontece', async () => {
+      servicoDeContas.create = jest.fn(async () => {
+        throw new Error('caiu');
+      });
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(0);
+      expect(r?.texto).toContain('Não consegui criar a conta Picpay');
     });
   });
 

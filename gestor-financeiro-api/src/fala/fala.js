@@ -88,6 +88,10 @@ var FORMA_DA_FALA = [
     "cartao", "cartoes", "credito", "debito", "pix", "conta", "contas", "banco", "bancos"
   ];
 
+var ANUNCIA_CONTA = ["conta", "contas", "banco", "corrente", "poupanca"];
+
+var PREPOSICAO_DE_LUGAR = ["da", "do", "na", "no", "em", "pela", "pelo"];
+
 var PALAVRAS_DE_ESTRUTURA = ["conta", "contas", "banco", "para", "dinheiro", "valor", "saldo", "corrente"];
 
 var TERMOS_CONTA = /debito|em conta|na conta|da conta|conta corrente|poupanca|dinheiro|especie|\bpix\b|transferencia|\bted\b|\bdoc\b|boleto|carteira/;
@@ -518,7 +522,7 @@ function palavrasDeCadastroNaFala(texto, ctx) {
 
 function trechosDaFala(frase, texto, ctx) {
     var doCadastro = palavrasDeCadastroNaFala(texto, ctx);
-    var trechos = [], atual = null, aposForma = false, depoisDe = "";
+    var trechos = [], atual = null, aposForma = false, depoisDe = "", ligacaoAntes = "";
     String(frase || "").split(/\s+/).forEach(function (bruta) {
       var palavra = semPontuacao(bruta);
       var chave = normalizarFala(palavra);
@@ -534,13 +538,22 @@ function trechosDaFala(frase, texto, ctx) {
         COMANDO_DA_FALA.indexOf(chave) >= 0 || mesPorNome(chave) >= 0 ||
         DIAS_SEMANA[chave] !== undefined;
       if (usada) {
+        // A ligação logo antes da palavra que fecha o pedaço vai junto: é ela
+        // que separa "DA conta PicPay" (o lugar de onde o dinheiro sai) de
+        // "A conta de luz" (o que foi pago). As duas têm a palavra "conta" na
+        // mesma posição, e sem a preposição elas são indistinguíveis.
+        ligacaoAntes = atual && atual.palavras.length
+          ? atual.palavras[atual.palavras.length - 1].chave
+          : "";
         if (atual) trechos.push(atual);
         atual = null;
         aposForma = FORMA_DA_FALA.indexOf(chave) >= 0;
         depoisDe = chave;
         return;
       }
-      if (!atual) atual = { palavras: [], aposForma: aposForma, depoisDe: depoisDe };
+      if (!atual) {
+        atual = { palavras: [], aposForma: aposForma, depoisDe: depoisDe, ligacaoAntes: ligacaoAntes };
+      }
       atual.palavras.push({ palavra: palavra, chave: chave });
     });
     if (atual) trechos.push(atual);
@@ -566,6 +579,23 @@ function categoriaDaFala(frase, texto, ctx) {
       if (achado || trecho.depoisDe !== "categoria") return;
       var corte = cortarLigacoes(trecho.palavras);
       // O mesmo piso da descrição: uma letra solta não é o nome de nada.
+      if (!corte.some(function (x) { return x.chave.length >= 3; })) return;
+      achado = nomeDoTrecho(corte);
+    });
+    return achado;
+  }
+
+function contaDaFala(frase, texto, ctx) {
+    ctx = ctx || contextoDaFala();
+    var achado = "";
+    trechosDaFala(frase, texto, ctx).forEach(function (trecho) {
+      if (achado || ANUNCIA_CONTA.indexOf(trecho.depoisDe) < 0) return;
+      // "conta corrente PicPay": quem anuncia é "corrente", e a preposição
+      // ficou lá atrás, antes de "conta". Nesses casos a própria palavra já
+      // diz que é conta, e não há o que confundir com pagar uma conta.
+      var precisaDePreposicao = trecho.depoisDe === "conta" || trecho.depoisDe === "contas";
+      if (precisaDePreposicao && PREPOSICAO_DE_LUGAR.indexOf(trecho.ligacaoAntes) < 0) return;
+      var corte = cortarLigacoes(trecho.palavras);
       if (!corte.some(function (x) { return x.chave.length >= 3; })) return;
       achado = nomeDoTrecho(corte);
     });
@@ -655,6 +685,24 @@ function interpretarFala(frase, ctx) {
     r.forma = destino.forma;
     r.contaId = destino.contaId || null;
     r.cartaoId = destino.cartaoId || null;
+
+    // O nome de conta que a frase DECLAROU e que não é de nenhuma conta
+    // cadastrada. Só quando a forma dita foi conta: num lançamento de cartão
+    // o nome que falta é de cartão, e cartão não se cria de passagem — ele
+    // precisa de limite, fechamento e vencimento, que ninguém dita no meio de
+    // uma compra.
+    //
+    // E ele MANDA sobre o atalho de "só tenho uma conta": dizer "da conta
+    // PicPay" e o lançamento cair no Nubank porque era a única cadastrada é
+    // lançar no lugar errado, calado. Nome dito que não existe é destino que
+    // falta, e não destino achado.
+    if (r.forma === "conta" && !r.cartaoId) {
+      var contaDita = contaDaFala(frase, texto, ctx);
+      if (contaDita) {
+        r.contaDita = contaDita;
+        r.contaId = null;
+      }
+    }
     if (!r.cartaoId && !r.contaId) r.faltando.push("destino");
 
     // A descrição vem ANTES da categoria, e não por ordem de gosto: é dela

@@ -34,6 +34,8 @@ const CONSTANTES_BLOCO = [
   ['[', 'var COMANDO_DA_FALA = '],
   ['[', 'var LIGACAO_DA_FALA = '],
   ['[', 'var FORMA_DA_FALA = '],
+  ['[', 'var ANUNCIA_CONTA = '],
+  ['[', 'var PREPOSICAO_DE_LUGAR = '],
   ['[', 'var PALAVRAS_DE_ESTRUTURA = '],
 ];
 
@@ -105,6 +107,9 @@ const FUNCOES = [
   // O nome de categoria que a frase declara: e com ele que a conversa pergunta
   // se cria a categoria nova, em vez de mandar a pessoa para o app.
   'categoriaDaFala',
+  // E o nome de CONTA declarado, pelo mesmo caminho: "no debito da conta
+  // PicPay" quando PicPay ainda nao existe.
+  'contaDaFala',
   'descricaoDaFala',
   'transferenciaDaFala',
   'interpretarFala',

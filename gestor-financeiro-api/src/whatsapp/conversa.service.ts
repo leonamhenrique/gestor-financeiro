@@ -19,6 +19,7 @@ import { TransfersService } from '../transfers/transfers.service';
 import { LinhaDeFatura, RelatorioService } from '../relatorio/relatorio.service';
 import { chaveDoMes, dia } from '../credit-cards/invoice-statement';
 import { CategoriesService } from '../categories/categories.service';
+import { BankAccountsService } from '../bank-accounts/bank-accounts.service';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -251,6 +252,8 @@ interface Rascunho {
    * gravada na hora da leitura, porque nada nasce nesta conversa sem a pessoa
    * confirmar — nem lançamento, nem categoria. */
   categoriaNova?: { nome: string; tipo: string };
+  /** A conta que o "sim" cria antes de lançar, pela mesma razão. */
+  contaNova?: { nome: string };
 }
 
 @Injectable()
@@ -268,6 +271,7 @@ export class ConversaService {
     private readonly cupom: CupomService,
     private readonly relatorio: RelatorioService,
     private readonly categorias: CategoriesService,
+    private readonly contas: BankAccountsService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -361,6 +365,9 @@ export class ConversaService {
     }
 
     const r = this.juntarCupomComLegenda(lido, legenda, ctx);
+
+    const contaDoCupom = this.ofereceCriarConta(userId, r, ctx);
+    if (contaDoCupom) return contaDoCupom;
 
     const criarDoCupom = this.ofereceCriarCategoria(userId, r, ctx);
     if (criarDoCupom) return criarDoCupom;
@@ -498,6 +505,9 @@ export class ConversaService {
     // caminho é o mesmo — resumo, "sim", grava.
     if (r.transferencia) return this.lerTransferencia(userId, r, ctx);
 
+    const conta = this.ofereceCriarConta(userId, r, ctx);
+    if (conta) return conta;
+
     const criar = this.ofereceCriarCategoria(userId, r, ctx);
     if (criar) return criar;
 
@@ -600,6 +610,19 @@ export class ConversaService {
     if (r.transferencia)
       return this.gravarTransferencia(userId, r, rascunho.criadoEm);
 
+    if (rascunho.contaNova) {
+      const criada = await this.criarConta(userId, rascunho.contaNova.nome);
+      if (!criada) {
+        return {
+          texto:
+            'Não consegui criar a conta ' +
+            rascunho.contaNova.nome +
+            '. Crie no app, em Contas, e mande a frase de novo.',
+        };
+      }
+      r.contaId = criada;
+    }
+
     if (rascunho.categoriaNova) {
       const criada = await this.criarCategoria(userId, rascunho.categoriaNova);
       if (!criada) {
@@ -660,6 +683,29 @@ export class ConversaService {
     }
 
     return { texto: '✅ Lançado. ' + this.linhaCurta(r) };
+  }
+
+  /**
+   * A conta nova, criada no "sim" — pelo mesmo serviço do formulário.
+   *
+   * Conta corrente e saldo zero, que é o único saldo que dá para afirmar: o
+   * app não sabe quanto havia nela, e inventar um número seria pior do que
+   * zero, que a pessoa corrige no app. O lançamento que vem logo a seguir já
+   * mexe nesse saldo pelo caminho normal.
+   */
+  private async criarConta(userId: string, nome: string): Promise<string | null> {
+    try {
+      const criada = await this.contas.create({
+        userId,
+        institutionName: nome,
+        accountType: 'CHECKING' as any,
+        initialBalance: 0,
+      });
+      return criada.id;
+    } catch (e: any) {
+      this.log.warn('não consegui criar a conta: ' + (e?.message || e));
+      return null;
+    }
   }
 
   /**
@@ -1141,6 +1187,49 @@ export class ConversaService {
    * A lista respeita o tipo e a regra de "lançável" do app (categoria mãe com
    * filhas não recebe lançamento), porque é a mesma função da tela.
    */
+  /**
+   * A frase nomeou uma conta que não existe: ofereço criar, como na categoria.
+   *
+   * As mesmas quatro condições de lá, e uma a mais que é só daqui: a conta
+   * nasce com **saldo zero**, e isso a resposta diz com todas as letras. Conta
+   * tem número, categoria não — criar uma sem perguntar o saldo e ficar calado
+   * sobre isso deixaria o saldo geral errado sem ninguém saber de onde veio.
+   * Perguntar o saldo aqui, por outro lado, seria mais uma pergunta no meio de
+   * um lançamento; o app é onde isso se ajusta, e a frase diz isso.
+   *
+   * Cartão não entra: ele precisa de limite, fechamento e vencimento, três
+   * números que ninguém dita de passagem e dos quais a fatura inteira depende.
+   */
+  private ofereceCriarConta(userId: string, r: any, ctx: any): Resposta | null {
+    if (!r.contaDita) return null;
+    if (r.faltando.length !== 1 || !r.faltando.includes('destino')) return null;
+
+    const existente = fala.acharPorNome(
+      ctx.contas.filter((c: any) => c.isActive !== false),
+      fala.normalizarFala(r.contaDita),
+    );
+    if (existente) {
+      r.contaId = existente.id;
+      r.faltando = [];
+      this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
+      return { texto: this.resumo(r, ctx) + '\n\nConfirma?', confirmar: true };
+    }
+
+    this.rascunhos.set(userId, {
+      lancamento: r,
+      criadoEm: Date.now(),
+      contaNova: { nome: r.contaDita },
+    });
+    return {
+      texto:
+        this.resumo(r, ctx) +
+        '\n\nVocê ainda não tem a conta ' +
+        r.contaDita +
+        '. Criar (conta corrente, saldo R$ 0,00) e lançar?',
+      confirmar: true,
+    };
+  }
+
   /**
    * A frase nomeou uma categoria que não existe: ofereço criar, em vez de
    * mandar a pessoa para o app.
