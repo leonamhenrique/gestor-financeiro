@@ -36,6 +36,7 @@ const CONSTANTES_BLOCO = [
   ['[', 'var FORMA_DA_FALA = '],
   ['[', 'var ANUNCIA_CONTA = '],
   ['[', 'var PREPOSICAO_DE_LUGAR = '],
+  ['[', 'var ANUNCIA_CARTAO = '],
   ['[', 'var PALAVRAS_DE_ESTRUTURA = '],
 ];
 
@@ -111,6 +112,9 @@ const FUNCOES = [
   // E o nome de CONTA declarado, pelo mesmo caminho: "no debito da conta
   // PicPay" quando PicPay ainda nao existe.
   'contaDaFala',
+  // E o cartao: o nome declarado e os dois dias do ciclo, quando a frase os
+  // traz. Cartao e o unico cadastro que a conversa nao cria so com o nome.
+  'cartaoDaFala',
   'descricaoDaFala',
   'transferenciaDaFala',
   'interpretarFala',

@@ -24,6 +24,7 @@ import {
 } from './conversa.service';
 import type { FaturasDoMes, RelatorioService, ResultadoDoMes } from '../relatorio/relatorio.service';
 import type { BankAccountsService } from '../bank-accounts/bank-accounts.service';
+import type { CreditCardsService } from '../credit-cards/credit-cards.service';
 import type { CategoriesService } from '../categories/categories.service';
 import type { Cupom, CupomService } from './cupom.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
@@ -57,6 +58,8 @@ describe('ConversaService', () => {
   let criadas: any[];
   let servicoDeContas: any;
   let contasCriadas: any[];
+  let servicoDeCartoes: any;
+  let cartoesCriados: any[];
   let whatsapp: any;
   let audio: any;
   /* Tipado como o servico: um mock solto poderia devolver um campo que o
@@ -115,6 +118,7 @@ describe('ConversaService', () => {
     viradasDoBanco = [];
     criadas = [];
     contasCriadas = [];
+    cartoesCriados = [];
 
     prisma = {
       bankAccount: {
@@ -233,6 +237,14 @@ describe('ConversaService', () => {
       regime: jest.fn(async () => preferido),
     };
 
+    servicoDeCartoes = {
+      create: jest.fn(async ({ name, limitAmount, closingDay, dueDay }: any) => {
+        const novo = { id: 'k-novo', name, limitAmount, closingDay, dueDay };
+        cartoesCriados.push(novo);
+        return novo;
+      }),
+    };
+
     servicoDeContas = {
       create: jest.fn(async ({ institutionName, accountType, initialBalance }: any) => {
         const nova = { id: 'acc-nova', institutionName, accountType, initialBalance };
@@ -259,6 +271,7 @@ describe('ConversaService', () => {
       relatorio as RelatorioService,
       servicoDeCategorias as CategoriesService,
       servicoDeContas as BankAccountsService,
+      servicoDeCartoes as CreditCardsService,
     );
   });
 
@@ -692,6 +705,105 @@ describe('ConversaService', () => {
           'Confirma?',
         ].join('\n'),
       );
+    });
+  });
+
+  describe('quando o cartao dito nao existe', () => {
+    const frase = 'gastei 95 na igreja no cartao c6 bank categoria alimentacao';
+
+    it('pergunta os dois dias, e NAO cria nada ainda', async () => {
+      const r = await service.responderA(msg(frase));
+      expect(r?.texto).toContain('Não tenho o cartão C6 bank');
+      expect(r?.texto).toContain('o do fechamento e o do vencimento');
+      expect(r?.texto).toContain('Responda "1 e 10"');
+      // Sem botoes: a resposta esperada e um par de numeros, nao um sim.
+      expect(r?.confirmar).toBeFalsy();
+      expect(cartoesCriados).toHaveLength(0);
+    });
+
+    it('os dois dias chegam na resposta seguinte, e so entao vem o Confirma', async () => {
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('1 e 10'));
+      expect(r?.texto).toContain('Criar o cartão C6 bank (fecha dia 1, vence dia 10, limite R$ 0,00) e lançar?');
+      expect(r?.confirmar).toBe(true);
+      expect(cartoesCriados).toHaveLength(0);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('o sim cria o cartao e lanca nele', async () => {
+      await service.responderA(msg(frase));
+      await service.responderA(msg('1 e 10'));
+      const r = await service.responderA(msg('sim'));
+
+      expect(cartoesCriados).toEqual([
+        { id: 'k-novo', name: 'C6 bank', limitAmount: 0, closingDay: 1, dueDay: 10 },
+      ]);
+      expect(criados[0]).toMatchObject({ creditCardId: 'k-novo', amount: 95 });
+      expect(r?.texto).toMatch(/^✅ Lançado\./);
+    });
+
+    it('dizer os dias na propria frase NAO e atalho: a data e que seria lida', async () => {
+      // Medido: "dia 1" vira a DATA da compra pelo leitor de sempre, e o nome
+      // sai "C6 bank que fecha". Por isso a pergunta e sempre uma, separada.
+      const r = await service.responderA(
+        msg('gastei 95 na igreja no cartao c6 bank que fecha dia 1 e vence dia 10 categoria alimentacao'),
+      );
+      expect(r?.texto).not.toContain('Criar o cartão');
+    });
+
+    it('a fatura do resumo sai dos dias que a pessoa acabou de dizer', async () => {
+      // Fecha dia 1: a compra de hoje vai para a fatura do mes seguinte.
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('1 e 10'));
+      const hoje = new Date();
+      const proxima = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1);
+      const esperado = String(proxima.getMonth() + 1).padStart(2, '0') + '/' + proxima.getFullYear();
+      expect(r?.texto).toContain('Fatura: ' + esperado);
+    });
+
+    it('resposta sem dois numeros repete o pedido, sem perder o rascunho', async () => {
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('nao sei'));
+      expect(r?.texto).toContain('Preciso dos dois dias do cartão C6 bank');
+      // O rascunho continua de pe: os dias chegam na proxima.
+      const ok = await service.responderA(msg('1 e 10'));
+      expect(ok?.confirmar).toBe(true);
+    });
+
+    it('dia impossivel nao passa', async () => {
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('45 e 60'));
+      expect(r?.texto).toContain('de 1 a 31');
+    });
+
+    it('o nao desiste do cartao e do lancamento', async () => {
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('nao'));
+      expect(r?.texto).toBe('Ok, não lancei nada.');
+      expect(cartoesCriados).toHaveLength(0);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('cartao que JA existe nao vira cartao novo', async () => {
+      const r = await service.responderA(
+        msg('gastei 95 no cartao NUBANK ROXINHO categoria alimentacao'),
+      );
+      expect(r?.texto).toContain('💳 Cartão: Nubank Roxinho');
+      expect(r?.texto).toContain('Confirma?');
+      await service.responderA(msg('sim'));
+      expect(cartoesCriados).toHaveLength(0);
+      expect(criados[0]).toMatchObject({ creditCardId: 'k1' });
+    });
+
+    it('o cartao falhando, o lancamento nao acontece', async () => {
+      servicoDeCartoes.create = jest.fn(async () => {
+        throw new Error('caiu');
+      });
+      await service.responderA(msg(frase));
+      await service.responderA(msg('1 e 10'));
+      const r = await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(0);
+      expect(r?.texto).toContain('Não consegui criar o cartão C6 bank');
     });
   });
 

@@ -92,6 +92,8 @@ var ANUNCIA_CONTA = ["conta", "contas", "banco", "corrente", "poupanca"];
 
 var PREPOSICAO_DE_LUGAR = ["da", "do", "na", "no", "em", "pela", "pelo"];
 
+var ANUNCIA_CARTAO = ["cartao", "cartoes"];
+
 var PALAVRAS_DE_ESTRUTURA = ["conta", "contas", "banco", "para", "dinheiro", "valor", "saldo", "corrente"];
 
 var TERMOS_CONTA = /debito|em conta|na conta|da conta|conta corrente|poupanca|dinheiro|especie|\bpix\b|transferencia|\bted\b|\bdoc\b|boleto|carteira/;
@@ -551,7 +553,11 @@ function trechosDaFala(frase, texto, ctx) {
       // ligação eles são aparados das pontas em vez de cortar o trecho.
       var porExtenso =
         NUMERO_PALAVRA[chave] !== undefined && LIGACAO_DA_FALA.indexOf(chave) < 0;
-      var usada = !chave || /\d/.test(chave) || porExtenso || doCadastro[chave] === true ||
+      // Número COMEÇANDO a palavra: "40", "3x", "12/09" são conta da frase.
+      // Dígito no meio ou no fim não tira a palavra do nome — "C6 Bank" e
+      // "Casa 3D" são nomes, e cortá-los deixava "Bank" sozinho, que é o
+      // cartão de outra pessoa.
+      var usada = !chave || /^\d/.test(chave) || porExtenso || doCadastro[chave] === true ||
         COMANDO_DA_FALA.indexOf(chave) >= 0 || mesPorNome(chave) >= 0 ||
         DIAS_SEMANA[chave] !== undefined;
       if (usada) {
@@ -624,6 +630,26 @@ function contaDaFala(frase, texto, ctx) {
       if (precisaDePreposicao && PREPOSICAO_DE_LUGAR.indexOf(trecho.ligacaoAntes) < 0) return;
       var corte = cortarLigacoes(trecho.palavras);
       if (!corte.some(function (x) { return x.chave.length >= 3; })) return;
+      achado = nomeDoTrecho(corte);
+    });
+    return achado;
+  }
+
+function cartaoDaFala(frase, texto, ctx) {
+    ctx = ctx || contextoDaFala();
+    // A varredura roda sem as CONTAS, pelo motivo espelhado do `contaDaFala`:
+    // PicPay é conta e é cartão, e quem diz "no CARTÃO PicPay" está falando
+    // do cartão.
+    var semContas = {
+      contas: [], cartoes: ctx.cartoes, categorias: ctx.categorias,
+      regras: ctx.regras, hoje: ctx.hoje
+    };
+    var achado = "";
+    trechosDaFala(frase, texto, semContas).forEach(function (trecho) {
+      if (achado || ANUNCIA_CARTAO.indexOf(trecho.depoisDe) < 0) return;
+      if (PREPOSICAO_DE_LUGAR.indexOf(trecho.ligacaoAntes) < 0) return;
+      var corte = cortarLigacoes(trecho.palavras);
+      if (!corte.some(function (x) { return x.chave.length >= 2; })) return;
       achado = nomeDoTrecho(corte);
     });
     return achado;
@@ -713,11 +739,18 @@ function interpretarFala(frase, ctx) {
     r.contaId = destino.contaId || null;
     r.cartaoId = destino.cartaoId || null;
 
+    // O nome de CARTÃO que a frase declarou, pelo mesmo caminho da conta.
+    // Cartão não nasce de passagem como ela: ele precisa de fechamento e
+    // vencimento, e quem pergunta por eles é o WhatsApp. Aqui só se registra
+    // qual cartão foi dito — a tela usa isso para dizer qual não existe.
+    if (r.forma === "cartao") {
+      var cartaoDito = cartaoDaFala(frase, texto, ctx);
+      if (cartaoDito) { r.cartaoDito = cartaoDito; r.cartaoId = null; }
+    }
+
     // O nome de conta que a frase DECLAROU e que não é de nenhuma conta
     // cadastrada. Só quando a forma dita foi conta: num lançamento de cartão
-    // o nome que falta é de cartão, e cartão não se cria de passagem — ele
-    // precisa de limite, fechamento e vencimento, que ninguém dita no meio de
-    // uma compra.
+    // o nome que falta é de cartão.
     //
     // E ele MANDA sobre o atalho de "só tenho uma conta": dizer "da conta
     // PicPay" e o lançamento cair no Nubank porque era a única cadastrada é
@@ -777,7 +810,7 @@ function interpretarFala(frase, ctx) {
     r.data = dataDaFala(texto, hoje) || isoDate(hoje);
 
     // Fatura de destino: "fatura de setembro", "fatura de setembro/2026".
-    // O `` em cada pedaço opcional não é enfeite: sem ele, o "de" de
+    // O `\b` em cada pedaço opcional não é enfeite: sem ele, o "de" de
     // "fatura de DEzembro" era comido como se fosse a preposição, e sobrava
     // "zembro" para procurar na lista de meses. Dezembro era o único mês com
     // esse problema, e caía calado — a fatura só não aparecia no resumo.

@@ -20,6 +20,7 @@ import { LinhaDeFatura, RelatorioService } from '../relatorio/relatorio.service'
 import { chaveDoMes, dia } from '../credit-cards/invoice-statement';
 import { CategoriesService } from '../categories/categories.service';
 import { BankAccountsService } from '../bank-accounts/bank-accounts.service';
+import { CreditCardsService } from '../credit-cards/credit-cards.service';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -254,6 +255,10 @@ interface Rascunho {
   categoriaNova?: { nome: string; tipo: string };
   /** A conta que o "sim" cria antes de lançar, pela mesma razão. */
   contaNova?: { nome: string };
+  /** O cartão por criar. Diferente dos outros dois, ele pode ficar aqui
+   * INCOMPLETO: sem os dias do ciclo, o rascunho está esperando a resposta
+   * com eles, e não um "sim". */
+  cartaoNovo?: { nome: string; fechamento?: number; vencimento?: number };
 }
 
 @Injectable()
@@ -272,6 +277,7 @@ export class ConversaService {
     private readonly relatorio: RelatorioService,
     private readonly categorias: CategoriesService,
     private readonly contas: BankAccountsService,
+    private readonly cartoes: CreditCardsService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -465,6 +471,14 @@ export class ConversaService {
     texto: string,
   ): Promise<Resposta | null> {
     const rascunho = this.rascunhoDe(userId);
+
+    // O rascunho pode estar esperando os dois dias do ciclo, e não um "sim".
+    // Esta resposta vem antes de qualquer leitura: "1 e 10" é uma frase que
+    // o leitor de lançamento entenderia como valor, e responderia bobagem.
+    if (rascunho?.cartaoNovo && !rascunho.cartaoNovo.fechamento) {
+      return this.lerDiasDoCiclo(userId, rascunho, texto);
+    }
+
     if (rascunho && SIM.test(texto)) return this.gravar(userId, rascunho);
     if (rascunho && NAO.test(texto)) {
       this.rascunhos.delete(userId);
@@ -504,6 +518,9 @@ export class ConversaService {
     // categoria, não tem cartão, e o que importa é a DIREÇÃO. O resto do
     // caminho é o mesmo — resumo, "sim", grava.
     if (r.transferencia) return this.lerTransferencia(userId, r, ctx);
+
+    const cartao = this.ofereceCriarCartao(userId, r, ctx);
+    if (cartao) return cartao;
 
     const conta = this.ofereceCriarConta(userId, r, ctx);
     if (conta) return conta;
@@ -610,6 +627,19 @@ export class ConversaService {
     if (r.transferencia)
       return this.gravarTransferencia(userId, r, rascunho.criadoEm);
 
+    if (rascunho.cartaoNovo?.fechamento && rascunho.cartaoNovo.vencimento) {
+      const criado = await this.criarCartao(userId, rascunho.cartaoNovo as Required<typeof rascunho.cartaoNovo>);
+      if (!criado) {
+        return {
+          texto:
+            'Não consegui criar o cartão ' +
+            rascunho.cartaoNovo.nome +
+            '. Crie no app, em Cartões, e mande a frase de novo.',
+        };
+      }
+      r.cartaoId = criado;
+    }
+
     if (rascunho.contaNova) {
       const criada = await this.criarConta(userId, rascunho.contaNova.nome);
       if (!criada) {
@@ -683,6 +713,33 @@ export class ConversaService {
     }
 
     return { texto: '✅ Lançado. ' + this.linhaCurta(r) };
+  }
+
+  /**
+   * O cartão novo, criado no "sim" — pelo mesmo serviço do formulário, que é
+   * quem já cria a primeira fatura e o período de origem do ciclo.
+   *
+   * Limite zero: é o único número que não dá para supor, e é o que menos
+   * machucha errado — ele se corrige no app a qualquer hora, enquanto os dias
+   * do ciclo valem da fatura aberta em diante.
+   */
+  private async criarCartao(
+    userId: string,
+    novo: { nome: string; fechamento: number; vencimento: number },
+  ): Promise<string | null> {
+    try {
+      const criado = await this.cartoes.create({
+        userId,
+        name: novo.nome,
+        limitAmount: 0,
+        closingDay: novo.fechamento,
+        dueDay: novo.vencimento,
+      });
+      return criado.id;
+    } catch (e: any) {
+      this.log.warn('não consegui criar o cartão: ' + (e?.message || e));
+      return null;
+    }
   }
 
   /**
@@ -1196,6 +1253,120 @@ export class ConversaService {
    * A lista respeita o tipo e a regra de "lançável" do app (categoria mãe com
    * filhas não recebe lançamento), porque é a mesma função da tela.
    */
+  /**
+   * A frase nomeou um cartão que não existe. Aqui a conversa ganha um passo a
+   * mais, e ele não é capricho: cartão precisa de FECHAMENTO e VENCIMENTO, e
+   * esses dois dias decidem em qual fatura cada compra cai e quando ela
+   * vence. Criar com um palpite seria plantar um erro que só aparece meses
+   * depois, numa fatura com a data errada.
+   *
+   * A pergunta é sempre uma, e sempre a mesma. Cheguei a aceitar os dias na
+   * própria frase ("no cartão C6 que fecha dia 1 e vence dia 10"), e medi o
+   * estrago: "dia 1" vira a DATA da compra pelo leitor de sempre, o
+   * lançamento nascia previsto para 01/12, e o nome do cartão saía "C6 bank
+   * que fecha". Duas gramáticas disputando as mesmas palavras. O atalho valia
+   * uma mensagem a menos; não vale uma data errada.
+   *
+   * O limite nasce zero e a resposta diz isso. Diferente dos dias, limite se
+   * corrige no app a qualquer hora, e o único efeito de ficar em zero é o
+   * "disponível" aparecer negativo.
+   */
+  private ofereceCriarCartao(userId: string, r: any, ctx: any): Resposta | null {
+    if (!r.cartaoDito) return null;
+    if (r.faltando.length !== 1 || !r.faltando.includes('destino')) return null;
+
+    const existente = fala.acharPorNome(ctx.cartoes, fala.normalizarFala(r.cartaoDito));
+    if (existente) {
+      r.cartaoId = existente.id;
+      r.faltando = [];
+      r.faturaMes = fala.monthKey(fala.faturaSugerida(r.data, existente));
+      this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
+      return { texto: this.resumo(r, ctx) + '\n\nConfirma?', confirmar: true };
+    }
+
+    this.rascunhos.set(userId, {
+      lancamento: r,
+      criadoEm: Date.now(),
+      cartaoNovo: { nome: r.cartaoDito },
+    });
+    return {
+      texto:
+        'Não tenho o cartão ' + r.cartaoDito +
+        '. Para criar, preciso de dois dias: o do fechamento e o do vencimento. ' +
+        'Responda "1 e 10".',
+    };
+  }
+
+  /**
+   * A resposta com os dois dias. Primeiro número é fechamento, segundo é
+   * vencimento — a ordem em que a pergunta os pede.
+   *
+   * Não entendendo, a pergunta se repete em vez de o rascunho morrer: quem
+   * respondeu errado uma vez quase sempre acerta na segunda, e perder o
+   * lançamento inteiro por causa disso seria cobrar caro demais.
+   */
+  private async lerDiasDoCiclo(userId: string, rascunho: Rascunho, texto: string): Promise<Resposta> {
+    if (NAO.test(texto)) {
+      this.rascunhos.delete(userId);
+      return { texto: 'Ok, não lancei nada.' };
+    }
+
+    const numeros = (texto.match(/\d{1,2}/g) || []).map(Number).filter((d) => d >= 1 && d <= 31);
+    const nome = rascunho.cartaoNovo!.nome;
+    if (numeros.length < 2) {
+      return {
+        texto:
+          'Preciso dos dois dias do cartão ' + nome +
+          ', de 1 a 31: primeiro o do fechamento, depois o do vencimento. ' +
+          'Responda "1 e 10", ou "não" para desistir.',
+      };
+    }
+
+    return this.comContexto(userId, (ctx) =>
+      this.cartaoParaConfirmar(userId, rascunho.lancamento, ctx, nome, {
+        fechamento: numeros[0],
+        vencimento: numeros[1],
+      }),
+    );
+  }
+
+  /** O contexto do usuário, recarregado. O rascunho guarda o LANÇAMENTO, e
+   * não as listas do dono: elas podem ter mudado entre uma mensagem e a
+   * seguinte, e guardá-las seria responder com um retrato velho. */
+  private async comContexto(userId: string, usar: (ctx: any) => Resposta): Promise<Resposta> {
+    return usar(await this.contextoDoUsuario(userId));
+  }
+
+  /** O resumo com o cartão que ainda vai nascer, e a fatura que a data dele
+   * indica — calculada com os dias que a pessoa acabou de dizer. */
+  private cartaoParaConfirmar(
+    userId: string,
+    r: any,
+    ctx: any,
+    nome: string,
+    dias: { fechamento: number; vencimento: number },
+  ): Resposta {
+    const futuro = { id: 'novo', nome, fechamento: dias.fechamento, vencimento: dias.vencimento, ciclos: [] };
+    r.cartaoId = 'novo';
+    r.faltando = [];
+    r.faturaMes = fala.monthKey(fala.faturaSugerida(r.data, futuro));
+
+    const comOCartao = { ...ctx, cartoes: [...ctx.cartoes, futuro] };
+    this.rascunhos.set(userId, {
+      lancamento: r,
+      criadoEm: Date.now(),
+      cartaoNovo: { nome, fechamento: dias.fechamento, vencimento: dias.vencimento },
+    });
+    return {
+      texto:
+        this.resumo(r, comOCartao) +
+        '\n\nCriar o cartão ' + nome +
+        ' (fecha dia ' + dias.fechamento + ', vence dia ' + dias.vencimento +
+        ', limite R$ 0,00) e lançar?',
+      confirmar: true,
+    };
+  }
+
   /**
    * A frase nomeou uma conta que não existe: ofereço criar, como na categoria.
    *
