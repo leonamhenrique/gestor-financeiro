@@ -744,12 +744,28 @@ describe('ConversaService', () => {
 
     it('pergunta os dois dias, e NAO cria nada ainda', async () => {
       const r = await service.responderA(msg(frase));
-      expect(r?.texto).toContain('Não tenho o cartão C6 bank');
-      expect(r?.texto).toContain('o do fechamento e o do vencimento');
-      expect(r?.texto).toContain('Responda "1 e 10"');
-      // A pergunta tem de CONTAR que o limite cabe ali: aceitar sem dizer é
-      // uma opção que não existe para quem lê.
-      expect(r?.texto).toContain('limite 5000');
+      // O bloco inteiro, e nao pedacos: e ele que a pessoa le antes de
+      // responder, e uma linha fora de lugar aqui vira uma resposta errada.
+      expect(r?.texto).toBe(
+        [
+          '💳 Cartão C6 bank',
+          '',
+          'Não encontrei esse cartão cadastrado.',
+          '',
+          'Para criar, preciso de duas informações:',
+          '',
+          '📅 Dia do fechamento da fatura',
+          '📆 Dia do vencimento da fatura',
+          '',
+          '👉 Responda com os dois dias, nessa ordem. Exemplo:',
+          '',
+          '1 e 10',
+          '',
+          '💰 Se quiser, informe também o limite:',
+          '',
+          '1 e 10, limite 5000',
+        ].join('\n'),
+      );
       // Sem botoes: a resposta esperada e um par de numeros, nao um sim.
       expect(r?.confirmar).toBeFalsy();
       expect(cartoesCriados).toHaveLength(0);
@@ -798,8 +814,10 @@ describe('ConversaService', () => {
     it('resposta sem dois numeros repete o pedido, sem perder o rascunho', async () => {
       await service.responderA(msg(frase));
       const r = await service.responderA(msg('nao sei'));
-      expect(r?.texto).toContain('Preciso dos dois dias do cartão C6 bank');
+      expect(r?.texto).toContain('💳 Cartão C6 bank');
+      expect(r?.texto).toContain('Não entendi os dias');
       expect(r?.texto).toContain('limite 5000');
+      expect(r?.texto).toContain('Ou responda “não” para desistir.');
       // O rascunho continua de pe: os dias chegam na proxima.
       const ok = await service.responderA(msg('1 e 10'));
       expect(ok?.confirmar).toBe(true);
@@ -808,7 +826,7 @@ describe('ConversaService', () => {
     it('dia impossivel nao passa', async () => {
       await service.responderA(msg(frase));
       const r = await service.responderA(msg('45 e 60'));
-      expect(r?.texto).toContain('de 1 a 31');
+      expect(r?.texto).toContain('dois números de 1 a 31');
     });
 
     it('o nao desiste do cartao e do lancamento', async () => {

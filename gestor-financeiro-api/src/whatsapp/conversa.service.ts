@@ -1298,12 +1298,7 @@ export class ConversaService {
       criadoEm: Date.now(),
       cartaoNovo: { nome: r.cartaoDito },
     });
-    return {
-      texto:
-        'Não tenho o cartão ' + r.cartaoDito +
-        '. Para criar, preciso de dois dias: o do fechamento e o do vencimento. ' +
-        'Responda "1 e 10" — e, se quiser, o limite junto: "1 e 10, limite 5000".',
-    };
+    return { texto: this.pedidoDoCartao(r.cartaoDito) };
   }
 
   /**
@@ -1329,12 +1324,7 @@ export class ConversaService {
     const numeros = (semLimite.match(/\d{1,2}/g) || []).map(Number).filter((d) => d >= 1 && d <= 31);
     const nome = rascunho.cartaoNovo!.nome;
     if (numeros.length < 2) {
-      return {
-        texto:
-          'Preciso dos dois dias do cartão ' + nome +
-          ', de 1 a 31: primeiro o do fechamento, depois o do vencimento. ' +
-          'Responda "1 e 10" (ou "1 e 10, limite 5000"), ou "não" para desistir.',
-      };
+      return { texto: this.pedidoDoCartao(nome, true) };
     }
 
     return this.comContexto(userId, (ctx) =>
@@ -1360,6 +1350,40 @@ export class ConversaService {
     if (!m) return undefined;
     const valor = fala.valorDaFala(m[1]);
     return valor && valor > 0 ? valor : undefined;
+  }
+
+  /**
+   * O pedido dos dias do cartão, nas duas vezes em que ele aparece: a
+   * primeira e a repetição de quem respondeu outra coisa.
+   *
+   * Uma marca por linha, como no resumo que antecede o "sim" — é a mesma
+   * pessoa lendo as duas coisas no mesmo lugar, e um bloco com marca e outro
+   * sem fariam o app parecer dois apps. O exemplo fica em linha própria
+   * porque é ele que vai ser copiado.
+   */
+  private pedidoDoCartao(nome: string, repetindo = false): string {
+    const abertura = repetindo
+      ? 'Não entendi os dias. Preciso de dois números de 1 a 31.'
+      : 'Não encontrei esse cartão cadastrado.';
+    return [
+      '💳 Cartão ' + nome,
+      '',
+      abertura,
+      '',
+      'Para criar, preciso de duas informações:',
+      '',
+      '📅 Dia do fechamento da fatura',
+      '📆 Dia do vencimento da fatura',
+      '',
+      '👉 Responda com os dois dias, nessa ordem. Exemplo:',
+      '',
+      '1 e 10',
+      '',
+      '💰 Se quiser, informe também o limite:',
+      '',
+      '1 e 10, limite 5000',
+      ...(repetindo ? ['', 'Ou responda “não” para desistir.'] : []),
+    ].join('\n');
   }
 
   /** O contexto do usuário, recarregado. O rascunho guarda o LANÇAMENTO, e
