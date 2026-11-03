@@ -42,6 +42,7 @@ const CONSTANTES_BLOCO = [
 
 /** As de uma linha só. */
 const CONSTANTES_LINHA = [
+  'var MOEDA = ',
   'var TERMOS_CONTA = ',
   'var TERMOS_CARTAO = ',
   'var PASSADO = ',
@@ -89,6 +90,9 @@ const FUNCOES = [
   'normalizarFala',
   'valorPorExtenso',
   'numeroBR',
+  // O dinheiro escrito a brasileira e o multiplicador do "mil" andam com
+  // ela: sao a mesma leitura.
+  'comMil',
   'valorDaFala',
   'quantidadeDita',
   'parcelamentoDaFala',

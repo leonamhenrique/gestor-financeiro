@@ -210,6 +210,38 @@ describe('fala.js — a mesma leitura da tela, fora dela', () => {
     });
   });
 
+  describe('dinheiro escrito à brasileira', () => {
+    const v = (t: string) => fala.valorDaFala(fala.normalizarFala(t));
+
+    it('ponto de milhar SEM R$ nao perde o que vem depois', () => {
+      // O defeito: "gastei 1.234,56" virava um lancamento de R$ 1,00. Pelo
+      // WhatsApp isso chega como texto digitado, que e justamente onde a
+      // pessoa escreve o ponto.
+      expect(v('gastei 1.234,56 no mercado')).toBe(1234.56);
+      expect(v('gastei 5.000 no mercado')).toBe(5000);
+      expect(v('gastei 1.234.567,89 no mercado')).toBe(1234567.89);
+    });
+
+    it('"mil" multiplica o numero que vem antes', () => {
+      expect(v('gastei 5 mil no mercado')).toBe(5000);
+      expect(v('gastei 5 mil reais no mercado')).toBe(5000);
+    });
+
+    it('o que ja funcionava continua', () => {
+      expect(v('gastei 50 no mercado')).toBe(50);
+      expect(v('gastei 50,90 no mercado')).toBe(50.9);
+      expect(v('gastei R$ 5.000,00 no mercado')).toBe(5000);
+      expect(v('gastei cinco mil reais no mercado')).toBe(5000);
+      expect(v('gastei dez reais no mercado')).toBe(10);
+    });
+
+    it('dia, prazo e ano continuam sem virar valor', () => {
+      expect(v('comprei no dia 12 no mercado 30 reais')).toBe(30);
+      expect(v('pago em 10 dias 40 reais')).toBe(40);
+      expect(v('fatura de setembro de 2026 valor 80')).toBe(80);
+    });
+  });
+
   it('sem contexto, estoura dizendo o que faltou', () => {
     // Falha fechada: sem isto a frase seria lida contra listas vazias e a
     // resposta diria "não identifiquei a conta" sem explicação nenhuma.

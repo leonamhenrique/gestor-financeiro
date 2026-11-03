@@ -96,6 +96,8 @@ var ANUNCIA_CARTAO = ["cartao", "cartoes"];
 
 var PALAVRAS_DE_ESTRUTURA = ["conta", "contas", "banco", "para", "dinheiro", "valor", "saldo", "corrente"];
 
+var MOEDA = "\\d{1,3}(?:\\.\\d{3})+(?:,\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?";
+
 var TERMOS_CONTA = /debito|em conta|na conta|da conta|conta corrente|poupanca|dinheiro|especie|\bpix\b|transferencia|\bted\b|\bdoc\b|boleto|carteira/;
 
 var TERMOS_CARTAO = /cartao|credito|fatura|parcelad/;
@@ -280,11 +282,25 @@ function numeroBR(bruto) {
     return isFinite(n) ? n : null;
   }
 
+function comMil(n, depois) {
+    return /^\s*mil\b/.test(depois) ? n * 1000 : n;
+  }
+
 function valorDaFala(texto) {
-    var m = texto.match(/(?:r\$|brl)\s*([\d.]+(?:,\d{1,2})?)/) ||
-      texto.match(/([\d.]+(?:,\d{1,2})?)\s*(?:reais|real|brl|conto|contos|pila)/) ||
-      texto.match(/(?:valor|quantia|total)\s*(?:de|em)?\s*([\d.]+(?:,\d{1,2})?)/);
-    if (m) return numeroBR(m[1]);
+    var marcado = new RegExp(
+      "(?:r\\$|brl)\\s*(" + MOEDA + ")(\\s*mil\\b)?|" +
+      "(" + MOEDA + ")\\s*(mil\\s*)?(?:reais|real|brl|conto|contos|pila)|" +
+      "(?:valor|quantia|total)\\s*(?:de|em)?\\s*(" + MOEDA + ")(\\s*mil\\b)?"
+    );
+    var m = texto.match(marcado);
+    if (m) {
+      // Qual grupo casou depende de qual das três formas apareceu; o "mil"
+      // vem logo depois do número em todas elas.
+      var bruto = m[1] || m[3] || m[5];
+      var mil = m[2] || m[4] || m[6];
+      var n = numeroBR(bruto);
+      return n === null ? null : (mil ? n * 1000 : n);
+    }
     var extenso = texto.match(/([a-z\s]+?)\s*(?:reais|real)\b/);
     if (extenso) {
       var v = valorPorExtenso(extenso[1]);
@@ -296,18 +312,18 @@ function valorDaFala(texto) {
     // ele procurava o número no texto inteiro, e em "daqui 10 dias 10 BRL" o
     // segundo 10 era descartado pelo prazo do primeiro: dois números iguais,
     // um só destino. Foi assim que "10 reais" virou "valor não identificado".
-    var procura = /\b\d+(?:[.,]\d{1,2})?\b/g;
+    var procura = new RegExp("\\b(?:" + MOEDA + ")", "g");
     var achado;
     while ((achado = procura.exec(texto)) !== null) {
-      var bruto = achado[0];
-      var n = numeroBR(bruto);
-      if (n === null) continue;
+      var palavra = achado[0];
+      var valor = numeroBR(palavra);
+      if (valor === null) continue;
       var antes = texto.slice(Math.max(0, achado.index - 20), achado.index);
-      var depois = texto.slice(achado.index + bruto.length, achado.index + bruto.length + 14);
-      if (/^\d{4}$/.test(bruto) && n > 1900 && n < 2100) continue;              // ano
-      if (/\bdia\s*$/.test(antes)) continue;                                    // "dia 12"
-      if (/^\s*(?:dias?|semanas?|mes(?:es)?|anos?)\b/.test(depois)) continue;    // prazo
-      return n;
+      var depois = texto.slice(achado.index + palavra.length, achado.index + palavra.length + 14);
+      if (/^\d{4}$/.test(palavra) && valor > 1900 && valor < 2100) continue;   // ano
+      if (/\bdia\s*$/.test(antes)) continue;                                   // "dia 12"
+      if (/^\s*(?:dias?|semanas?|mes(?:es)?|anos?)\b/.test(depois)) continue;   // prazo
+      return comMil(valor, depois);
     }
     return null;
   }
