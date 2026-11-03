@@ -67,6 +67,30 @@ describe('CreditCardsService', () => {
     });
   });
 
+  it('create() grava o período de origem do ciclo, valendo desde sempre', async () => {
+    // Sem ele, a primeira troca de vencimento deste cartão criaria o único
+    // período da lista, e as faturas anteriores passariam a usar os dias
+    // novos — o passado mudando de data.
+    prismaMock.creditCard.create.mockResolvedValue({ id: 'card-1' });
+
+    await service.create({
+      userId: 'user-1',
+      name: 'Nubank Roxinho',
+      limitAmount: 2000,
+      closingDay: 10,
+      dueDay: 17,
+    });
+
+    expect(prismaMock.creditCardBillingCycle.create).toHaveBeenCalledWith({
+      data: {
+        creditCardId: 'card-1',
+        validFrom: new Date(Date.UTC(1900, 0, 1)),
+        closingDay: 10,
+        dueDay: 17,
+      },
+    });
+  });
+
   it('create() valida que a conta bancária vinculada pertence ao usuário', async () => {
     prismaMock.bankAccount.findFirst.mockResolvedValue(null);
 
@@ -221,6 +245,37 @@ describe('CreditCardsService', () => {
         where: { creditCardId: 'card-1', referenceMonth: new Date(Date.UTC(2026, 11, 1)) },
         data: { closingDate: new Date(Date.UTC(2026, 11, 15)), dueDate: new Date(Date.UTC(2026, 11, 22)) },
       });
+    });
+    it('cartão EM USO sem período de origem ganha um, com os dias de HOJE', async () => {
+      // Cartão de antes da tabela de períodos: se a troca criasse só o
+      // período novo, ele seria o único da lista e responderia também pelas
+      // faturas velhas — o passado mudaria de data.
+      prismaMock.creditCardInvoice.count.mockResolvedValue(3);
+      prismaMock.creditCard.findFirst.mockResolvedValue({ ...cartao, cycles: [] });
+
+      await service.updateBillingCycle('user-1', 'card-1', 15, 22);
+
+      expect(prismaMock.creditCardBillingCycle.create).toHaveBeenCalledWith({
+        data: {
+          creditCardId: 'card-1',
+          validFrom: new Date(Date.UTC(1900, 0, 1)),
+          closingDay: 10, // os dias que o cartão tinha, não os novos
+          dueDay: 17,
+        },
+      });
+    });
+
+    it('cartão que já tem período de origem não ganha outro', async () => {
+      prismaMock.creditCardInvoice.count.mockResolvedValue(3);
+      prismaMock.creditCard.findFirst.mockResolvedValue({
+        ...cartao,
+        cycles: [{ validFrom: new Date(Date.UTC(1900, 0, 1)), closingDay: 10, dueDay: 17 }],
+      });
+
+      await service.updateBillingCycle('user-1', 'card-1', 15, 22);
+
+      expect(prismaMock.creditCardBillingCycle.create).not.toHaveBeenCalled();
+      expect(prismaMock.creditCardBillingCycle.upsert).toHaveBeenCalled();
     });
   });
 

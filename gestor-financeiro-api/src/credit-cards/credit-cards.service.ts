@@ -97,6 +97,20 @@ export class CreditCardsService {
         },
       });
 
+      // O período de origem, valendo desde sempre. Sem ele, a primeira troca
+      // de vencimento deste cartão criaria o ÚNICO período da lista — e as
+      // faturas anteriores a ele, sem nenhum período que as cubra, passariam
+      // a usar os dias novos. O passado mudaria de data, que é exatamente o
+      // que a linha do tempo existe para impedir.
+      await tx.creditCardBillingCycle.create({
+        data: {
+          creditCardId: card.id,
+          validFrom: CreditCardsService.DESDE_SEMPRE,
+          closingDay: input.closingDay,
+          dueDay: input.dueDay,
+        },
+      });
+
       return card;
     });
   }
@@ -151,6 +165,11 @@ export class CreditCardsService {
     });
     return { order: final };
   }
+
+  /** O começo do primeiro período: "desde sempre". Um marco, e não uma data
+   * de verdade — é o que faz a busca pelo período de uma fatura nunca voltar
+   * vazia, inclusive para fatura importada de antes do cadastro do cartão. */
+  private static readonly DESDE_SEMPRE = new Date(Date.UTC(1900, 0, 1));
 
   /** 'AAAA-MM' no dia 1 em UTC, que é como a coluna @db.Date guarda o mês. */
   private mesParaDia1(chave: string): Date {
@@ -271,6 +290,22 @@ export class CreditCardsService {
 
     return this.prisma.$transaction(async (tx) => {
       if (emUso) {
+        // Cinto e suspensório: cartão de antes desta tabela, ou criado numa
+        // janela em que o backfill não o alcançou, não tem período de
+        // origem — e sem ele o período novo responderia também pelo passado.
+        // Criar o de origem com os dias de HOJE é o que mantém as faturas
+        // velhas exatamente como elas estão.
+        if (!card.cycles?.length) {
+          await tx.creditCardBillingCycle.create({
+            data: {
+              creditCardId,
+              validFrom: CreditCardsService.DESDE_SEMPRE,
+              closingDay: card.closingDay,
+              dueDay: card.dueDay,
+            },
+          });
+        }
+
         const inicio = this.mesParaDia1(alvo);
         await tx.creditCardBillingCycle.upsert({
           where: { creditCardId_validFrom: { creditCardId, validFrom: inicio } },
@@ -283,7 +318,7 @@ export class CreditCardsService {
         // parado.
         await tx.creditCardBillingCycle.deleteMany({ where: { creditCardId } });
         await tx.creditCardBillingCycle.create({
-          data: { creditCardId, validFrom: new Date(Date.UTC(1900, 0, 1)), closingDay, dueDay },
+          data: { creditCardId, validFrom: CreditCardsService.DESDE_SEMPRE, closingDay, dueDay },
         });
       }
 
