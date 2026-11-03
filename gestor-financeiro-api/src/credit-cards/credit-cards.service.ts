@@ -27,9 +27,9 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceStatus } from '@prisma/client';
-import { cicloDoDia } from './billing-cycle';
+import { CicloDoCartao, cicloDoDia, datasDoMesChave } from './billing-cycle';
 import { ORDEM_DA_LISTA, gravarOrdem, novaOrdem } from '../common/ordering';
-import { chaveDoMes, dia, faturaAtual, hojeNoFuso, limiteEmUso, montarFaturas } from './invoice-statement';
+import { chaveDoMes, dia, faturaAtual, hojeNoFuso, limiteEmUso, montarFaturas, proximoMes } from './invoice-statement';
 
 interface CreateCreditCardInput {
   userId: string;
@@ -81,11 +81,10 @@ export class CreditCardsService {
       // instante — sem depender da primeira compra ou do cron noturno.
       // "Hoje" é o dia do calendário no fuso do app: às 22h do dia do
       // fechamento, no Brasil, já é o dia seguinte em UTC.
-      const { referenceMonth, closingDate, dueDate } = cicloDoDia(
-        hojeNoFuso(),
-        input.closingDay,
-        input.dueDay,
-      );
+      const { referenceMonth, closingDate, dueDate } = cicloDoDia(hojeNoFuso(), {
+        closingDay: input.closingDay,
+        dueDay: input.dueDay,
+      });
 
       await tx.creditCardInvoice.create({
         data: {
@@ -106,6 +105,10 @@ export class CreditCardsService {
     const cards = await this.prisma.creditCard.findMany({
       where: { userId, isActive: includeInactive ? undefined : true },
       orderBy: ORDEM_DA_LISTA,
+      // A linha do tempo vai junto: o app tem o mesmo motor de fatura aqui
+      // dentro, e sem ela a tela calcularia as faturas antigas com os dias
+      // de hoje.
+      include: { cycles: { orderBy: { validFrom: 'asc' } } },
     });
     return this.comViradas(cards);
   }
@@ -149,8 +152,19 @@ export class CreditCardsService {
     return { order: final };
   }
 
+  /** 'AAAA-MM' no dia 1 em UTC, que é como a coluna @db.Date guarda o mês. */
+  private mesParaDia1(chave: string): Date {
+    const [ano, mes] = chave.split('-').map(Number);
+    return new Date(Date.UTC(ano, mes - 1, 1));
+  }
+
   async findOneByUser(userId: string, creditCardId: string) {
-    const card = await this.prisma.creditCard.findFirst({ where: { id: creditCardId, userId } });
+    const card = await this.prisma.creditCard.findFirst({
+      where: { id: creditCardId, userId },
+      // Com a linha do tempo: quem pergunta pelo cartão costuma em seguida
+      // perguntar por fatura, e aí os dias certos dependem dela.
+      include: { cycles: { orderBy: { validFrom: 'asc' } } },
+    });
     if (!card) throw new NotFoundException('Cartão de crédito não encontrado');
     return card;
   }
@@ -178,12 +192,12 @@ export class CreditCardsService {
   // maior que as compras deixa saldo credor, que aumenta o disponível. Não
   // limitar a `limitAmount`.
   async getAvailableLimit(creditCardId: string, limitAmount: number) {
-    const card = await this.prisma.creditCard.findUnique({ where: { id: creditCardId } });
+    const card = await this.prisma.creditCard.findUnique({ where: { id: creditCardId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } });
     if (!card) throw new NotFoundException('Cartão de crédito não encontrado');
     return limitAmount - limiteEmUso(await this.faturasCalculadas(card));
   }
 
-  private async faturasCalculadas(card: { id: string; closingDay: number; dueDay: number }) {
+  private async faturasCalculadas(card: CicloDoCartao & { id: string }) {
     const gravadas = await this.prisma.creditCardInvoice.findMany({
       where: { creditCardId: card.id },
       include: { payments: true },
@@ -207,13 +221,34 @@ export class CreditCardsService {
 
   // Único caminho para mudar closingDay/dueDay — bloqueado se já
   // existir qualquer fatura gerada para este cartão.
+  /**
+   * Troca o ciclo A PARTIR de uma fatura, que é como o banco faz: muda-se o
+   * vencimento, o fechamento vai junto, e a fatura que já fechou continua com
+   * as datas que teve.
+   *
+   * Antes isto era proibido depois da primeira fatura, e a proibição era um
+   * remendo: com UM par de dias por cartão, trocar os dias reescrevia o
+   * passado inteiro — cada compra reagrupada, cada fatura velha com outra
+   * data. Com a linha do tempo (`credit_card_billing_cycles`) o passado fica
+   * onde está, e a troca é só mais um período.
+   *
+   * De qual fatura em diante: a aberta agora, ou a seguinte. Fatura fechada
+   * não se mexe — esse é o pedido —, e agendar para daqui a meio ano deixaria
+   * a tela prometendo um ciclo que ninguém lembraria de conferir.
+   *
+   * Cartão que ainda não rodou (no máximo a fatura que nasce com ele) não
+   * ganha período novo: o primeiro é REESCRITO. É o caso de quem errou o dia
+   * no cadastro, e inventar histórico para isso seria guardar um erro de
+   * digitação como se fosse um fato da vida do cartão.
+   */
   async updateBillingCycle(
     userId: string,
     creditCardId: string,
     closingDay: number,
     dueDay: number,
+    validFrom?: string,
   ) {
-    await this.findOneByUser(userId, creditCardId);
+    const card = await this.findOneByUser(userId, creditCardId);
 
     const invoiceCount = await this.prisma.creditCardInvoice.count({
       where: { creditCardId },
@@ -221,15 +256,57 @@ export class CreditCardsService {
 
     // Toda criação de cartão já gera 1 fatura (a do ciclo atual), então
     // "mais de 1" é o sinal real de que o cartão já está em uso.
-    if (invoiceCount > 1) {
+    const emUso = invoiceCount > 1;
+
+    const atual = chaveDoMes(cicloDoDia(hojeNoFuso(), card).referenceMonth);
+    const seguinte = proximoMes(atual);
+    const alvo = validFrom ?? atual;
+
+    if (emUso && alvo !== atual && alvo !== seguinte) {
       throw new BadRequestException(
-        'Este cartão já possui faturas geradas. O ciclo de fechamento não pode mais ser alterado.',
+        `A troca vale da fatura aberta (${atual}) ou da seguinte (${seguinte}). ` +
+          'Fatura que já fechou não muda de data.',
       );
     }
 
-    return this.prisma.creditCard.update({
-      where: { id: creditCardId },
-      data: { closingDay, dueDay },
+    return this.prisma.$transaction(async (tx) => {
+      if (emUso) {
+        const inicio = this.mesParaDia1(alvo);
+        await tx.creditCardBillingCycle.upsert({
+          where: { creditCardId_validFrom: { creditCardId, validFrom: inicio } },
+          create: { creditCardId, validFrom: inicio, closingDay, dueDay },
+          update: { closingDay, dueDay },
+        });
+      } else {
+        // Sem uso: o período de origem é reescrito, e com ele some qualquer
+        // outro que tenha sobrado de uma troca anterior deste mesmo cartão
+        // parado.
+        await tx.creditCardBillingCycle.deleteMany({ where: { creditCardId } });
+        await tx.creditCardBillingCycle.create({
+          data: { creditCardId, validFrom: new Date(Date.UTC(1900, 0, 1)), closingDay, dueDay },
+        });
+      }
+
+      // As colunas do cartão são o período de AGORA: elas só mudam quando a
+      // troca já vale hoje. Agendada para a fatura seguinte, quem realinha é
+      // o job diário — e, enquanto isso, toda leitura que decide fatura já
+      // carrega a linha do tempo, que é a verdade.
+      const valeAgora = !emUso || alvo === atual;
+      const atualizado = valeAgora
+        ? await tx.creditCard.update({ where: { id: creditCardId }, data: { closingDay, dueDay } })
+        : card;
+
+      // A fatura do ciclo corrente pode ter nascido com as datas antigas.
+      // Recalculada aqui, ela não fica mentindo até o cron da madrugada.
+      if (valeAgora) {
+        const datas = datasDoMesChave(atual, { closingDay, dueDay });
+        await tx.creditCardInvoice.updateMany({
+          where: { creditCardId, referenceMonth: datas.referenceMonth },
+          data: { closingDate: datas.closingDate, dueDate: datas.dueDate },
+        });
+      }
+
+      return atualizado;
     });
   }
 

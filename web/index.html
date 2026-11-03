@@ -3372,6 +3372,10 @@
         <div class="field"><label class="lbl" for="k-fecha">Dia de fechamento</label><input id="k-fecha" type="number" min="1" max="31" required></div>
         <div class="field"><label class="lbl" for="k-vence">Dia de vencimento</label><input id="k-vence" type="number" min="1" max="31" required></div>
       </div>
+      <div class="field" id="k-ciclo-de-campo" hidden>
+        <label class="lbl" for="k-ciclo-de">A partir de qual fatura</label>
+        <select id="k-ciclo-de"></select>
+      </div>
       <div class="field-help" id="k-ciclo-help"></div>
       <div class="field"><label class="lbl" for="k-conta">Conta de pagamento</label><select id="k-conta"></select></div>
       <div class="field"><label class="lbl">Cor</label><div class="pills" id="k-cores"></div></div>
@@ -4108,7 +4112,7 @@
   // ao percorrê-la.
   if (!Array.isArray(state.regrasCategoria)) state.regrasCategoria = [];
   (state.objetivos || []).forEach(function (o) { if (!Array.isArray(o.movimentos)) o.movimentos = []; });
-  (state.cards || []).forEach(function (k) { if (!k.pagamentos) k.pagamentos = []; if (!k.viradas) k.viradas = {}; });
+  (state.cards || []).forEach(function (k) { if (!k.pagamentos) k.pagamentos = []; if (!k.viradas) k.viradas = {}; if (!k.ciclos) k.ciclos = []; });
   (state.accounts || []).forEach(function (a) {
     if (typeof a.isActive !== "boolean") a.isActive = true;
     if (typeof a.oculto !== "boolean") a.oculto = false;
@@ -4261,14 +4265,48 @@
   function dataDeHoje() { return new Date(); }
 
   /* ================= regras: fatura ================= */
-  function resolveInvoicePeriodFromDate(dataIso, closingDay) {
+  /** Os dias que valem para a fatura (y, m).
+   *
+   * O ciclo do cartão é uma LINHA DO TEMPO: banco deixa mudar o vencimento, e
+   * o fechamento vai junto, mas só da fatura escolhida em diante — a que já
+   * fechou continua com as datas que teve. `card.ciclos` é essa linha, com
+   * `inicio` em 'AAAA-MM'; valem os dias do último período que começou até
+   * esta fatura.
+   *
+   * Cartão sem a lista (estado antigo no aparelho, ou cartão que nunca mudou
+   * de ciclo) usa os dias do próprio cartão, que são o período de agora. É o
+   * caminho de sempre, e é por ele que a imensa maioria passa. */
+  function diasDaFatura(card, y, m) {
+    var ciclos = card.ciclos || [];
+    if (!ciclos.length) return { fechamento: card.fechamento, vencimento: card.vencimento };
+    var alvo = monthKey({ y: y, m: m });
+    var escolhido = null;
+    ciclos.forEach(function (c) {
+      if (c.inicio > alvo) return;
+      if (!escolhido || c.inicio > escolhido.inicio) escolhido = c;
+    });
+    // Fatura anterior ao primeiro período (importada de antes do cadastro):
+    // vale o mais antigo que existe, senão ela ficaria sem dias.
+    if (!escolhido) {
+      escolhido = ciclos.reduce(function (a, b) { return a.inicio <= b.inicio ? a : b; });
+    }
+    return { fechamento: escolhido.fechamento, vencimento: escolhido.vencimento };
+  }
+
+  /** Em que fatura cai uma compra feita em `dataIso`.
+   *
+   * O fechamento olhado é o do MÊS DA COMPRA — é só isso que faz a troca de
+   * ciclo funcionar, porque o fechamento de uma referência mora sempre dentro
+   * do mês dela, e por isso as datas de fechamento crescem de mês em mês
+   * aconteça o que acontecer. */
+  function resolveInvoicePeriodFromDate(dataIso, card) {
     var d = new Date(dataIso + "T00:00:00");
     var day = d.getDate(), m = d.getMonth(), y = d.getFullYear();
-    if (day > closingDay) { m++; if (m > 11) { m = 0; y++; } }
+    if (day > diasDaFatura(card, y, m).fechamento) { m++; if (m > 11) { m = 0; y++; } }
     return { y: y, m: m };
   }
   function periodoDaTransacao(t, card) {
-    return t.faturaMesOverride ? parseMonthKey(t.faturaMesOverride) : resolveInvoicePeriodFromDate(t.data, card.fechamento);
+    return t.faturaMesOverride ? parseMonthKey(t.faturaMesOverride) : resolveInvoicePeriodFromDate(t.data, card);
   }
   /** Memória de faturas que vale por UM desenho.
    *
@@ -4385,6 +4423,14 @@
     if (HOJE > vencimento) return "OVERDUE";
     return "CLOSED";
   }
+  /** A fatura do CICLO DE HOJE: a que recebe a compra de agora. Não é a
+   * mesma coisa que `periodoAtualCartao`, que é a mais antiga ainda por
+   * pagar — uma fatura atrasada continua sendo "a atual" para quem paga, e
+   * não é nela que a compra de hoje entra. */
+  function periodoDoCicloDeHoje(card) {
+    return faturaSugerida(isoDate(HOJE), card);
+  }
+
   /** Fatura "atual" é a mais antiga ainda não quitada — uma fatura fechada ou
    * atrasada continua sendo a atual até ser paga. */
   function periodoAtualCartao(card) {
@@ -4393,7 +4439,7 @@
       return porMes[key].emAberto > 0;
     }).sort();
     if (chaves.length) { var p = porMes[chaves[0]]; return { y: p.y, m: p.m }; }
-    return resolveInvoicePeriodFromDate(isoDate(HOJE), card.fechamento);
+    return resolveInvoicePeriodFromDate(isoDate(HOJE), card);
   }
   /** Limite disponível desconta o confirmado ainda não pago de TODAS as
    * faturas, não só da atual, já considerando pagamento parcial. */
@@ -4847,7 +4893,7 @@
   }
 
   function faturaPelaData(dataIso, card) {
-    var p = resolveInvoicePeriodFromDate(dataIso, card.fechamento);
+    var p = resolveInvoicePeriodFromDate(dataIso, card);
     if (new Date(dataIso + "T00:00:00").getDate() === card.fechamento) {
       var d = adicionarMeses(new Date(p.y, p.m, 1), 1);
       return { y: d.getFullYear(), m: d.getMonth() };
@@ -5148,13 +5194,14 @@
    * vence 30" em fevereiro viraria 28 e 28, e o vencimento cairia no mesmo dia
    * do fechamento em vez de ir para março. */
   function fechamentoDaFatura(card, y, m) {
-    return new Date(y, m, diaValido(y, m, card.fechamento));
+    return new Date(y, m, diaValido(y, m, diasDaFatura(card, y, m).fechamento));
   }
   function vencimentoDaFatura(card, y, m) {
-    var noMes = new Date(y, m, diaValido(y, m, card.vencimento));
+    var dia = diasDaFatura(card, y, m).vencimento;
+    var noMes = new Date(y, m, diaValido(y, m, dia));
     if (noMes > fechamentoDaFatura(card, y, m)) return noMes;
     var ay = m === 11 ? y + 1 : y, am = (m + 1) % 12;
-    return new Date(ay, am, diaValido(ay, am, card.vencimento));
+    return new Date(ay, am, diaValido(ay, am, dia));
   }
 
   /** Totais do mês: a soma exata das linhas que o extrato mostra.
@@ -6278,7 +6325,7 @@
     if (r.cartaoId) {
       var card = byId(state.cards, r.cartaoId);
 
-      var mk = r.faturaMes || (card ? monthKey(resolveInvoicePeriodFromDate(r.data, card.fechamento)) : null);
+      var mk = r.faturaMes || (card ? monthKey(resolveInvoicePeriodFromDate(r.data, card)) : null);
       linhas.push({ rotulo: "Fatura", valor: mk ? rotuloMes(parseMonthKey(mk)) : "—", ok: true });
     }
     linhas.push({ rotulo: "Data", valor: fmtDataBR(r.data), ok: true });
@@ -6593,7 +6640,16 @@
       vencimento: j.dueDay, cor: j.color || CORES[0], contaId: j.bankAccountId || null, pagamentos: [],
       // Faturas viradas: { '2026-12': '2026-11-23' }. Vêm no próprio cartão
       // porque toda tela de lançamento precisa delas.
-      viradas: j.earlyClosures || {}
+      viradas: j.earlyClosures || {},
+      // A linha do tempo do ciclo: [{ inicio: '2027-02', fechamento, vencimento }].
+      // Sem ela, a tela calcularia as faturas antigas com os dias de hoje.
+      ciclos: (j.cycles || []).map(function (c) {
+        return {
+          inicio: String(c.validFrom).slice(0, 7),
+          fechamento: c.closingDay,
+          vencimento: c.dueDay
+        };
+      })
     };
   }
   function lancamentoDaApi(j) {
@@ -10265,7 +10321,7 @@
     var card = byId(state.cards, (document.getElementById("imp-destino").value || "").slice(2));
     if (!card || !imp.ofx.lancamentos.length) return null;
     var maisNova = imp.ofx.lancamentos.map(function (l) { return l.data; }).sort().pop();
-    return resolveInvoicePeriodFromDate(maisNova, card.fechamento);
+    return resolveInvoicePeriodFromDate(maisNova, card);
   }
 
   function atualizarCampoDeFatura() {
@@ -11990,7 +12046,7 @@
     atualizarDestino();
     if (t && t.cartaoId) {
       var card = byId(state.cards, t.cartaoId);
-      definirFaturaInicial(t.faturaMesOverride || monthKey(resolveInvoicePeriodFromDate(t.data, card.fechamento)));
+      definirFaturaInicial(t.faturaMesOverride || monthKey(resolveInvoicePeriodFromDate(t.data, card)));
     } else if (opcoes.faturaMes) {
       definirFaturaInicial(opcoes.faturaMes);
     }
@@ -12809,11 +12865,24 @@
 
     // Mudar o ciclo depois de existir histórico invalidaria os períodos de
     // fatura já calculados, então os dias ficam travados.
-    var travado = k ? Object.keys(faturasDoCartao(k)).length > 0 : false;
-    document.getElementById("k-fecha").disabled = travado;
-    document.getElementById("k-vence").disabled = travado;
-    document.getElementById("k-ciclo-help").textContent = travado
-      ? "Este cartão já tem lançamentos, então o ciclo de fechamento e vencimento não pode mais ser alterado."
+    // O ciclo MUDA, e é o banco que ensina como: ele deixa trocar o
+    // vencimento, o fechamento vai junto, e a troca vale de uma fatura em
+    // diante — o que já fechou continua com as datas que teve. Antes isto era
+    // proibido aqui ("não pode mais ser alterado"), e a proibição existia só
+    // porque um par de dias por cartão não sabia dizer "a partir de quando".
+    var emUso = k ? Object.keys(faturasDoCartao(k)).length > 0 : false;
+    var campoDe = document.getElementById("k-ciclo-de-campo");
+    campoDe.hidden = !emUso;
+    if (emUso) {
+      var atual = periodoDoCicloDeHoje(k);
+      var seguinte = { y: atual.m === 11 ? atual.y + 1 : atual.y, m: (atual.m + 1) % 12 };
+      preencherSelect(document.getElementById("k-ciclo-de"), [
+        { id: monthKey(atual), nome: rotuloMes(atual) },
+        { id: monthKey(seguinte), nome: rotuloMes(seguinte) }
+      ], monthKey(atual));
+    }
+    document.getElementById("k-ciclo-help").textContent = emUso
+      ? "Mudou o vencimento no banco? Troque aqui também, dizendo de qual fatura em diante. As faturas anteriores não se mexem."
       : "";
     abrir("dlg-cartao");
   }
@@ -12832,7 +12901,12 @@
 
     if (MODO_API) {
       var alvoK = editandoCartao;
-      var podeCiclo = !document.getElementById("k-fecha").disabled;
+      var kAtual = alvoK ? byId(state.cards, alvoK) : null;
+      var campoCicloDe = document.getElementById("k-ciclo-de");
+      var validFromDoCiclo = document.getElementById("k-ciclo-de-campo").hidden ? undefined : campoCicloDe.value;
+      // Só chama a rota do ciclo quando os dias mudaram de verdade: salvar o
+      // cartão só para trocar a cor não pode criar um período novo.
+      var mudouOCiclo = !kAtual || kAtual.fechamento !== fecha || kAtual.vencimento !== vence;
       var okK = await comServidor(alvoK ? "salvar o cartão" : "criar o cartão", async function () {
         if (!alvoK) {
           var criado = await api("/credit-cards", {
@@ -12843,9 +12917,12 @@
           return criado;
         }
         await api("/credit-cards/" + alvoK, { name: nome, limitAmount: limite, bankAccountId: contaId || undefined, color: cor }, "PATCH");
-        // Ciclo tem rota própria: o servidor só aceita enquanto não houver
-        // fatura gerada, senão os períodos já calculados virariam mentira.
-        if (podeCiclo) await api("/credit-cards/" + alvoK + "/billing-cycle", { closingDay: fecha, dueDay: vence }, "PATCH");
+        // Ciclo tem rota própria: ela grava um PERÍODO, e o servidor confere
+        // que a fatura escolhida ainda não fechou.
+        if (mudouOCiclo) {
+          await api("/credit-cards/" + alvoK + "/billing-cycle",
+            { closingDay: fecha, dueDay: vence, validFrom: validFromDoCiclo }, "PATCH");
+        }
       });
       if (!okK) return;
       editandoCartao = null;

@@ -39,7 +39,7 @@ import {
   SeriesFrequency,
 } from '@prisma/client';
 import { resolveInvoicePeriod, validateAmount, validateAccountXorCard } from './transaction.utils';
-import { Viradas, cicloDaDataVirada, datasDoMesChave } from '../credit-cards/billing-cycle';
+import { CicloDoCartao, Viradas, cicloDaDataVirada, datasDoMesChave } from '../credit-cards/billing-cycle';
 import { FaturaCalculada, chaveDoMes, dia, faturaAtual, hojeNoFuso, montarFaturas, viradasDe } from '../credit-cards/invoice-statement';
 import { MAX_OCORRENCIAS, MIN_OCORRENCIAS, dataDaOcorrencia, dataParaMes, faturaDaOcorrencia, mesParaData, moverParaOMes, somarMesesNoMes } from './series.utils';
 
@@ -742,7 +742,7 @@ export class TransactionsService {
       });
       if (!parcelas.length) throw new NotFoundException('Série de cartão não encontrada');
       const cardId = parcelas[0].creditCardId!;
-      const card = await tx.creditCard.findUnique({ where: { id: cardId } });
+      const card = await tx.creditCard.findUnique({ where: { id: cardId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } });
       if (!card) throw new NotFoundException('Cartão de crédito não encontrado');
       await tx.$queryRaw`SELECT id FROM credit_cards WHERE id = ${cardId} FOR UPDATE`;
 
@@ -823,7 +823,7 @@ export class TransactionsService {
         throw new BadRequestException('Só compra no cartão tem fatura para deslocar.');
       }
 
-      const card = await tx.creditCard.findUnique({ where: { id: alvo.creditCardId } });
+      const card = await tx.creditCard.findUnique({ where: { id: alvo.creditCardId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } });
       if (!card) throw new NotFoundException('Cartão de crédito não encontrado');
       await tx.$queryRaw`SELECT id FROM credit_cards WHERE id = ${alvo.creditCardId} FOR UPDATE`;
 
@@ -1049,7 +1049,7 @@ export class TransactionsService {
       if (!conta) throw new NotFoundException('Conta bancária não encontrada');
     }
     if (creditCardId) {
-      const cartao = await tx.creditCard.findFirst({ where: { id: creditCardId, userId } });
+      const cartao = await tx.creditCard.findFirst({ where: { id: creditCardId, userId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } });
       if (!cartao) throw new NotFoundException('Cartão de crédito não encontrado');
     }
   }
@@ -1134,11 +1134,11 @@ export class TransactionsService {
 
   private cicloDoLancamento(
     t: { transactionDate: Date; invoiceMonthOverride?: Date | null },
-    card: { closingDay: number; dueDay: number },
+    card: CicloDoCartao,
   ) {
     return t.invoiceMonthOverride
-      ? datasDoMesChave(dataParaMes(t.invoiceMonthOverride), card.closingDay, card.dueDay)
-      : resolveInvoicePeriod(t.transactionDate, card.closingDay, card.dueDay);
+      ? datasDoMesChave(dataParaMes(t.invoiceMonthOverride), card)
+      : resolveInvoicePeriod(t.transactionDate, card);
   }
 
   /**
@@ -1162,11 +1162,11 @@ export class TransactionsService {
     const viradas = await this.viradasDoCartao(db, input.creditCardId);
     if (!Object.keys(viradas).length) return null;
 
-    const card = await db.creditCard.findUnique({ where: { id: input.creditCardId } });
+    const card = await db.creditCard.findUnique({ where: { id: input.creditCardId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } });
     if (!card) return null;
 
-    const natural = resolveInvoicePeriod(input.transactionDate, card.closingDay, card.dueDay);
-    const comVirada = cicloDaDataVirada(input.transactionDate, card.closingDay, card.dueDay, viradas);
+    const natural = resolveInvoicePeriod(input.transactionDate, card);
+    const comVirada = cicloDaDataVirada(input.transactionDate, card, viradas);
     return comVirada.referenceMonth.getTime() === natural.referenceMonth.getTime()
       ? null
       : comVirada.referenceMonth;
@@ -1182,16 +1182,16 @@ export class TransactionsService {
     return viradas;
   }
 
-  private mesDoCicloDeHoje(card: { closingDay: number; dueDay: number }, viradas: Viradas = {}) {
+  private mesDoCicloDeHoje(card: CicloDoCartao, viradas: Viradas = {}) {
     // Com fatura virada, o ciclo de hoje já é o seguinte: é nele que a compra
     // de hoje cai, e é ele que `anticipate` tem de tratar como fatura atual.
     const hoje = new Date(hojeNoFuso() + 'T00:00:00.000Z');
-    return dataParaMes(cicloDaDataVirada(hoje, card.closingDay, card.dueDay, viradas).referenceMonth);
+    return dataParaMes(cicloDaDataVirada(hoje, card, viradas).referenceMonth);
   }
 
   private async faturasDoCartao(
     tx: Prisma.TransactionClient,
-    card: { id: string; closingDay: number; dueDay: number },
+    card: CicloDoCartao & { id: string },
   ): Promise<Map<string, FaturaCalculada>> {
     const gravadas = await tx.creditCardInvoice.findMany({
       where: { creditCardId: card.id },
@@ -1213,7 +1213,7 @@ export class TransactionsService {
       porCartao.set(t.creditCardId, [...(porCartao.get(t.creditCardId) ?? []), t]);
     }
     for (const [cardId, lista] of porCartao) {
-      const card = await tx.creditCard.findUnique({ where: { id: cardId } });
+      const card = await tx.creditCard.findUnique({ where: { id: cardId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } });
       if (!card) continue;
       const faturas = await this.faturasDoCartao(tx, card);
       for (const t of lista) {
@@ -1313,7 +1313,7 @@ export class TransactionsService {
     amount: number,
     lancamento: { transactionDate: Date; invoiceMonthOverride?: Date | null },
   ) {
-    const card = await tx.creditCard.findUnique({ where: { id: creditCardId } });
+    const card = await tx.creditCard.findUnique({ where: { id: creditCardId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } });
     if (!card) throw new NotFoundException('Cartão de crédito não encontrado');
 
     const { referenceMonth, closingDate, dueDate } = this.cicloDoLancamento(lancamento, card);

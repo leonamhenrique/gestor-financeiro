@@ -8,7 +8,7 @@
 // ============================================================
 
 import { BadRequestException } from '@nestjs/common';
-import { cicloDaData, datasDoMesChave } from '../credit-cards/billing-cycle';
+import { CicloDoCartao, cicloDaData, datasDoMesChave } from '../credit-cards/billing-cycle';
 import { chaveDoMes } from '../reports/report.utils';
 
 /**
@@ -21,8 +21,8 @@ import { chaveDoMes } from '../reports/report.utils';
  * quem faz a conta de verdade, incluindo vencimento no mês seguinte e dias
  * inexistentes no mês.
  */
-export function resolveInvoicePeriod(transactionDate: Date, closingDay: number, dueDay: number) {
-  return cicloDaData(transactionDate, closingDay, dueDay);
+export function resolveInvoicePeriod(transactionDate: Date, cartao: CicloDoCartao) {
+  return cicloDaData(transactionDate, cartao);
 }
 
 export function validateAmount(amount: number) {
@@ -59,13 +59,13 @@ export function validateAccountXorCard(bankAccountId?: string, creditCardId?: st
  */
 export function mesDeCaixa(
   t: { transactionDate: Date; creditCardId: string | null; invoiceMonthOverride?: Date | null },
-  cartoes: Map<string, { closingDay: number; dueDay: number }>,
+  cartoes: Map<string, CicloDoCartao>,
 ): string {
   if (!t.creditCardId) return chaveDoMes(t.transactionDate);
   const card = cartoes.get(t.creditCardId);
   if (!card) return chaveDoMes(t.transactionDate); // cartão apagado: cai no próprio mês
   const ciclo = t.invoiceMonthOverride
-    ? datasDoMesChave(chaveDoMes(t.invoiceMonthOverride), card.closingDay, card.dueDay)
-    : resolveInvoicePeriod(t.transactionDate, card.closingDay, card.dueDay);
+    ? datasDoMesChave(chaveDoMes(t.invoiceMonthOverride), card)
+    : resolveInvoicePeriod(t.transactionDate, card);
   return chaveDoMes(ciclo.dueDate);
 }

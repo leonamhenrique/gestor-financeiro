@@ -46,7 +46,11 @@ describe('ConversaService', () => {
   let viradasDoBanco: any[];
   /** Os cartões do usuário, alcançáveis pelo teste: um deles pode ter o mesmo
    * nome de uma conta que ainda não existe. */
-  let cartoes: Pick<CreditCard, 'id' | 'name' | 'bankAccountId' | 'closingDay'>[];
+  /** O cartão como a consulta o traz: com a linha do tempo do ciclo junto.
+   * `cycles` vazio é o cartão que nunca mudou de vencimento. */
+  let cartoes: (Pick<CreditCard, 'id' | 'name' | 'bankAccountId' | 'closingDay'> & {
+    cycles: { validFrom: Date; closingDay: number; dueDay: number }[];
+  })[];
   /** O serviço de categorias e o que ele criou — a criação pela mensagem passa
    * pelo mesmo caminho do formulário. */
   let servicoDeCategorias: any;
@@ -97,7 +101,7 @@ describe('ConversaService', () => {
     contaUnica = contas[0];
     cartoes = [
       // Fecha dia 1: é o dia em que as duas regras de fatura do app discordam.
-      { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1', closingDay: 1 },
+      { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1', closingDay: 1, cycles: [] },
     ];
     const categorias: Pick<Category, 'id' | 'name' | 'type' | 'parentId'>[] = [
       { id: 'c1', name: 'Alimentação', type: 'EXPENSE', parentId: null },
@@ -698,7 +702,7 @@ describe('ConversaService', () => {
       // O caso que o usuario encontrou: PicPay e cartao E conta. Dizendo "no
       // debito da conta PicPay" ele recebia "Faltou destino" -- com o PICPAY
       // dele aparecendo na lista de cartoes da propria resposta.
-      cartoes.push({ id: 'k9', name: 'PicPay', bankAccountId: null, closingDay: 10 } as any);
+      cartoes.push({ id: 'k9', name: 'PicPay', bankAccountId: null, closingDay: 10, cycles: [] } as any);
       const r = await service.responderA(msg(frase));
       expect(r?.texto).toContain('Você ainda não tem a conta Picpay. Criar');
       expect(r?.confirmar).toBe(true);
@@ -1062,8 +1066,8 @@ describe('ConversaService', () => {
         // O segundo cartao entra so aqui: com dois cartoes, a fala deixa de
         // ter um destino obvio, e os testes de lancamento contam com isso.
         prisma.creditCard.findMany = jest.fn(async () => [
-          { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1', closingDay: 1 },
-          { id: 'k2', name: 'Carrefour', bankAccountId: 'a1', closingDay: 25 },
+          { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1', closingDay: 1, cycles: [] },
+          { id: 'k2', name: 'Carrefour', bankAccountId: 'a1', closingDay: 25, cycles: [] },
         ]);
       });
 
@@ -1148,6 +1152,29 @@ describe('ConversaService', () => {
       );
       const esperado = String(depois.getMonth() + 1).padStart(2, '0') + '/' + depois.getFullYear();
       expect(r?.texto).toContain('Fatura: ' + esperado);
+    });
+
+    it('o ciclo do cartao mudou: a fala usa o periodo da fatura, como a tela', async () => {
+      // Fecha 1 ate a fatura de hoje; do mes seguinte em diante, fecha 25.
+      // A compra de hoje (dia 10) cairia na fatura do mes que vem pelo par
+      // antigo; com o periodo novo valendo de la, ela continua indo para o
+      // mes que vem -- mas quem decide e o periodo DAQUELE mes, e nao o par
+      // de agora. O teste trava a ponte: sem `ciclos` chegando na leitura, a
+      // resposta muda.
+      const hoje = new Date();
+      const esteMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+      cartoes[0].cycles = [
+        { validFrom: new Date(Date.UTC(1900, 0, 1)), closingDay: 1, dueDay: 10 },
+        { validFrom: new Date(Date.UTC(esteMes.getFullYear(), esteMes.getMonth(), 1)), closingDay: 28, dueDay: 5 },
+      ];
+      const r = await service.responderA(
+        msg('gastei 10 na padaria no cartao nubank roxinho categoria alimentacao'),
+      );
+      // Com fechamento 28 valendo para a fatura DESTE mes, a compra de hoje
+      // (qualquer dia ate 28) fica nela, e nao na do mes seguinte.
+      const esperado =
+        String(esteMes.getMonth() + 1).padStart(2, '0') + '/' + esteMes.getFullYear();
+      if (hoje.getDate() <= 28) expect(r?.texto).toContain('Fatura: ' + esperado);
     });
 
     it('a fatura dita na frase continua mandando', async () => {

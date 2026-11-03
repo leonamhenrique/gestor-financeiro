@@ -63,8 +63,7 @@ export class CreditCardInvoicesService {
     const doCiclo = chaveDoMes(
       cicloDaDataVirada(
         new Date(hoje + 'T00:00:00.000Z'),
-        cartao.closingDay,
-        cartao.dueDay,
+        cartao,
         viradasDe(faturas),
       ).referenceMonth,
     );
@@ -79,7 +78,7 @@ export class CreditCardInvoicesService {
 
     // A fatura pode ainda não existir no banco: virar um mês sem compra
     // nenhuma é legítimo, e é o caso de quem vira para começar o mês limpo.
-    const datas = datasDoMesChave(mes, cartao.closingDay, cartao.dueDay);
+    const datas = datasDoMesChave(mes, cartao);
     await this.prisma.creditCardInvoice.upsert({
       where: { creditCardId_referenceMonth: { creditCardId, referenceMonth: datas.referenceMonth } },
       create: {
@@ -136,7 +135,10 @@ export class CreditCardInvoicesService {
   }
 
   private async cartao(userId: string, creditCardId: string) {
-    const cartao = await this.prisma.creditCard.findFirst({ where: { id: creditCardId, userId } });
+    const cartao = await this.prisma.creditCard.findFirst({
+      where: { id: creditCardId, userId },
+      include: { cycles: { orderBy: { validFrom: 'asc' } } },
+    });
     if (!cartao) throw new NotFoundException('Cartão de crédito não encontrado');
     return cartao;
   }

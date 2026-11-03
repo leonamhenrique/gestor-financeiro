@@ -15,6 +15,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CicloDoCartao } from './billing-cycle';
 import { FaturaCalculada, chaveDoMes, datasDoMes, dia, hojeNoFuso, montarFaturas } from './invoice-statement';
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -259,7 +260,10 @@ export class InvoicePaymentsService {
   }
 
   private async cartaoDoUsuario(db: Prisma.TransactionClient | PrismaService, userId: string, creditCardId: string) {
-    const cartao = await db.creditCard.findFirst({ where: { id: creditCardId, userId } });
+    const cartao = await db.creditCard.findFirst({
+      where: { id: creditCardId, userId },
+      include: { cycles: { orderBy: { validFrom: 'asc' } } },
+    });
     if (!cartao) throw new NotFoundException('Cartão de crédito não encontrado');
     return cartao;
   }
@@ -288,8 +292,8 @@ export class InvoicePaymentsService {
     });
   }
 
-  private criarFatura(tx: Prisma.TransactionClient, creditCardId: string, mes: string, cartao: { closingDay: number; dueDay: number }) {
-    const d = datasDoMes(mes, cartao.closingDay, cartao.dueDay);
+  private criarFatura(tx: Prisma.TransactionClient, creditCardId: string, mes: string, cartao: CicloDoCartao) {
+    const d = datasDoMes(mes, cartao);
     return tx.creditCardInvoice.create({
       data: {
         creditCardId,

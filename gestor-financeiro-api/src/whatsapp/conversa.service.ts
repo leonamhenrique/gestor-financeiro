@@ -1053,7 +1053,7 @@ export class ConversaService {
   async contextoDoUsuario(userId: string) {
     const [contas, cartoes, categorias, regras, viradas] = await Promise.all([
       this.prisma.bankAccount.findMany({ where: { userId } }),
-      this.prisma.creditCard.findMany({ where: { userId } }),
+      this.prisma.creditCard.findMany({ where: { userId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } }),
       this.prisma.category.findMany({
         where: { OR: [{ userId }, { userId: null }] },
       }),
@@ -1090,6 +1090,15 @@ export class ConversaService {
         contaId: k.bankAccountId,
         fechamento: k.closingDay,
         viradas: viradasDoCartao[k.id] ?? {},
+        // A linha do tempo do ciclo, no formato que a leitura do app usa. Sem
+        // ela, uma compra lançada pelo WhatsApp num cartão que mudou de
+        // vencimento cairia na fatura que o par de HOJE indica, enquanto a
+        // tela — que conhece os períodos — mostraria outra.
+        ciclos: k.cycles.map((c) => ({
+          inicio: chaveDoMes(c.validFrom),
+          fechamento: c.closingDay,
+          vencimento: c.dueDay,
+        })),
       })),
       categorias: categorias.map((c) => ({
         id: c.id,

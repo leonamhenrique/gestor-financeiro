@@ -141,6 +141,7 @@ export class CreditCardsController {
       id,
       dto.closingDay,
       dto.dueDay,
+      dto.validFrom,
     );
   }
 

@@ -63,6 +63,7 @@ const FUNCOES = [
   'monthKey',
   'adicionarDias',
   'adicionarMeses',
+  'diasDaFatura',
   'resolveInvoicePeriodFromDate',
   'faturaPelaData',
   // Fatura VIRADA (fechada antes do dia, como no Itaú/Iti): quem lança pelo

@@ -161,7 +161,7 @@ export class RelatorioService {
       // arrastou. Ela não muda total nenhum, mas muda em que ordem as faturas
       // saem na resposta — e é melhor que seja a ordem da tela dele.
       this.prisma.bankAccount.findMany({ where: { userId }, orderBy: ORDEM_DA_LISTA }),
-      this.prisma.creditCard.findMany({ where: { userId }, orderBy: ORDEM_DA_LISTA }),
+      this.prisma.creditCard.findMany({ where: { userId }, orderBy: ORDEM_DA_LISTA, include: { cycles: { orderBy: { validFrom: 'asc' } } } }),
       this.prisma.transaction.findMany({ where: { userId }, orderBy: { transactionDate: 'desc' } }),
     ]);
 

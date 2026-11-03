@@ -114,4 +114,12 @@ export class UpdateBillingCycleDto {
   @Min(1)
   @Max(31)
   dueDay: number;
+
+  // De qual fatura em diante, 'AAAA-MM'. Ausente = da fatura aberta agora.
+  // O service recusa qualquer mês que não seja a atual ou a seguinte: fatura
+  // que já fechou não muda de data, e agendar para daqui a meio ano deixaria
+  // a tela prometendo um ciclo que ninguém lembraria de conferir.
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'Mês inválido. Use AAAA-MM.' })
+  validFrom?: string;
 }

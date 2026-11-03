@@ -30,7 +30,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { comUsuario } from '../prisma/contexto';
 import { InvoiceStatus } from '@prisma/client';
 import { InvoicePaymentsService } from './invoice-payments.service';
-import { cicloDoDia } from './billing-cycle';
+import { cicloDoDia, diasDaReferencia } from './billing-cycle';
 import { FUSO_DO_APP, hojeNoFuso } from './invoice-statement';
 
 @Injectable()
@@ -45,6 +45,9 @@ export class InvoiceClosingScheduler {
   @Cron(CronExpression.EVERY_DAY_AT_1AM, { timeZone: FUSO_DO_APP })
   async handleDailyInvoiceMaintenance() {
     const hoje = hojeNoFuso();
+    // Antes de qualquer conta: se um período novo começou hoje, as colunas do
+    // cartão passam a ser as dele.
+    await this.realinharColunasDoCiclo(hoje);
     await this.consolidateStatuses();
     await this.ensureNextCycleInvoices(hoje);
   }
@@ -73,7 +76,7 @@ export class InvoiceClosingScheduler {
   }
 
   private async consolidarDoDono(userId: string) {
-    const cards = await this.prisma.creditCard.findMany({ where: { isActive: true } });
+    const cards = await this.prisma.creditCard.findMany({ where: { isActive: true }, include: { cycles: { orderBy: { validFrom: 'asc' } } } });
     for (const card of cards) {
       try {
         await this.prisma.$transaction((tx) => this.pagamentos.consolidar(tx, card.id, card));
@@ -91,11 +94,49 @@ export class InvoiceClosingScheduler {
     }
   }
 
+  /**
+   * As colunas `closing_day`/`due_day` do cartão são o período de AGORA, e um
+   * período agendado para a fatura seguinte faz elas ficarem para trás quando
+   * esse mês chega. Realinhar é daqui.
+   *
+   * Elas não são a verdade — a verdade é a linha do tempo, e toda leitura que
+   * decide fatura já a carrega. São o atalho de quem só quer saber do ciclo
+   * de hoje, e um atalho que aponta para o mês passado é pior que atalho
+   * nenhum.
+   */
+  private async realinharColunasDoCiclo(hoje: string) {
+    for (const userId of await this.cadaDono()) {
+      await comUsuario(userId, async () => {
+        const cards = await this.prisma.creditCard.findMany({
+          where: { isActive: true },
+          include: { cycles: { orderBy: { validFrom: 'asc' } } },
+        });
+        for (const card of cards) {
+          if (!card.cycles.length) continue;
+          const ciclo = cicloDoDia(hoje, card);
+          const dias = diasDaReferencia(
+            ciclo.referenceMonth.getUTCFullYear(),
+            ciclo.referenceMonth.getUTCMonth(),
+            card,
+          );
+          if (dias.closingDay === card.closingDay && dias.dueDay === card.dueDay) continue;
+          await this.prisma.creditCard.update({
+            where: { id: card.id },
+            data: { closingDay: dias.closingDay, dueDay: dias.dueDay },
+          });
+          this.logger.log(`Ciclo do cartão ${card.id} passou a fechar dia ${dias.closingDay}`);
+        }
+      });
+    }
+  }
+
   private async garantirCicloDoDono(hoje: string) {
     const cards = await this.prisma.creditCard.findMany({ where: { isActive: true } });
 
     for (const card of cards) {
-      const { referenceMonth, closingDate, dueDate } = cicloDoDia(hoje, card.closingDay, card.dueDay);
+      // Sem a linha do tempo: aqui a pergunta é sobre HOJE, e as colunas do
+      // cartão são o período de agora.
+      const { referenceMonth, closingDate, dueDate } = cicloDoDia(hoje, card);
 
       await this.prisma.creditCardInvoice.upsert({
         where: {

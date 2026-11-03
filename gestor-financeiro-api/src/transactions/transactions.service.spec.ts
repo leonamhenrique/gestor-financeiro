@@ -36,31 +36,31 @@ const CATEGORIA_FOLHA = () => ({
 describe('resolveInvoicePeriod (função pura)', () => {
   it('compra antes do fechamento entra na fatura do mês corrente', () => {
     // Cartão fecha dia 10. Compra em 05/09 -> fatura de referência 09/2026.
-    const result = resolveInvoicePeriod(utc('2026-09-05'), 10, 17);
+    const result = resolveInvoicePeriod(utc('2026-09-05'), { closingDay: 10, dueDay: 17 });
     expect(result.referenceMonth).toEqual(utc('2026-09-01'));
   });
 
   it('compra depois do fechamento entra na fatura do mês seguinte', () => {
     // Cartão fecha dia 10. Compra em 15/09 -> fatura de referência 10/2026.
-    const result = resolveInvoicePeriod(utc('2026-09-15'), 10, 17);
+    const result = resolveInvoicePeriod(utc('2026-09-15'), { closingDay: 10, dueDay: 17 });
     expect(result.referenceMonth).toEqual(utc('2026-10-01'));
   });
 
   it('compra em dezembro após fechamento vira fatura de janeiro do ano seguinte', () => {
-    const result = resolveInvoicePeriod(utc('2026-12-20'), 10, 17);
+    const result = resolveInvoicePeriod(utc('2026-12-20'), { closingDay: 10, dueDay: 17 });
     expect(result.referenceMonth).toEqual(utc('2027-01-01'));
   });
 
   it('compra exatamente no dia de fechamento ainda entra no mês corrente', () => {
     // dia === closingDay não é "depois do fechamento", então cai no mês atual
-    const result = resolveInvoicePeriod(utc('2026-09-10'), 10, 17);
+    const result = resolveInvoicePeriod(utc('2026-09-10'), { closingDay: 10, dueDay: 17 });
     expect(result.referenceMonth).toEqual(utc('2026-09-01'));
   });
 
   // Regressão: lia o dia no fuso local. "2026-09-11" (meia-noite UTC) é dia
   // 10 às 21h no Brasil, e a compra caía na fatura de setembro.
   it('compra no dia seguinte ao fechamento vai para o mês seguinte, em qualquer fuso', () => {
-    const result = resolveInvoicePeriod(utc('2026-09-11'), 10, 17);
+    const result = resolveInvoicePeriod(utc('2026-09-11'), { closingDay: 10, dueDay: 17 });
     expect(result.referenceMonth).toEqual(utc('2026-10-01'));
   });
 });

@@ -27,6 +27,13 @@ describe('CreditCardsService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         deleteMany: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      // A linha do tempo do ciclo: é nela que a troca de vencimento grava.
+      creditCardBillingCycle: {
+        create: jest.fn(),
+        upsert: jest.fn(),
+        deleteMany: jest.fn(),
       },
       transaction: { count: jest.fn() },
       invoicePayment: { count: jest.fn().mockResolvedValue(0) },
@@ -120,27 +127,101 @@ describe('CreditCardsService', () => {
     expect(result).toEqual({ deleted: false, archived: true });
   });
 
-  it('updateBillingCycle() permite alterar quando só existe a fatura inicial (cartão sem uso)', async () => {
-    prismaMock.creditCard.findFirst.mockResolvedValue({ id: 'card-1', userId: 'user-1' });
-    prismaMock.creditCardInvoice.count.mockResolvedValue(1); // só a fatura criada no cadastro
-    prismaMock.creditCard.update.mockResolvedValue({ id: 'card-1', closingDay: 15, dueDay: 22 });
+  describe('updateBillingCycle() — a troca de ciclo', () => {
+    // Cartão que fecha dia 10 e vence 17. "Hoje" fixo para o mês da fatura
+    // aberta não depender do dia em que o teste roda.
+    const cartao = { id: 'card-1', userId: 'user-1', closingDay: 10, dueDay: 17, cycles: [] };
 
-    await service.updateBillingCycle('user-1', 'card-1', 15, 22);
-
-    expect(prismaMock.creditCard.update).toHaveBeenCalledWith({
-      where: { id: 'card-1' },
-      data: { closingDay: 15, dueDay: 22 },
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+      jest.setSystemTime(new Date('2026-11-20T12:00:00.000Z')); // fatura aberta: 2026-12
+      prismaMock.creditCard.findFirst.mockResolvedValue(cartao);
+      prismaMock.creditCard.update.mockResolvedValue({ ...cartao, closingDay: 15, dueDay: 22 });
     });
-  });
+    afterEach(() => jest.useRealTimers());
 
-  it('updateBillingCycle() bloqueia alteração quando já há mais de uma fatura gerada', async () => {
-    prismaMock.creditCard.findFirst.mockResolvedValue({ id: 'card-1', userId: 'user-1' });
-    prismaMock.creditCardInvoice.count.mockResolvedValue(3);
+    it('cartão sem uso: reescreve o período de origem, sem criar histórico', async () => {
+      prismaMock.creditCardInvoice.count.mockResolvedValue(1); // só a fatura do cadastro
 
-    await expect(service.updateBillingCycle('user-1', 'card-1', 15, 22)).rejects.toThrow(
-      BadRequestException,
-    );
-    expect(prismaMock.creditCard.update).not.toHaveBeenCalled();
+      await service.updateBillingCycle('user-1', 'card-1', 15, 22);
+
+      expect(prismaMock.creditCardBillingCycle.deleteMany).toHaveBeenCalledWith({
+        where: { creditCardId: 'card-1' },
+      });
+      expect(prismaMock.creditCardBillingCycle.create).toHaveBeenCalledWith({
+        data: {
+          creditCardId: 'card-1',
+          validFrom: new Date(Date.UTC(1900, 0, 1)),
+          closingDay: 15,
+          dueDay: 22,
+        },
+      });
+      expect(prismaMock.creditCard.update).toHaveBeenCalledWith({
+        where: { id: 'card-1' },
+        data: { closingDay: 15, dueDay: 22 },
+      });
+    });
+
+    it('cartão EM USO: agora troca, criando um período a partir da fatura aberta', async () => {
+      // Antes isto era recusado — e a recusa era o remendo que a linha do
+      // tempo veio tirar.
+      prismaMock.creditCardInvoice.count.mockResolvedValue(3);
+
+      await service.updateBillingCycle('user-1', 'card-1', 15, 22);
+
+      expect(prismaMock.creditCardBillingCycle.upsert).toHaveBeenCalledWith({
+        where: {
+          creditCardId_validFrom: { creditCardId: 'card-1', validFrom: new Date(Date.UTC(2026, 11, 1)) },
+        },
+        create: {
+          creditCardId: 'card-1',
+          validFrom: new Date(Date.UTC(2026, 11, 1)),
+          closingDay: 15,
+          dueDay: 22,
+        },
+        update: { closingDay: 15, dueDay: 22 },
+      });
+      // O período de origem continua lá: o passado não se mexe.
+      expect(prismaMock.creditCardBillingCycle.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('vale também para a fatura SEGUINTE, e aí as colunas não mudam', async () => {
+      prismaMock.creditCardInvoice.count.mockResolvedValue(3);
+
+      await service.updateBillingCycle('user-1', 'card-1', 15, 22, '2027-01');
+
+      expect(prismaMock.creditCardBillingCycle.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ validFrom: new Date(Date.UTC(2027, 0, 1)) }),
+        }),
+      );
+      // As colunas são o período de AGORA, e agora ainda é o antigo.
+      expect(prismaMock.creditCard.update).not.toHaveBeenCalled();
+    });
+
+    it('fatura que já fechou não muda de data', async () => {
+      prismaMock.creditCardInvoice.count.mockResolvedValue(3);
+
+      await expect(service.updateBillingCycle('user-1', 'card-1', 15, 22, '2026-09')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.updateBillingCycle('user-1', 'card-1', 15, 22, '2026-09')).rejects.toThrow(
+        /2026-12.*2027-01/,
+      );
+      expect(prismaMock.creditCardBillingCycle.upsert).not.toHaveBeenCalled();
+      expect(prismaMock.creditCard.update).not.toHaveBeenCalled();
+    });
+
+    it('a fatura do ciclo corrente é recalculada na hora, sem esperar o cron', async () => {
+      prismaMock.creditCardInvoice.count.mockResolvedValue(3);
+
+      await service.updateBillingCycle('user-1', 'card-1', 15, 22);
+
+      expect(prismaMock.creditCardInvoice.updateMany).toHaveBeenCalledWith({
+        where: { creditCardId: 'card-1', referenceMonth: new Date(Date.UTC(2026, 11, 1)) },
+        data: { closingDate: new Date(Date.UTC(2026, 11, 15)), dueDate: new Date(Date.UTC(2026, 11, 22)) },
+      });
+    });
   });
 
   it('delete() remove de fato (cartão + fatura vazia) quando não há uso real', async () => {

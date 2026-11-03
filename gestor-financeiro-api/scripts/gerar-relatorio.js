@@ -59,6 +59,9 @@ const FUNCOES = [
   // o regime, por um caminho só
   'definirRelatorioPor',
   // fatura: datas, períodos, rotativo e status
+  // O ciclo e uma linha do tempo: os dias saem do periodo que vale PARA
+  // aquela fatura, e nao do par de hoje.
+  'diasDaFatura',
   'resolveInvoicePeriodFromDate',
   'periodoDaTransacao',
   'fechamentoDaFatura',

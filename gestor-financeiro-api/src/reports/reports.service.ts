@@ -62,7 +62,7 @@ export class ReportsService {
 
     const [contas, cartoes, categorias, transacoes] = await Promise.all([
       this.prisma.bankAccount.findMany({ where: { userId } }),
-      this.prisma.creditCard.findMany({ where: { userId } }),
+      this.prisma.creditCard.findMany({ where: { userId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } }),
       this.prisma.category.findMany({ where: { OR: [{ userId }, { userId: null }] } }),
       // O trimestre anterior pode cair no ano passado (quando o corrente é o
       // primeiro), então a janela começa um ano antes.

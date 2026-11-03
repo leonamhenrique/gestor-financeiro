@@ -668,13 +668,42 @@ model CreditCard {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bankAccount  BankAccount?        @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  user         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccount  BankAccount?             @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   transactions Transaction[]
   invoices     CreditCardInvoice[]
+  cycles       CreditCardBillingCycle[]
 
   @@index([userId])
   @@map("credit_cards")
+}
+
+/// Os dias de fechamento e vencimento VALEM A PARTIR de uma fatura, e não
+/// para sempre. Banco deixa mudar o vencimento (no Itaú, de seis em seis
+/// meses), e quando ele muda o fechamento vem junto — mas só dali para a
+/// frente: o que já fechou, foi pago ou venceu continua com as datas que
+/// teve. Um par de dias por cartão não consegue dizer isso, e era por isso
+/// que `updateBillingCycle` proibia a troca depois da primeira fatura.
+///
+/// `validFrom` é o mês de REFERÊNCIA da primeira fatura que usa estes dias
+/// (sempre dia 1). Cartão que nunca mudou tem uma linha só, com 1900-01-01:
+/// "desde sempre". As colunas `closingDay`/`dueDay` do cartão continuam
+/// existindo como o período de AGORA — é o que quase toda leitura precisa, e
+/// guardar o atual em dois lugares é melhor do que fazer cada uma delas
+/// percorrer a linha do tempo para descobrir o óbvio.
+model CreditCardBillingCycle {
+  id           String   @id @default(uuid())
+  creditCardId String   @map("credit_card_id")
+  validFrom    DateTime @map("valid_from") @db.Date // dia 1 do mês de referência
+  closingDay   Int      @map("closing_day")
+  dueDay       Int      @map("due_day")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  creditCard CreditCard @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+
+  @@unique([creditCardId, validFrom])
+  @@index([creditCardId])
+  @@map("credit_card_billing_cycles")
 }
 
 // ------------------------------------------------------------

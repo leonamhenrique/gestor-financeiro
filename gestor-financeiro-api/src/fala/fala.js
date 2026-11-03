@@ -134,15 +134,32 @@ function adicionarMeses(d, n) {
     return alvo;
   }
 
-function resolveInvoicePeriodFromDate(dataIso, closingDay) {
+function diasDaFatura(card, y, m) {
+    var ciclos = card.ciclos || [];
+    if (!ciclos.length) return { fechamento: card.fechamento, vencimento: card.vencimento };
+    var alvo = monthKey({ y: y, m: m });
+    var escolhido = null;
+    ciclos.forEach(function (c) {
+      if (c.inicio > alvo) return;
+      if (!escolhido || c.inicio > escolhido.inicio) escolhido = c;
+    });
+    // Fatura anterior ao primeiro período (importada de antes do cadastro):
+    // vale o mais antigo que existe, senão ela ficaria sem dias.
+    if (!escolhido) {
+      escolhido = ciclos.reduce(function (a, b) { return a.inicio <= b.inicio ? a : b; });
+    }
+    return { fechamento: escolhido.fechamento, vencimento: escolhido.vencimento };
+  }
+
+function resolveInvoicePeriodFromDate(dataIso, card) {
     var d = new Date(dataIso + "T00:00:00");
     var day = d.getDate(), m = d.getMonth(), y = d.getFullYear();
-    if (day > closingDay) { m++; if (m > 11) { m = 0; y++; } }
+    if (day > diasDaFatura(card, y, m).fechamento) { m++; if (m > 11) { m = 0; y++; } }
     return { y: y, m: m };
   }
 
 function faturaPelaData(dataIso, card) {
-    var p = resolveInvoicePeriodFromDate(dataIso, card.fechamento);
+    var p = resolveInvoicePeriodFromDate(dataIso, card);
     if (new Date(dataIso + "T00:00:00").getDate() === card.fechamento) {
       var d = adicionarMeses(new Date(p.y, p.m, 1), 1);
       return { y: d.getFullYear(), m: d.getMonth() };

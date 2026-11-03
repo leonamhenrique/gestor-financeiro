@@ -23,7 +23,7 @@
 //   o vencimento em um mês num cartão que fecha depois do dia de vencer.
 // ============================================================
 
-import { Viradas, datasDoMesChave } from './billing-cycle';
+import { CicloDoCartao, Viradas, datasDoMesChave } from './billing-cycle';
 
 export type StatusFatura = 'OPEN' | 'CLOSED' | 'OVERDUE' | 'PAID' | 'CARRIED';
 
@@ -80,7 +80,7 @@ function centavos(v: unknown): number {
 }
 const reais = (c: number) => c / 100;
 
-function proximoMes(chave: string): string {
+export function proximoMes(chave: string): string {
   const [a, m] = chave.split('-').map(Number);
   return m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, '0')}`;
 }
@@ -88,13 +88,13 @@ function proximoMes(chave: string): string {
 /** Datas de fechamento e vencimento de um mês para um cartão. A conta de
  * verdade é de billing-cycle.ts (vencimento no mês seguinte, último dia
  * válido); aqui só acrescenta as versões em texto para comparar dias. */
-export function datasDoMes(chave: string, closingDay: number, dueDay: number) {
-  const datas = datasDoMesChave(chave, closingDay, dueDay);
+export function datasDoMes(chave: string, cartao: CicloDoCartao) {
+  const datas = datasDoMesChave(chave, cartao);
   return { ...datas, closingStr: dia(datas.closingDate), dueStr: dia(datas.dueDate) };
 }
 
 export function montarFaturas(
-  cartao: { closingDay: number; dueDay: number },
+  cartao: CicloDoCartao,
   gravadas: FaturaGravada[],
   hoje: string = hojeNoFuso(),
 ): FaturaCalculada[] {
@@ -114,9 +114,11 @@ export function montarFaturas(
     if (gravada || transporte > 0) {
       // Datas pelo ciclo do cartão, não pelas colunas gravadas: faturas
       // criadas antes da correção de billing-cycle.ts podem ter vencimento
-      // no mês errado. O ciclo não muda depois que há faturas
-      // (updateBillingCycle bloqueia), então a conta é sempre a mesma.
-      const datas = datasDoMes(chave, cartao.closingDay, cartao.dueDay);
+      // no mês errado. E o ciclo agora É uma linha do tempo: os dias saem do
+      // período que vale PARA ESTA referência, e não dos dias de hoje — é o
+      // que mantém a fatura antiga com as datas que ela teve quando o cartão
+      // mudou de vencimento.
+      const datas = datasDoMes(chave, cartao);
       const compras = gravada ? centavos(gravada.totalAmount) : 0;
       const pagamentos = (gravada?.payments ?? [])
         .map((p) => ({ id: p.id, amount: centavos(p.amount), paidAt: dia(p.paidAt), bankAccountId: p.bankAccountId }))

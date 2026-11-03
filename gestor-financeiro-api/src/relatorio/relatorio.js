@@ -59,26 +59,44 @@ function definirRelatorioPor(v, guardar) {
     if (guardar) { try { localStorage.setItem(CHAVE_RELATORIO, v); } catch (e) {} }
   }
 
-function resolveInvoicePeriodFromDate(dataIso, closingDay) {
+function diasDaFatura(card, y, m) {
+    var ciclos = card.ciclos || [];
+    if (!ciclos.length) return { fechamento: card.fechamento, vencimento: card.vencimento };
+    var alvo = monthKey({ y: y, m: m });
+    var escolhido = null;
+    ciclos.forEach(function (c) {
+      if (c.inicio > alvo) return;
+      if (!escolhido || c.inicio > escolhido.inicio) escolhido = c;
+    });
+    // Fatura anterior ao primeiro período (importada de antes do cadastro):
+    // vale o mais antigo que existe, senão ela ficaria sem dias.
+    if (!escolhido) {
+      escolhido = ciclos.reduce(function (a, b) { return a.inicio <= b.inicio ? a : b; });
+    }
+    return { fechamento: escolhido.fechamento, vencimento: escolhido.vencimento };
+  }
+
+function resolveInvoicePeriodFromDate(dataIso, card) {
     var d = new Date(dataIso + "T00:00:00");
     var day = d.getDate(), m = d.getMonth(), y = d.getFullYear();
-    if (day > closingDay) { m++; if (m > 11) { m = 0; y++; } }
+    if (day > diasDaFatura(card, y, m).fechamento) { m++; if (m > 11) { m = 0; y++; } }
     return { y: y, m: m };
   }
 
 function periodoDaTransacao(t, card) {
-    return t.faturaMesOverride ? parseMonthKey(t.faturaMesOverride) : resolveInvoicePeriodFromDate(t.data, card.fechamento);
+    return t.faturaMesOverride ? parseMonthKey(t.faturaMesOverride) : resolveInvoicePeriodFromDate(t.data, card);
   }
 
 function fechamentoDaFatura(card, y, m) {
-    return new Date(y, m, diaValido(y, m, card.fechamento));
+    return new Date(y, m, diaValido(y, m, diasDaFatura(card, y, m).fechamento));
   }
 
 function vencimentoDaFatura(card, y, m) {
-    var noMes = new Date(y, m, diaValido(y, m, card.vencimento));
+    var dia = diasDaFatura(card, y, m).vencimento;
+    var noMes = new Date(y, m, diaValido(y, m, dia));
     if (noMes > fechamentoDaFatura(card, y, m)) return noMes;
     var ay = m === 11 ? y + 1 : y, am = (m + 1) % 12;
-    return new Date(ay, am, diaValido(ay, am, card.vencimento));
+    return new Date(ay, am, diaValido(ay, am, dia));
   }
 
 function referenciaQueVenceEm(card, vm) {
@@ -273,7 +291,16 @@ function cartaoDaApi(j) {
       vencimento: j.dueDay, cor: j.color || CORES[0], contaId: j.bankAccountId || null, pagamentos: [],
       // Faturas viradas: { '2026-12': '2026-11-23' }. Vêm no próprio cartão
       // porque toda tela de lançamento precisa delas.
-      viradas: j.earlyClosures || {}
+      viradas: j.earlyClosures || {},
+      // A linha do tempo do ciclo: [{ inicio: '2027-02', fechamento, vencimento }].
+      // Sem ela, a tela calcularia as faturas antigas com os dias de hoje.
+      ciclos: (j.cycles || []).map(function (c) {
+        return {
+          inicio: String(c.validFrom).slice(0, 7),
+          fechamento: c.closingDay,
+          vencimento: c.dueDay
+        };
+      })
     };
   }
 
