@@ -5987,8 +5987,18 @@
   var PREPOSICAO_DE_LUGAR = ["da", "do", "na", "no", "em", "pela", "pelo"];
   function contaDaFala(frase, texto, ctx) {
     ctx = ctx || contextoDaFala();
+    // A varredura roda SEM os cartões, e isso é o miolo da coisa: PicPay é
+    // cartão e é conta, e quem diz "no débito DA CONTA PicPay" está falando
+    // da conta. Com os cartões na lista, o nome era consumido como cadastro
+    // conhecido, não sobrava pedaço nenhum depois de "conta", e a pessoa só
+    // recebia "faltou destino" — com o PICPAY dela aparecendo na lista de
+    // cartões da própria resposta.
+    var semCartoes = {
+      contas: ctx.contas, cartoes: [], categorias: ctx.categorias,
+      regras: ctx.regras, hoje: ctx.hoje
+    };
     var achado = "";
-    trechosDaFala(frase, texto, ctx).forEach(function (trecho) {
+    trechosDaFala(frase, texto, semCartoes).forEach(function (trecho) {
       if (achado || ANUNCIA_CONTA.indexOf(trecho.depoisDe) < 0) return;
       // "conta corrente PicPay": quem anuncia é "corrente", e a preposição
       // ficou lá atrás, antes de "conta". Nesses casos a própria palavra já

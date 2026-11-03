@@ -44,6 +44,9 @@ describe('ConversaService', () => {
   /** As faturas VIRADAS que o banco devolve. Vazio no caminho normal; o teste
    * da virada põe uma aqui. */
   let viradasDoBanco: any[];
+  /** Os cartões do usuário, alcançáveis pelo teste: um deles pode ter o mesmo
+   * nome de uma conta que ainda não existe. */
+  let cartoes: Pick<CreditCard, 'id' | 'name' | 'bankAccountId' | 'closingDay'>[];
   /** O serviço de categorias e o que ele criou — a criação pela mensagem passa
    * pelo mesmo caminho do formulário. */
   let servicoDeCategorias: any;
@@ -92,7 +95,7 @@ describe('ConversaService', () => {
       { id: 'a2', institutionName: 'Cofre', isActive: true, isHidden: false, currentBalance: dec(230) },
     ];
     contaUnica = contas[0];
-    const cartoes: Pick<CreditCard, 'id' | 'name' | 'bankAccountId' | 'closingDay'>[] = [
+    cartoes = [
       // Fecha dia 1: é o dia em que as duas regras de fatura do app discordam.
       { id: 'k1', name: 'Nubank Roxinho', bankAccountId: 'a1', closingDay: 1 },
     ];
@@ -690,6 +693,16 @@ describe('ConversaService', () => {
 
   describe('quando a conta dita nao existe', () => {
     const frase = 'gastei 50 na igreja no debito da conta picpay categoria alimentacao';
+
+    it('nome que e de um CARTAO ainda cria a conta, quando a frase diz conta', async () => {
+      // O caso que o usuario encontrou: PicPay e cartao E conta. Dizendo "no
+      // debito da conta PicPay" ele recebia "Faltou destino" -- com o PICPAY
+      // dele aparecendo na lista de cartoes da propria resposta.
+      cartoes.push({ id: 'k9', name: 'PicPay', bankAccountId: null, closingDay: 10 } as any);
+      const r = await service.responderA(msg(frase));
+      expect(r?.texto).toContain('Você ainda não tem a conta Picpay. Criar');
+      expect(r?.confirmar).toBe(true);
+    });
 
     it('oferece criar, dizendo o saldo com que ela nasce', async () => {
       const r = await service.responderA(msg(frase));
