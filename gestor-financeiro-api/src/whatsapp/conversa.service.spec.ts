@@ -1543,6 +1543,27 @@ describe('perguntaDeSaldo', () => {
     }
   });
 
+  it('"qual o VALOR que tenho em conta" e a mesma pergunta', () => {
+    // Veio da tela do usuario: ele perguntou assim e recebeu um resumo de
+    // lancamento vazio, com "Descricao: Qual".
+    for (const f of [
+      'Qual o valor que tenho em conta hoje?',
+      'qual o valor nas minhas contas',
+      'quanto dinheiro eu tenho na conta',
+      'qual valor tem no banco',
+    ]) {
+      expect(perguntaDeSaldo(f, false)).toBe(true);
+    }
+  });
+
+  it('"valor" sem conta nao vira pergunta de saldo', () => {
+    // A palavra mais comum de um lancamento nao pode, sozinha, roubar a
+    // leitura: "qual o valor que gastei esse mes" e pergunta de resultado,
+    // e quem responde por ela e outra funcao, testada antes desta.
+    expect(perguntaDeSaldo('qual o valor que gastei esse mes', false)).toBe(false);
+    expect(perguntaDeSaldo('qual o valor da parcela', false)).toBe(false);
+  });
+
   it('frase com dinheiro nao e pergunta, mesmo falando em saldo', () => {
     // Senao uma frase com as duas coisas responderia o saldo e engoliria o
     // lancamento em silencio.

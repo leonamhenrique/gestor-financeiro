@@ -95,6 +95,14 @@ export interface Resposta {
   confirmar?: boolean;
 }
 
+/** Sem acento e em minúscula, do jeito que as duas perguntas comparam. */
+function semAcento(texto: string): string {
+  return String(texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 /**
  * A frase é uma PERGUNTA de saldo, e não um lançamento?
  *
@@ -106,21 +114,25 @@ export interface Resposta {
  */
 export function perguntaDeSaldo(texto: string, temValor: boolean): boolean {
   if (temValor) return false;
-  const t = String(texto || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  return /\bsaldo\b|\bsaldos\b|quanto (eu )?tenho|quanto (eu )?sobra|quanto ha na conta/.test(
-    t,
-  );
-}
+  const t = semAcento(texto);
+  if (/\bsaldo\b|\bsaldos\b|quanto (eu )?tenho|quanto (eu )?sobra|quanto ha na conta/.test(t)) {
+    return true;
+  }
 
-/** Sem acento e em minúscula, do jeito que as duas perguntas comparam. */
-function semAcento(texto: string): string {
-  return String(texto || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+  // "Qual o VALOR que tenho em conta hoje?" é a mesma pergunta de "qual o
+  // saldo", e o usuário a fez assim. Mas "valor" sozinho não serve de pista:
+  // ele é a palavra mais comum de um lançamento ("valor 50 no mercado"), e
+  // aparece também na pergunta da fatura e na do resultado.
+  //
+  // Por isso as três condições juntas. A da CONTA é a que faz o trabalho:
+  // sem ela, "qual o valor que gastei esse mês" viraria saldo, e a pessoa
+  // receberia os saldos no lugar do resultado. As perguntas de fatura e de
+  // resultado já são testadas antes desta, então o que chega aqui com
+  // "valor" e "conta" só pode ser isto.
+  const pergunta = /\bqual\b|\bquanto\b|\bquanta\b/.test(t);
+  const dinheiro = /\bvalor(es)?\b|\bdinheiro\b|\bgrana\b/.test(t);
+  const conta = /\bcontas?\b|\bbancos?\b/.test(t);
+  return pergunta && dinheiro && conta;
 }
 
 /**
