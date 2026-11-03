@@ -747,6 +747,9 @@ describe('ConversaService', () => {
       expect(r?.texto).toContain('Não tenho o cartão C6 bank');
       expect(r?.texto).toContain('o do fechamento e o do vencimento');
       expect(r?.texto).toContain('Responda "1 e 10"');
+      // A pergunta tem de CONTAR que o limite cabe ali: aceitar sem dizer é
+      // uma opção que não existe para quem lê.
+      expect(r?.texto).toContain('limite 5000');
       // Sem botoes: a resposta esperada e um par de numeros, nao um sim.
       expect(r?.confirmar).toBeFalsy();
       expect(cartoesCriados).toHaveLength(0);
@@ -796,6 +799,7 @@ describe('ConversaService', () => {
       await service.responderA(msg(frase));
       const r = await service.responderA(msg('nao sei'));
       expect(r?.texto).toContain('Preciso dos dois dias do cartão C6 bank');
+      expect(r?.texto).toContain('limite 5000');
       // O rascunho continua de pe: os dias chegam na proxima.
       const ok = await service.responderA(msg('1 e 10'));
       expect(ok?.confirmar).toBe(true);

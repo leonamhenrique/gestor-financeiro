@@ -1275,9 +1275,10 @@ export class ConversaService {
    * que fecha". Duas gramáticas disputando as mesmas palavras. O atalho valia
    * uma mensagem a menos; não vale uma data errada.
    *
-   * O limite nasce zero e a resposta diz isso. Diferente dos dias, limite se
-   * corrige no app a qualquer hora, e o único efeito de ficar em zero é o
-   * "disponível" aparecer negativo.
+   * O limite é opcional, e a pergunta DIZ que ele cabe ali: aceitar sem
+   * contar seria uma opção que não existe para quem lê. Omitido, nasce zero —
+   * que se corrige no app a qualquer hora, e cujo único efeito é o
+   * "disponível" aparecer negativo até lá.
    */
   private ofereceCriarCartao(userId: string, r: any, ctx: any): Resposta | null {
     if (!r.cartaoDito) return null;
@@ -1301,7 +1302,7 @@ export class ConversaService {
       texto:
         'Não tenho o cartão ' + r.cartaoDito +
         '. Para criar, preciso de dois dias: o do fechamento e o do vencimento. ' +
-        'Responda "1 e 10".',
+        'Responda "1 e 10" — e, se quiser, o limite junto: "1 e 10, limite 5000".',
     };
   }
 
@@ -1332,7 +1333,7 @@ export class ConversaService {
         texto:
           'Preciso dos dois dias do cartão ' + nome +
           ', de 1 a 31: primeiro o do fechamento, depois o do vencimento. ' +
-          'Responda "1 e 10", ou "não" para desistir.',
+          'Responda "1 e 10" (ou "1 e 10, limite 5000"), ou "não" para desistir.',
       };
     }
 
