@@ -711,6 +711,37 @@ describe('ConversaService', () => {
   describe('quando o cartao dito nao existe', () => {
     const frase = 'gastei 95 na igreja no cartao c6 bank categoria alimentacao';
 
+    it('o limite tambem cabe na resposta, quando vem nomeado', async () => {
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('1 e 10, limite 5000'));
+      expect(r?.texto).toContain('limite R$ 5.000,00');
+      await service.responderA(msg('sim'));
+      expect(cartoesCriados[0]).toMatchObject({ limitAmount: 5000, closingDay: 1, dueDay: 10 });
+    });
+
+    it('o numero do limite nao disputa lugar com os dias', async () => {
+      // "5000" tem "50" e "00" dentro: sem tirar o trecho do limite da frase,
+      // o fechamento viraria 50 (recusado) ou pior, um dia qualquer.
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('limite 5000, fecha 1 vence 10'));
+      expect(r?.texto).toContain('fecha dia 1, vence dia 10');
+      expect(r?.texto).toContain('limite R$ 5.000,00');
+    });
+
+    it('limite com R$ e separador de milhar', async () => {
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('1 e 10, limite R$ 5.000,00'));
+      expect(r?.texto).toContain('limite R$ 5.000,00');
+    });
+
+    it('sem a palavra limite, numero nenhum vira limite', async () => {
+      // "1, 10 e 20" e ambiguo de proposito: pode ser dia 20 ou vinte reais.
+      // O app nao adivinha -- o limite fica zero, e muda no app.
+      await service.responderA(msg(frase));
+      const r = await service.responderA(msg('1, 10 e 20'));
+      expect(r?.texto).toContain('limite R$ 0,00');
+    });
+
     it('pergunta os dois dias, e NAO cria nada ainda', async () => {
       const r = await service.responderA(msg(frase));
       expect(r?.texto).toContain('Não tenho o cartão C6 bank');

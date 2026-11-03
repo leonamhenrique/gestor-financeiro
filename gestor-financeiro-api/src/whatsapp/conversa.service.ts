@@ -74,6 +74,14 @@ const SIM =
   /^(sim|s|ok|okay|confirmo?|confirmar|pode|pode lan[çc]ar|isso|claro|beleza|positivo|👍)$/i;
 const NAO = /^(n[ãa]o|n|cancela(r)?|deixa|esquece|negativo)$/i;
 
+/** "limite 5000", "limite de R$ 5.000,00", "limite de 5 mil" — o que vem
+ * depois da palavra vai para o leitor de dinheiro da frase, que é o mesmo do
+ * lançamento — e o "R$" vai JUNTO, porque é ele que faz aquele leitor
+ * entender "5.000,00" como cinco mil em vez de cinco. A palavra "limite" é
+ * obrigatória: sem ela, "1, 10 e 20" seria um cartão de limite vinte ou um
+ * vencimento no dia 20. */
+const RE_LIMITE = /limite\s*(?:de\s*)?((?:r\$\s*)?[\d.,]+)/i;
+
 /**
  * O que a conversa responde.
  *
@@ -258,7 +266,7 @@ interface Rascunho {
   /** O cartão por criar. Diferente dos outros dois, ele pode ficar aqui
    * INCOMPLETO: sem os dias do ciclo, o rascunho está esperando a resposta
    * com eles, e não um "sim". */
-  cartaoNovo?: { nome: string; fechamento?: number; vencimento?: number };
+  cartaoNovo?: { nome: string; fechamento?: number; vencimento?: number; limite?: number };
 }
 
 @Injectable()
@@ -725,13 +733,13 @@ export class ConversaService {
    */
   private async criarCartao(
     userId: string,
-    novo: { nome: string; fechamento: number; vencimento: number },
+    novo: { nome: string; fechamento: number; vencimento: number; limite?: number },
   ): Promise<string | null> {
     try {
       const criado = await this.cartoes.create({
         userId,
         name: novo.nome,
-        limitAmount: 0,
+        limitAmount: novo.limite ?? 0,
         closingDay: novo.fechamento,
         dueDay: novo.vencimento,
       });
@@ -1311,7 +1319,13 @@ export class ConversaService {
       return { texto: 'Ok, não lancei nada.' };
     }
 
-    const numeros = (texto.match(/\d{1,2}/g) || []).map(Number).filter((d) => d >= 1 && d <= 31);
+    // O limite sai da frase ANTES dos dias, e some dela: "limite 5000" tem
+    // um número que não é dia nenhum, e deixá-lo ali faria "50" disputar
+    // lugar com o fechamento.
+    const limite = this.limiteDaResposta(texto);
+    const semLimite = fala.normalizarFala(texto).replace(RE_LIMITE, ' ');
+
+    const numeros = (semLimite.match(/\d{1,2}/g) || []).map(Number).filter((d) => d >= 1 && d <= 31);
     const nome = rascunho.cartaoNovo!.nome;
     if (numeros.length < 2) {
       return {
@@ -1326,8 +1340,25 @@ export class ConversaService {
       this.cartaoParaConfirmar(userId, rascunho.lancamento, ctx, nome, {
         fechamento: numeros[0],
         vencimento: numeros[1],
+        limite,
       }),
     );
+  }
+
+  /**
+   * O limite, quando a resposta o traz: "1 e 10, limite 5000".
+   *
+   * Ele tem de vir NOMEADO. Sem a palavra "limite", "1, 10 e 20" seria um
+   * cartão de limite vinte ou um vencimento no dia 20 — e adivinhar entre as
+   * duas é escolher qual erro cometer. O valor passa pelo mesmo leitor de
+   * dinheiro da frase, então "limite de 5 mil" e "limite R$ 5.000,00" valem
+   * igual.
+   */
+  private limiteDaResposta(texto: string): number | undefined {
+    const m = RE_LIMITE.exec(fala.normalizarFala(texto));
+    if (!m) return undefined;
+    const valor = fala.valorDaFala(m[1]);
+    return valor && valor > 0 ? valor : undefined;
   }
 
   /** O contexto do usuário, recarregado. O rascunho guarda o LANÇAMENTO, e
@@ -1344,7 +1375,7 @@ export class ConversaService {
     r: any,
     ctx: any,
     nome: string,
-    dias: { fechamento: number; vencimento: number },
+    dias: { fechamento: number; vencimento: number; limite?: number },
   ): Resposta {
     const futuro = { id: 'novo', nome, fechamento: dias.fechamento, vencimento: dias.vencimento, ciclos: [] };
     r.cartaoId = 'novo';
@@ -1355,14 +1386,19 @@ export class ConversaService {
     this.rascunhos.set(userId, {
       lancamento: r,
       criadoEm: Date.now(),
-      cartaoNovo: { nome, fechamento: dias.fechamento, vencimento: dias.vencimento },
+      cartaoNovo: {
+        nome,
+        fechamento: dias.fechamento,
+        vencimento: dias.vencimento,
+        limite: dias.limite ?? 0,
+      },
     });
     return {
       texto:
         this.resumo(r, comOCartao) +
         '\n\nCriar o cartão ' + nome +
         ' (fecha dia ' + dias.fechamento + ', vence dia ' + dias.vencimento +
-        ', limite R$ 0,00) e lançar?',
+        ', limite ' + this.brl(dias.limite ?? 0) + ') e lançar?',
       confirmar: true,
     };
   }
