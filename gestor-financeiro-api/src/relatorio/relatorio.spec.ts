@@ -299,8 +299,34 @@ describe('relatorio.js — a mesma conta da tela, fora dela', () => {
       expect(r.paiComMeta).toBeUndefined();
     });
 
-    it('mês sem plano diz quais meses TÊM, para dar o que copiar', () => {
+    /* A herança para a frente. HOJE é 1º/11/2026, e o plano decidido é de
+     * novembro: dezembro não tem linha própria e usa a de novembro.
+     *
+     * É para isto que ela existe: por vencimento de fatura, a compra que a
+     * pessoa faz hoje já pesa em dezembro, e sem herança a resposta seria
+     * "não tenho com o que comparar" para dinheiro já comprometido. */
+    it('mês à frente sem decisão própria herda a mais recente', () => {
       const r = plano(comPlano(), '2026-12');
+      expect(r.temPlano).toBe(true);
+      expect(r.herdadoDe).toBe('2026-11');
+      expect(r.teto).toBe(3000);
+      // As metas vêm junto, e o gasto é o de dezembro — que é zero aqui.
+      expect(r.linhas.map((l: any) => [l.nome, l.meta, l.gasto])).toEqual([
+        ['Alimentação', 800, 0],
+        ['Transporte', 300, 0],
+        ['Outras categorias', 1900, 0],
+      ]);
+    });
+
+    it('o mês decidido não é herdado de ninguém', () => {
+      expect(plano(comPlano()).herdadoDe).toBeNull();
+    });
+
+    it('mês passado sem decisão continua sem teto, e diz o que há para copiar', () => {
+      // Setembro já acabou sem planejamento, e herdar para trás faria o app
+      // emitir hoje um "passou do teto" sobre um mês encerrado, contra uma
+      // meta que ninguém definiu para ele. O piso da herança é o mês de hoje.
+      const r = plano(comPlano(), '2026-09');
       expect(r.temPlano).toBe(false);
       expect(r.planejados).toEqual(['2026-11', '2026-10']);
       expect(r.linhas).toEqual([]);

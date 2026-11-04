@@ -314,8 +314,26 @@ function filhasDe(id, categorias) {
 
 function raizesDe(tipo) { return state.categories.filter(function (c) { return c.tipo === tipo && !c.paiId; }); }
 
+function mesDeHoje() { return monthKey({ y: HOJE.getFullYear(), m: HOJE.getMonth() }); }
+
 function planejamentoDoMes(mk) {
-    return (state.planejamentos || []).filter(function (p) { return p.mes === mk; })[0] || null;
+    var lista = state.planejamentos || [];
+    var proprio = lista.filter(function (p) { return p.mes === mk; })[0];
+    if (proprio) return proprio;
+    if (mk < mesDeHoje()) return null;
+    var antes = lista.filter(function (p) { return p.mes < mk; });
+    if (!antes.length) return null;
+    var origem = antes.reduce(function (a, b) { return a.mes > b.mes ? a : b; });
+    return {
+      mes: mk,
+      receita: origem.receita,
+      total: origem.total,
+      // Cópia da lista: o objeto herdado é derivado, e passar a lista da
+      // origem por referência deixaria quem mexesse nela mudando o plano de
+      // outro mês sem querer.
+      itens: origem.itens.slice(),
+      herdadoDe: origem.mes
+    };
   }
 
 function itemDoPlano(pl, catId) {
@@ -726,6 +744,10 @@ function planoDoMes(dados, mes, hoje, regime, categoriaId) {
 
     var r = Object.assign(base, {
       temPlano: true,
+      // De onde veio o teto, quando não foi decidido NESTE mês. Sem isto a
+      // resposta diria "passou em R$ 1.200,00" contra uma meta que a pessoa
+      // não escolheu para este mês — veredito sem procedência.
+      herdadoDe: pl.herdadoDe || null,
       teto: pl.total,
       gasto: gasto,
       resta: pl.total - gasto,

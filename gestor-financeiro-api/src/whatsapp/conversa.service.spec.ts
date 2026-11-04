@@ -911,6 +911,37 @@ describe('ConversaService', () => {
       expect(relatorio.planoDoMes).toHaveBeenCalledWith('user-1', '2026-12', 'fatura', null);
     });
 
+    /* O mes herdado: a resposta tem numero (e para isso que a heranca
+     * existe), mas diz de onde o teto veio ANTES dos numeros -- um "passou em
+     * R$ 1.200,00" contra uma meta que a pessoa nao escolheu para este mes
+     * seria acusacao sem procedencia, e o que falta nao e cortar gasto, e
+     * decidir o mes. */
+    it('mes herdado diz de onde veio o teto, antes dos numeros', async () => {
+      plano = { ...plano, mes: '2026-12', herdadoDe: '2026-11' };
+      const r = await service.responderA(msg('quanto ainda posso gastar em dezembro?'));
+      expect(r?.texto).toContain(
+        '📋 Teto herdado de Novembro 2026, que se repetiu até aqui.',
+      );
+      // Antes do teto, e nao no rodape: lido depois do veredito, chegou tarde.
+      const linhas = (r?.texto ?? '').split('\n');
+      expect(linhas.indexOf('📋 Teto herdado de Novembro 2026, que se repetiu até aqui.'))
+        .toBeLessThan(linhas.findIndex((l) => l.startsWith('💵 Teto')));
+    });
+
+    it('mes decidido nao fala de heranca nenhuma', async () => {
+      const r = await service.responderA(msg('quanto ainda posso gastar neste mes?'));
+      expect(r?.texto).not.toContain('herdado');
+    });
+
+    it('a categoria tambem leva a procedencia do teto', async () => {
+      plano = { ...comAlimentacao(), mes: '2026-12', herdadoDe: '2026-11' };
+      const r = await service.responderA(
+        msg('quanto ainda posso gastar com alimentacao em dezembro?'),
+      );
+      expect(r?.texto).toContain('📋 Teto herdado de Novembro 2026');
+      expect(r?.texto).toContain('🏷️ Meta: R$ 800,00');
+    });
+
     it('sem planejamento NENHUM, explica o que e o planejamento', async () => {
       plano = { mes: '2026-11', regime: 'fatura', temPlano: false, planejados: [], linhas: [] };
       const r = await service.responderA(msg('quanto ainda posso gastar esse mes?'));

@@ -110,6 +110,10 @@ const FUNCOES = [
   // caber menos do que ele diz.
   'filhasDe',
   'raizesDe',
+  // O mês de hoje é o PISO da herança do planejamento: mês à frente sem
+  // decisão própria herda a mais recente, mês passado sem decisão continua
+  // sem teto. Ver `planejamentoDoMes`.
+  'mesDeHoje',
   'planejamentoDoMes',
   'itemDoPlano',
   'temMeta',
@@ -385,6 +389,10 @@ function planoDoMes(dados, mes, hoje, regime, categoriaId) {
 
     var r = Object.assign(base, {
       temPlano: true,
+      // De onde veio o teto, quando não foi decidido NESTE mês. Sem isto a
+      // resposta diria "passou em R$ 1.200,00" contra uma meta que a pessoa
+      // não escolheu para este mês — veredito sem procedência.
+      herdadoDe: pl.herdadoDe || null,
       teto: pl.total,
       gasto: gasto,
       resta: pl.total - gasto,

@@ -1177,11 +1177,15 @@ export class ConversaService {
     }
 
     const rodape = [this.notaDoRegime(r.regime, preferido), this.notaDosFiltros(r.filtros)];
+    // A procedência vem ANTES dos números, e não no rodapé: ela muda como se
+    // lê um "passou do teto", e lida depois do veredito já chegou tarde.
+    const heranca = this.notaDaHeranca(r.herdadoDe);
 
     // ---- uma categoria ----
     if (r.categoria) {
       const c = r.categoria;
       const linhas = ['🎯 ' + c.nome + ' em ' + this.rotuloMes(mes), ''];
+      if (heranca) linhas.push(heranca, '');
 
       if (c.temMeta) {
         linhas.push('🏷️ Meta: ' + this.brl(c.meta));
@@ -1219,6 +1223,7 @@ export class ConversaService {
 
     // ---- o mês inteiro ----
     const linhas = ['🎯 Planejamento de ' + this.rotuloMes(mes), ''];
+    if (heranca) linhas.push(heranca, '');
     if ((r.teto ?? 0) <= 0) {
       // A mesma frase da tela quando o teto é zero: sem teto não há
       // porcentagem nem sobra, e mostrar "0%" seria dizer que está tudo bem.
@@ -1288,6 +1293,21 @@ export class ConversaService {
       this.brl(gasto) + ' de ' + this.brl(teto) + ' planejados · ' +
       (resta >= 0 ? 'ainda cabem ' + this.brl(resta) : 'passou ' + this.brl(-resta))
     );
+  }
+
+  /**
+   * De onde veio o teto, quando não foi decidido no mês perguntado.
+   *
+   * O planejamento segue para a frente sozinho: um mês sem decisão própria
+   * usa a decisão mais recente, porque a compra no cartão de hoje já pesa num
+   * mês lá na frente e um mês sem teto não tem resposta nenhuma. Mas aí a
+   * meta não é a desta pessoa PARA ESTE MÊS, e um "passou em R$ 1.200,00"
+   * sem essa linha seria uma acusação sem procedência — e o que falta não é
+   * cortar gasto, é decidir o mês.
+   */
+  private notaDaHeranca(de?: string | null): string {
+    if (!de) return '';
+    return '📋 Teto herdado de ' + this.rotuloMes(de) + ', que se repetiu até aqui.';
   }
 
   /** O que entrou na conta do planejamento, nas palavras dos três botões da

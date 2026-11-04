@@ -107,6 +107,10 @@ export interface PlanoDoMes {
   mes: string;
   regime: 'compra' | 'fatura';
   temPlano: boolean;
+  /** O mês de onde o teto veio, quando não foi decidido neste. Nulo quando a
+   * pessoa decidiu este mês. Vai na resposta porque um "passou do teto" sem
+   * procedência acusa a pessoa por uma meta que ela não escolheu aqui. */
+  herdadoDe?: string | null;
   /** Os meses que já têm planejamento — para a resposta poder oferecer
    * copiar, como a tela faz. */
   planejados: string[];

@@ -13572,8 +13572,62 @@
       })
     };
   }
+  /** O mês em que o app está agora. É o PISO da herança abaixo. */
+  function mesDeHoje() { return monthKey({ y: HOJE.getFullYear(), m: HOJE.getMonth() }); }
+
+  /**
+   * O planejamento que VALE para um mês — a decisão daquele mês, ou a mais
+   * recente antes dele quando o mês ainda está por vir.
+   *
+   * **Por que herdar, em vez de esperar que a pessoa copie.** O app tem uma
+   * configuração em que a compra no cartão pesa no mês em que a FATURA VENCE,
+   * e ela é o padrão. Então uma compra de hoje já cai em dezembro, e dezembro
+   * não tinha teto: a tela mostrava "nenhum teto definido" e a resposta do
+   * WhatsApp dizia "não tenho com o que comparar" para dinheiro que já estava
+   * comprometido. O regime empurra gasto para um mês que a tela chamava de
+   * não planejado, e isso acontecia TODO mês, não uma vez.
+   *
+   * **Nada de novo é gravado.** Cada linha de `state.planejamentos` continua
+   * sendo uma DECISÃO da pessoa; o que muda é a leitura, que agora responde
+   * pela decisão mais recente que alcança o mês pedido. É a mesma forma da
+   * linha do tempo do ciclo do cartão (`periodoDoCicloDeHoje`): para a
+   * referência R valem os valores da última linha com início <= R.
+   *
+   * E é por isso que a herança não precisa de um marcador de "este mês eu
+   * decidi": a linha só existe quando alguém decidiu algo. EXISTIR é o
+   * marcador. Editar dezembro cria a linha de dezembro — o formulário já
+   * grava no mês da tela —, e janeiro passa a herdar dela, que é o
+   * "alterou dali pra frente" sem código novo.
+   *
+   * **O piso é o mês de hoje**, e não o começo dos tempos: um setembro que
+   * nunca teve linha continua sem planejamento, como a tela mostrou na época.
+   * Herdar para trás faria o app emitir hoje um "passou em R$ X" sobre um mês
+   * que já acabou, contra uma meta que ninguém definiu para ele — veredito
+   * novo sobre passado encerrado. É a mesma regra do ciclo do cartão, onde um
+   * período novo começa na fatura aberta e nunca antes.
+   *
+   * `herdadoDe` é o mês de origem, e vai no objeto porque quem LÊ precisa
+   * dizer de onde veio: sem isso, um "passou do teto" em janeiro acusaria a
+   * pessoa por uma meta que ela não escolheu para janeiro.
+   */
   function planejamentoDoMes(mk) {
-    return (state.planejamentos || []).filter(function (p) { return p.mes === mk; })[0] || null;
+    var lista = state.planejamentos || [];
+    var proprio = lista.filter(function (p) { return p.mes === mk; })[0];
+    if (proprio) return proprio;
+    if (mk < mesDeHoje()) return null;
+    var antes = lista.filter(function (p) { return p.mes < mk; });
+    if (!antes.length) return null;
+    var origem = antes.reduce(function (a, b) { return a.mes > b.mes ? a : b; });
+    return {
+      mes: mk,
+      receita: origem.receita,
+      total: origem.total,
+      // Cópia da lista: o objeto herdado é derivado, e passar a lista da
+      // origem por referência deixaria quem mexesse nela mudando o plano de
+      // outro mês sem querer.
+      itens: origem.itens.slice(),
+      herdadoDe: origem.mes
+    };
   }
   function itemDoPlano(pl, catId) {
     if (!pl) return null;
@@ -13736,9 +13790,18 @@
     pintarMes("pl-mes-label", planMes);
     document.getElementById("pl-vazio").hidden = !!pl;
     document.getElementById("pl-corpo").hidden = !pl;
+    /* A procedência do teto vai junto do número. Um mês herdado mostra meta e
+     * "passou do teto" como qualquer outro, e sem dizer de onde o teto veio o
+     * aviso acusaria a pessoa por uma meta que ela não escolheu para este
+     * mês. */
+    var herdado = pl && pl.herdadoDe;
     document.getElementById("pl-sub").textContent = pl
-      ? "Teto de " + brl(pl.total) + " para " + rotuloMes(planMes).toLowerCase()
+      ? "Teto de " + brl(pl.total) + " para " + rotuloMes(planMes).toLowerCase() +
+        (herdado ? " · herdado de " + rotuloMes(parseMonthKey(pl.herdadoDe)).toLowerCase() : "")
       : "Nenhum teto definido para " + rotuloMes(planMes).toLowerCase();
+    // Mês herdado não tem o que remover: a linha gravada é de outro mês, e o
+    // botão apagaria o planejamento de onde ele veio.
+    document.getElementById("pl-remover").hidden = !!herdado;
 
     document.querySelectorAll("#pl-filtros .pill").forEach(function (b) {
       var ligado = !!filtrosDoPlano[b.dataset.filtro];
@@ -13841,10 +13904,21 @@
   function abrirPlanejamento(editar) {
     var mk = monthKey(planMes);
     var pl = editar ? planejamentoDoMes(mk) : null;
-    editandoPlanejamento = pl ? mk : null;
+    /* Mês herdado conta como NOVO, e não como edição: salvar aqui cria a
+     * linha deste mês (o formulário grava em `monthKey(planMes)`), e a de
+     * origem fica intacta. A palavra importa porque ela aparece no aviso de
+     * erro — "não deu para salvar o planejamento" × "criar o planejamento". */
+    editandoPlanejamento = pl && !pl.herdadoDe ? mk : null;
 
-    document.getElementById("pf-titulo").textContent = pl ? "Editar planejamento" : "Novo planejamento";
-    document.getElementById("pf-ctx").textContent = rotuloMes(planMes);
+    document.getElementById("pf-titulo").textContent = editandoPlanejamento
+      ? "Editar planejamento"
+      : "Novo planejamento";
+    // Os valores vêm preenchidos do mês de origem, então o formulário diz de
+    // onde eles vieram: sem isso parece que este mês já tinha um teto.
+    document.getElementById("pf-ctx").textContent = rotuloMes(planMes) +
+      (pl && pl.herdadoDe
+        ? " · partindo de " + rotuloMes(parseMonthKey(pl.herdadoDe))
+        : "");
     document.getElementById("pf-receita").value = pl && pl.receita ? pl.receita : "";
     document.getElementById("pf-total").value = pl ? pl.total : "";
     document.getElementById("pf-erro-1").textContent = "";
