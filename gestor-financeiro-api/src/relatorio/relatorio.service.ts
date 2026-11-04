@@ -56,6 +56,27 @@ export interface FaturasDoMes {
   cartoes: number;
 }
 
+/** Uma categoria no ranking do mês. */
+export interface LinhaDeCategoria {
+  categoria: string;
+  valor: number;
+  /** Quantos lançamentos somaram esse valor. */
+  lancamentos: number;
+  /** A fatia dentro do próprio grupo (despesas com despesas), em %. */
+  parte: number;
+}
+
+export interface MaioresDoMes {
+  mes: string;
+  tipo: 'EXPENSE' | 'INCOME';
+  regime: 'compra' | 'fatura';
+  total: number;
+  /** Categorias que ficaram fora das primeiras, para a resposta poder dizer
+   * "e mais N". */
+  restantes: number;
+  itens: LinhaDeCategoria[];
+}
+
 export interface ResultadoDoMes {
   mes: string;
   regime: 'compra' | 'fatura';
@@ -124,6 +145,23 @@ export class RelatorioService {
   }
 
   /**
+   * As maiores categorias do mês, despesa ou receita — as mesmas cinco do
+   * Resumo.
+   *
+   * O regime entra aqui como entra no resultado: pela preferência do usuário,
+   * ou pelo que a pergunta pediu só para aquela resposta.
+   */
+  async maioresDoMes(
+    userId: string,
+    mes: string,
+    tipo: 'EXPENSE' | 'INCOME',
+    regime?: 'compra' | 'fatura',
+  ): Promise<MaioresDoMes> {
+    const escolhido = regime ?? (await this.regime(userId));
+    return relatorio.maioresDoMes(await this.estado(userId), mes, instanteDoUsuario(), tipo, escolhido);
+  }
+
+  /**
    * As faturas que vencem no mês — o que o cartão vai cobrar da conta.
    *
    * Sem regime: a lista é a mesma para quem conta relatório por compra e por
@@ -156,13 +194,16 @@ export class RelatorioService {
    * para saber que está oculta.
    */
   private async estado(userId: string) {
-    const [contas, cartoes, lancamentos] = await Promise.all([
+    const [contas, cartoes, lancamentos, categorias] = await Promise.all([
       // Na mesma ordem das rotas que o app usa: a ordem que o usuário
       // arrastou. Ela não muda total nenhum, mas muda em que ordem as faturas
       // saem na resposta — e é melhor que seja a ordem da tela dele.
       this.prisma.bankAccount.findMany({ where: { userId }, orderBy: ORDEM_DA_LISTA }),
       this.prisma.creditCard.findMany({ where: { userId }, orderBy: ORDEM_DA_LISTA, include: { cycles: { orderBy: { validFrom: 'asc' } } } }),
       this.prisma.transaction.findMany({ where: { userId }, orderBy: { transactionDate: 'desc' } }),
+      // As do usuário E as padrão: o lançamento aponta para qualquer uma das
+      // duas, e uma categoria que falta aqui some do ranking em silêncio.
+      this.prisma.category.findMany({ where: { OR: [{ userId }, { userId: null }] } }),
     ]);
 
     // Os pagamentos de fatura, por cartão — a mesma forma da rota
@@ -205,6 +246,8 @@ export class RelatorioService {
     }
     const comViradas = cartoes.map((k) => ({ ...k, earlyClosures: porCartao[k.id] ?? {} }));
 
-    return JSON.parse(JSON.stringify({ contas, cartoes: comViradas, lancamentos, pagamentos }));
+    return JSON.parse(
+      JSON.stringify({ contas, cartoes: comViradas, lancamentos, categorias, pagamentos }),
+    );
   }
 }

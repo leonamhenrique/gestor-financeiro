@@ -275,6 +275,37 @@ function resultadoDoMes(vm) {
              vazio: tot.entradas === 0 && tot.saidas === 0 };
   }
 
+function dataDeRelatorio(t) {
+    if (relatorioPor === "compra" || !t.cartaoId) return t.data;
+    var card = byId(state.cards, t.cartaoId);
+    if (!card) return t.data;
+    var p = periodoDaTransacao(t, card);
+    return isoDate(vencimentoDaFatura(card, p.y, p.m));
+  }
+
+function movimentoDoMes(vm) {
+    var mk = monthKey(vm);
+    return state.transactions.filter(function (t) {
+      return dataDeRelatorio(t).slice(0, 7) === mk && transacaoVisivel(t);
+    }).map(paraRelatorio);
+  }
+
+function rankingCategorias(vm, tipo) {
+    var acc = {};
+    movimentoDoMes(vm).forEach(function (t) {
+      if (t.tipo !== tipo || !t.categoriaId) return;
+      var c = byId(state.categories, t.categoriaId);
+      if (!c) return;
+      if (!acc[c.id]) acc[c.id] = { id: c.id, nome: c.nome, cor: c.cor, valor: 0, n: 0 };
+      acc[c.id].valor += t.valor; acc[c.id].n++;
+    });
+    return Object.keys(acc).map(function (k) { return acc[k]; }).sort(function (a, b) { return b.valor - a.valor; });
+  }
+
+function totalDoGrupo(itens) {
+    return itens.reduce(function (s, d) { return s + d.valor; }, 0);
+  }
+
 function soData(v) { return String(v || "").slice(0, 10); }
 
 function contaDaApi(j) {
@@ -283,6 +314,10 @@ function contaDaApi(j) {
       saldo: Number(j.currentBalance), saldoInicial: Number(j.initialBalance),
       cor: j.color || CORES[0], isActive: j.isActive, oculto: !!j.isHidden
     };
+  }
+
+function categoriaDaApi(j) {
+    return { id: j.id, nome: j.name, tipo: j.type, cor: j.color || CORES[0], padrao: !!j.isDefault, paiId: j.parentId || null };
   }
 
 function cartaoDaApi(j) {
@@ -355,6 +390,9 @@ function estadoDaApi(dados) {
     accounts: (dados.contas || []).map(contaDaApi),
     cards: cartoes,
     transactions: (dados.lancamentos || []).map(lancamentoDaApi),
+    // Sem as categorias o ranking do mês não tem como agrupar: ele pergunta
+    // o NOME de cada uma, e um id solto não vira linha de resposta.
+    categories: (dados.categorias || []).map(categoriaDaApi),
   };
 }
 
@@ -403,7 +441,7 @@ function comEstado(dados, mes, hoje, regime, contar) {
       return contar(parseMonthKey(mes));
     });
   } finally {
-    state = { accounts: [], cards: [], transactions: [] };
+    state = { accounts: [], cards: [], transactions: [], categories: [] };
     HOJE = null;
     definirRelatorioPor(REGIME_PADRAO, false);
   }
@@ -449,6 +487,48 @@ function calcularMes(dados, mes, hoje, regime) {
 }
 
 /**
+ * As maiores categorias do mês — as mesmas cinco que o Resumo mostra em
+ * "Maiores despesas" e "Maiores receitas".
+ *
+ * Por categoria, e não lançamento a lançamento: "maiores gastos" quase sempre
+ * quer dizer "em quê", e a lista de lançamentos é o extrato, que é outra
+ * pergunta.
+ *
+ * O regime vale aqui inteiro, e não só no total: por compra, a compra do
+ * cartão conta no mês em que foi feita; por fatura, no mês em que a fatura
+ * vence. Quem decide isso é o `dataDeRelatorio` do app, recortado para cá.
+ *
+ * O total vem junto porque a soma das cinco primeiras não é o total do grupo
+ * quando há mais categorias — e uma porcentagem sem o inteiro dela não diz
+ * nada.
+ */
+function maioresDoMes(dados, mes, hoje, tipo, regime, quantas) {
+  var teto = quantas || 5;
+  return comEstado(dados, mes, hoje, regime, function (vm) {
+    var itens = rankingCategorias(vm, tipo);
+    var total = totalDoGrupo(itens);
+    return {
+      mes: mes,
+      tipo: tipo,
+      regime: relatorioPor,
+      total: total,
+      // Quantas ficaram de fora, para a resposta poder dizer "e mais N".
+      restantes: Math.max(0, itens.length - teto),
+      itens: itens.slice(0, teto).map(function (d) {
+        return {
+          categoria: d.nome,
+          valor: d.valor,
+          lancamentos: d.n,
+          // A fatia é DENTRO do grupo (despesas com despesas), que é o que
+          // responde "quanto das minhas despesas foi moradia".
+          parte: total > 0 ? (d.valor / total) * 100 : 0,
+        };
+      }),
+    };
+  });
+}
+
+/**
  * As faturas que VENCEM no mês, uma por cartão, com o total.
  *
  * **Por que sempre pelo regime de fatura, seja qual for a preferência:** a
@@ -486,4 +566,4 @@ function faturasDoMes(dados, mes, hoje) {
  * recorte, para não haver um padrão aqui e outro lá. */
 var REGIME_PADRAO = relatorioPor;
 
-module.exports = { calcularMes, faturasDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };
+module.exports = { calcularMes, faturasDoMes, maioresDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };

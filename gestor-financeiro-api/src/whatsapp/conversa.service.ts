@@ -164,6 +164,39 @@ export function perguntaDeResultado(texto: string, temValor: boolean): boolean {
 }
 
 /**
+ * A frase pergunta pelas MAIORES categorias do mês? Devolve 'EXPENSE',
+ * 'INCOME' ou null.
+ *
+ * É a pergunta "em quê eu gastei mais", que na tela é o bloco "Maiores
+ * despesas". Ela vem antes da pergunta de resultado na ordem de leitura,
+ * porque "quanto gastei em outubro" e "onde mais gastei em outubro" dividem
+ * quase todas as palavras — o que separa as duas é o superlativo, e quem o
+ * tem é esta.
+ *
+ * O tipo sai do verbo: "gastei/despesas" é despesa, "recebi/receitas" é
+ * receita. Sem verbo nenhum ("minhas maiores categorias"), despesa — que é
+ * o que a pessoa quase sempre quer saber, e é o primeiro bloco da tela.
+ */
+export function perguntaDeMaiores(texto: string, temValor: boolean): 'EXPENSE' | 'INCOME' | null {
+  if (temValor) return null;
+  const t = semAcento(texto);
+
+  const superlativo = /\bmaior(es)?\b|\bmais\b|\btop\b|\branking\b|\bprincipais\b/.test(t);
+  if (!superlativo) return null;
+
+  // "onde/com o que gastei mais", "maiores gastos", "gastei mais com o quê".
+  const despesa = /\bgast(ei|o|os|ei)\b|\bdespesas?\b|\bgastei\b|\bcompras\b|\bsa[ií]das?\b/.test(t);
+  const receita = /\breceitas?\b|\brecebi\b|\bganhei\b|\bentradas?\b|\bganhos?\b/.test(t);
+  if (receita && !despesa) return 'INCOME';
+  if (despesa) return 'EXPENSE';
+
+  // Sem verbo, só vale com uma palavra que amarre a pergunta a categorias —
+  // senão "qual o maior cartão" ou "meu maior saldo" cairiam aqui.
+  if (/\bcategorias?\b/.test(t)) return 'EXPENSE';
+  return null;
+}
+
+/**
  * A frase PEDE um regime? Devolve 'compra', 'fatura' ou null.
  *
  * Serve para olhar o mês pelo outro regime sem trocar a preferência: "qual
@@ -524,6 +557,13 @@ export class ConversaService {
     // deixá-la perguntar primeiro resolve o encontro sem tirar nada da outra.
     if (perguntaDeFatura(texto, temValor)) {
       return { texto: await this.responderFaturas(userId, texto, ctx) };
+    }
+    // As MAIORES vêm antes do resultado: "quanto gastei em outubro" e "onde
+    // mais gastei em outubro" dividem quase todas as palavras, e o que separa
+    // as duas é o superlativo. Quem tem o superlativo é esta.
+    const maiores = perguntaDeMaiores(texto, temValor);
+    if (maiores) {
+      return { texto: await this.responderMaiores(userId, texto, maiores) };
     }
     if (perguntaDeResultado(texto, temValor)) {
       return { texto: await this.responderResultado(userId, texto) };
@@ -981,6 +1021,58 @@ export class ConversaService {
    *     não apareceu no mês em que foi feita. É a escolha da pessoa, lida do
    *     cadastro dela, a mesma que a tela usa.
    */
+  /**
+   * "Quais foram meus maiores gastos em outubro?" — as mesmas cinco
+   * categorias que o Resumo mostra, pelo mesmo cálculo.
+   *
+   * O regime aparece na resposta sempre, e não só quando foi pedido: por
+   * compra e por fatura o MÊS INTEIRO muda de lugar (a compra de outubro no
+   * cartão vira despesa de novembro), e um ranking sem dizer por qual conta
+   * ele foi feito é um ranking que a pessoa não consegue conferir na tela.
+   */
+  private async responderMaiores(
+    userId: string,
+    texto: string,
+    tipo: 'EXPENSE' | 'INCOME',
+  ): Promise<string> {
+    const mes = mesDaPergunta(texto, diaDoUsuario());
+    const preferido = await this.relatorio.regime(userId);
+    const pedido = regimeDaPergunta(texto);
+    const r = await this.relatorio.maioresDoMes(userId, mes, tipo, pedido ?? preferido);
+
+    const marca = tipo === 'INCOME' ? '📈' : '📉';
+    const oQue = tipo === 'INCOME' ? 'receitas' : 'despesas';
+
+    if (!r.itens.length) {
+      return (
+        marca + ' Maiores ' + oQue + ' de ' + this.rotuloMes(mes) +
+        '\n\nSem ' + oQue + ' neste mês.' +
+        '\n\n' + this.notaDoRegime(r.regime, preferido)
+      );
+    }
+
+    const linhas = [marca + ' Maiores ' + oQue + ' de ' + this.rotuloMes(mes), ''];
+    for (const i of r.itens) {
+      linhas.push(
+        '🏷️ ' + i.categoria + ': ' + this.brl(i.valor) +
+          ' (' + i.parte.toFixed(0) + '%)',
+      );
+    }
+    if (r.restantes) {
+      linhas.push('');
+      linhas.push(
+        r.restantes === 1
+          ? 'E mais 1 categoria.'
+          : 'E mais ' + r.restantes + ' categorias.',
+      );
+    }
+    linhas.push('');
+    linhas.push('💵 Total: ' + this.brl(r.total));
+    linhas.push('');
+    linhas.push(this.notaDoRegime(r.regime, preferido));
+    return linhas.join('\n');
+  }
+
   private async responderResultado(userId: string, texto: string): Promise<string> {
     const mes = mesDaPergunta(texto, diaDoUsuario());
     // A preferência é lida sempre, e não só quando a frase cala: é dela que a

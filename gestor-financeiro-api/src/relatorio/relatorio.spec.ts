@@ -67,6 +67,15 @@ const dados = (over: Record<string, unknown> = {}) => ({
 const calcular = (d: unknown, mes = '2026-11', regime = 'fatura', hoje = HOJE) =>
   relatorio.calcularMes(d, mes, hoje, regime);
 
+const maiores = (
+  d: unknown,
+  mes = '2026-11',
+  tipo = 'EXPENSE',
+  regime = 'fatura',
+  hoje = HOJE,
+  quantas?: number,
+) => relatorio.maioresDoMes(d, mes, hoje, tipo, regime, quantas);
+
 describe('relatorio.js — a mesma conta da tela, fora dela', () => {
   it('o arquivo versionado bate com o app de agora', () => {
     const noDisco = fs.readFileSync(DESTINO, 'utf8');
@@ -113,6 +122,75 @@ describe('relatorio.js — a mesma conta da tela, fora dela', () => {
       }),
     );
     expect(r.saidas).toBe(200);
+  });
+
+  describe('as maiores categorias do mês', () => {
+    // Duas compras no cartão em outubro (fecha 10, vence 17 → fatura de
+    // outubro vence em 17/10... então elas caem na fatura de NOVEMBRO) e uma
+    // despesa na conta em novembro.
+    const comCategorias = () =>
+      dados({
+        lancamentos: [
+          lancamento({ amount: '300.00', categoryId: 'c1', creditCardId: 'k1', bankAccountId: null, transactionDate: '2026-10-20T00:00:00.000Z' }),
+          lancamento({ amount: '200.00', categoryId: 'c2', creditCardId: 'k1', bankAccountId: null, transactionDate: '2026-10-22T00:00:00.000Z' }),
+          lancamento({ amount: '50.00', categoryId: 'c1', transactionDate: '2026-11-05T00:00:00.000Z' }),
+        ],
+        categorias: [
+          { id: 'c1', name: 'Alimentação', type: 'EXPENSE' },
+          { id: 'c2', name: 'Transporte', type: 'EXPENSE' },
+        ],
+      });
+
+    it('agrupa por categoria, da maior para a menor, com a fatia do grupo', () => {
+      const r = maiores(comCategorias());
+      expect(r.itens).toEqual([
+        { categoria: 'Alimentação', valor: 350, lancamentos: 2, parte: (350 / 550) * 100 },
+        { categoria: 'Transporte', valor: 200, lancamentos: 1, parte: (200 / 550) * 100 },
+      ]);
+      expect(r.total).toBe(550);
+      expect(r.restantes).toBe(0);
+    });
+
+    it('o REGIME muda o mês inteiro, e não só o total', () => {
+      // Pela compra, as duas do cartão voltam para outubro e novembro fica
+      // só com a despesa da conta.
+      const porCompra = maiores(comCategorias(), '2026-11', 'EXPENSE', 'compra');
+      expect(porCompra.itens).toEqual([
+        { categoria: 'Alimentação', valor: 50, lancamentos: 1, parte: 100 },
+      ]);
+
+      const outubro = maiores(comCategorias(), '2026-10', 'EXPENSE', 'compra');
+      expect(outubro.itens.map((i: any) => [i.categoria, i.valor])).toEqual([
+        ['Alimentação', 300],
+        ['Transporte', 200],
+      ]);
+      // E pelo vencimento, outubro não tem nada: as compras pesam em novembro.
+      expect(maiores(comCategorias(), '2026-10').itens).toEqual([]);
+    });
+
+    it('receita e despesa não se misturam', () => {
+      const r = maiores(comCategorias(), '2026-11', 'INCOME');
+      expect(r.itens).toEqual([]);
+      expect(r.total).toBe(0);
+    });
+
+    it('corta no teto e diz quantas ficaram de fora', () => {
+      const r = maiores(comCategorias(), '2026-11', 'EXPENSE', 'fatura', HOJE, 1);
+      expect(r.itens.map((i: any) => i.categoria)).toEqual(['Alimentação']);
+      expect(r.restantes).toBe(1);
+      // O total continua sendo o do GRUPO, e não a soma do que coube.
+      expect(r.total).toBe(550);
+    });
+
+    it('lançamento sem categoria não inventa uma', () => {
+      const r = maiores(
+        dados({
+          lancamentos: [lancamento({ amount: '80.00', categoryId: null })],
+          categorias: [],
+        }),
+      );
+      expect(r.itens).toEqual([]);
+    });
   });
 
   describe('a mesma compra de cartão, nos dois regimes', () => {

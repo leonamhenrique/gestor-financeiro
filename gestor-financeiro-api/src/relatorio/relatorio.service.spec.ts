@@ -53,9 +53,11 @@ describe('RelatorioService — do banco para a conta da tela', () => {
   let regime: Pick<User, 'reportRegime'>;
   /** Faturas VIRADAS: vazio no caminho normal. */
   let viradas: { creditCardId: string; referenceMonth: Date; earlyClosedAt: Date }[];
+  let categorias: { id: string; name: string; type: string }[];
 
   beforeEach(() => {
     viradas = [];
+    categorias = [{ id: 'cat-1', name: 'Alimentação', type: 'EXPENSE' }];
     contas = [
       {
         id: 'a1',
@@ -87,6 +89,9 @@ describe('RelatorioService — do banco para a conta da tela', () => {
       bankAccount: { findMany: jest.fn(async () => contas) },
       creditCard: { findMany: jest.fn(async () => cartoes) },
       transaction: { findMany: jest.fn(async () => lancamentos) },
+      // As categorias do usuário e as padrão — é por elas que o ranking do
+      // mês agrupa.
+      category: { findMany: jest.fn(async () => categorias) },
       invoicePayment: { findMany: jest.fn(async () => pagamentos) },
       // As faturas viradas do usuário, na forma da consulta do service
       // (apenas `creditCardId`, `referenceMonth` e `earlyClosedAt`).

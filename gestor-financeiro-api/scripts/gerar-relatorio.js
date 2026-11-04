@@ -80,9 +80,19 @@ const FUNCOES = [
   // a conta do mês
   'totaisDoMes',
   'resultadoDoMes',
+  // as maiores categorias do mês — as mesmas do Resumo. `dataDeRelatorio` é
+  // quem faz o regime valer aqui: por compra, o lançamento conta na data
+  // dele; por fatura, no dia em que a fatura vence.
+  'dataDeRelatorio',
+  'movimentoDoMes',
+  'rankingCategorias',
+  'totalDoGrupo',
   // a tradução do que a API devolve — a MESMA que o app usa ao carregar
   'soData',
   'contaDaApi',
+  // A categoria entra porque o ranking agrupa por ela — e pelo tradutor do
+  // app, como todo o resto.
+  'categoriaDaApi',
   'cartaoDaApi',
   'lancamentoDaApi',
   'pagamentoDaApi',
@@ -144,6 +154,9 @@ function estadoDaApi(dados) {
     accounts: (dados.contas || []).map(contaDaApi),
     cards: cartoes,
     transactions: (dados.lancamentos || []).map(lancamentoDaApi),
+    // Sem as categorias o ranking do mês não tem como agrupar: ele pergunta
+    // o NOME de cada uma, e um id solto não vira linha de resposta.
+    categories: (dados.categorias || []).map(categoriaDaApi),
   };
 }
 
@@ -192,7 +205,7 @@ function comEstado(dados, mes, hoje, regime, contar) {
       return contar(parseMonthKey(mes));
     });
   } finally {
-    state = { accounts: [], cards: [], transactions: [] };
+    state = { accounts: [], cards: [], transactions: [], categories: [] };
     HOJE = null;
     definirRelatorioPor(REGIME_PADRAO, false);
   }
@@ -238,6 +251,48 @@ function calcularMes(dados, mes, hoje, regime) {
 }
 
 /**
+ * As maiores categorias do mês — as mesmas cinco que o Resumo mostra em
+ * "Maiores despesas" e "Maiores receitas".
+ *
+ * Por categoria, e não lançamento a lançamento: "maiores gastos" quase sempre
+ * quer dizer "em quê", e a lista de lançamentos é o extrato, que é outra
+ * pergunta.
+ *
+ * O regime vale aqui inteiro, e não só no total: por compra, a compra do
+ * cartão conta no mês em que foi feita; por fatura, no mês em que a fatura
+ * vence. Quem decide isso é o \`dataDeRelatorio\` do app, recortado para cá.
+ *
+ * O total vem junto porque a soma das cinco primeiras não é o total do grupo
+ * quando há mais categorias — e uma porcentagem sem o inteiro dela não diz
+ * nada.
+ */
+function maioresDoMes(dados, mes, hoje, tipo, regime, quantas) {
+  var teto = quantas || 5;
+  return comEstado(dados, mes, hoje, regime, function (vm) {
+    var itens = rankingCategorias(vm, tipo);
+    var total = totalDoGrupo(itens);
+    return {
+      mes: mes,
+      tipo: tipo,
+      regime: relatorioPor,
+      total: total,
+      // Quantas ficaram de fora, para a resposta poder dizer "e mais N".
+      restantes: Math.max(0, itens.length - teto),
+      itens: itens.slice(0, teto).map(function (d) {
+        return {
+          categoria: d.nome,
+          valor: d.valor,
+          lancamentos: d.n,
+          // A fatia é DENTRO do grupo (despesas com despesas), que é o que
+          // responde "quanto das minhas despesas foi moradia".
+          parte: total > 0 ? (d.valor / total) * 100 : 0,
+        };
+      }),
+    };
+  });
+}
+
+/**
  * As faturas que VENCEM no mês, uma por cartão, com o total.
  *
  * **Por que sempre pelo regime de fatura, seja qual for a preferência:** a
@@ -275,7 +330,7 @@ function faturasDoMes(dados, mes, hoje) {
  * recorte, para não haver um padrão aqui e outro lá. */
 var REGIME_PADRAO = relatorioPor;
 
-module.exports = { calcularMes, faturasDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };
+module.exports = { calcularMes, faturasDoMes, maioresDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };
 `;
 
 function gerar() {

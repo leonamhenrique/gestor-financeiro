@@ -18,6 +18,7 @@ import {
   diaDoUsuario,
   mesDaPergunta,
   perguntaDeFatura,
+  perguntaDeMaiores,
   perguntaDeResultado,
   perguntaDeSaldo,
   regimeDaPergunta,
@@ -75,9 +76,11 @@ describe('ConversaService', () => {
    * este mock nao consegue inventar um campo que o servico nao devolve. */
   let resultado: ResultadoDoMes;
   let faturasDoMes: FaturasDoMes;
-  let relatorio: Pick<RelatorioService, 'doMes' | 'faturasDoMes' | 'regime'>;
+  let relatorio: Pick<RelatorioService, 'doMes' | 'faturasDoMes' | 'maioresDoMes' | 'regime'>;
   /** O regime guardado no cadastro de quem perguntou. */
   let preferido: 'compra' | 'fatura';
+  /** O ranking do mês, como o serviço o devolve. */
+  let maiores: any;
 
   beforeEach(() => {
     criados = [];
@@ -231,9 +234,21 @@ describe('ConversaService', () => {
       cartoes: 2,
     };
     preferido = 'fatura';
+    maiores = {
+      mes: '2026-11',
+      tipo: 'EXPENSE',
+      regime: 'fatura',
+      total: 550,
+      restantes: 0,
+      itens: [
+        { categoria: 'Alimentação', valor: 350, lancamentos: 2, parte: 63.63 },
+        { categoria: 'Transporte', valor: 200, lancamentos: 1, parte: 36.37 },
+      ],
+    };
     relatorio = {
       doMes: jest.fn(async () => resultado),
       faturasDoMes: jest.fn(async () => faturasDoMes),
+      maioresDoMes: jest.fn(async () => maiores),
       regime: jest.fn(async () => preferido),
     };
 
@@ -705,6 +720,64 @@ describe('ConversaService', () => {
           'Confirma?',
         ].join('\n'),
       );
+    });
+  });
+
+  describe('a pergunta das maiores categorias', () => {
+    it('responde o ranking, com a fatia e o total', async () => {
+      const r = await service.responderA(msg('quais foram meus maiores gastos em novembro'));
+      expect(r?.texto).toBe(
+        [
+          '📉 Maiores despesas de Novembro 2026',
+          '',
+          '🏷️ Alimentação: R$ 350,00 (64%)',
+          '🏷️ Transporte: R$ 200,00 (36%)',
+          '',
+          '💵 Total: R$ 550,00',
+          '',
+          '🧮 Contado pelo vencimento da fatura: compra no cartão pesa no mês em que a fatura vence.',
+        ].join('\n'),
+      );
+    });
+
+    it('o mes dito na frase manda', async () => {
+      await service.responderA(msg('maiores despesas de outubro'));
+      expect(relatorio.maioresDoMes).toHaveBeenCalledWith('user-1', '2026-10', 'EXPENSE', 'fatura');
+    });
+
+    it('receita pede o outro tipo', async () => {
+      await service.responderA(msg('quais minhas maiores receitas de novembro'));
+      expect(relatorio.maioresDoMes).toHaveBeenCalledWith('user-1', '2026-11', 'INCOME', 'fatura');
+    });
+
+    it('a frase pode pedir o outro regime, so para aquela resposta', async () => {
+      maiores = { ...maiores, regime: 'compra' };
+      const r = await service.responderA(
+        msg('maiores gastos de novembro pela data da compra'),
+      );
+      expect(relatorio.maioresDoMes).toHaveBeenCalledWith('user-1', '2026-11', 'EXPENSE', 'compra');
+      expect(r?.texto).toContain('Contado pela data da compra, só nesta resposta.');
+      // E o aviso de que a preferencia nao mudou.
+      expect(r?.texto).toContain('continua sendo o vencimento da fatura');
+    });
+
+    it('mes sem nada responde pelo nome, sem lista vazia', async () => {
+      maiores = { ...maiores, itens: [], total: 0, restantes: 0 };
+      const r = await service.responderA(msg('maiores gastos de novembro'));
+      expect(r?.texto).toContain('Sem despesas neste mês.');
+      expect(r?.texto).not.toContain('Total');
+    });
+
+    it('com mais de cinco categorias, diz quantas ficaram de fora', async () => {
+      maiores = { ...maiores, restantes: 3 };
+      const r = await service.responderA(msg('maiores gastos de novembro'));
+      expect(r?.texto).toContain('E mais 3 categorias.');
+    });
+
+    it('nao rouba a pergunta do resultado', async () => {
+      await service.responderA(msg('qual meu resultado nesse mes'));
+      expect(relatorio.maioresDoMes).not.toHaveBeenCalled();
+      expect(relatorio.doMes).toHaveBeenCalled();
     });
   });
 
@@ -1533,6 +1606,49 @@ describe('ConversaService', () => {
     await service.responderA(msg('sim', 'r2'));
     expect(criados[0]).toMatchObject({ type: 'INCOME', amount: 500, categoryId: 'c4' });
     expect(criados[0].clientKey).toMatch(/^wa-/);
+  });
+});
+
+describe('perguntaDeMaiores', () => {
+  it('reconhece as formas comuns, e o tipo sai do verbo', () => {
+    for (const f of [
+      'quais foram meus maiores gastos em outubro',
+      'maiores despesas de outubro',
+      'onde eu gastei mais em outubro',
+      'com o que eu mais gastei esse mes',
+      'top gastos de novembro',
+    ]) {
+      expect(perguntaDeMaiores(f, false)).toBe('EXPENSE');
+    }
+    for (const f of [
+      'quais foram minhas maiores receitas em outubro',
+      'de onde veio mais receita esse mes',
+      'maiores entradas de novembro',
+    ]) {
+      expect(perguntaDeMaiores(f, false)).toBe('INCOME');
+    }
+  });
+
+  it('sem superlativo nao e esta pergunta', () => {
+    // "quanto gastei em outubro" e resultado do mes, e quem responde por ela
+    // e outra funcao -- esta so entra quando ha "maior", "mais", "top".
+    expect(perguntaDeMaiores('quanto gastei em outubro', false)).toBeNull();
+    expect(perguntaDeMaiores('qual meu resultado nesse mes', false)).toBeNull();
+    expect(perguntaDeMaiores('qual meu saldo', false)).toBeNull();
+  });
+
+  it('superlativo sem gasto nem categoria nao e esta pergunta', () => {
+    // "meu maior saldo" e "o maior cartao" tem superlativo e nao sao ranking
+    // de categoria.
+    expect(perguntaDeMaiores('qual meu maior saldo', false)).toBeNull();
+    expect(perguntaDeMaiores('qual o maior cartao', false)).toBeNull();
+    // Com a palavra categoria, vale -- e despesa, que e o primeiro bloco da
+    // tela.
+    expect(perguntaDeMaiores('minhas maiores categorias de outubro', false)).toBe('EXPENSE');
+  });
+
+  it('frase com dinheiro nao e pergunta', () => {
+    expect(perguntaDeMaiores('gastei 30 no maior mercado da cidade', true)).toBeNull();
   });
 });
 
