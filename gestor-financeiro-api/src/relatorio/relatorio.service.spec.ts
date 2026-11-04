@@ -54,9 +54,19 @@ describe('RelatorioService — do banco para a conta da tela', () => {
   /** Faturas VIRADAS: vazio no caminho normal. */
   let viradas: { creditCardId: string; referenceMonth: Date; earlyClosedAt: Date }[];
   let categorias: { id: string; name: string; type: string }[];
+  /** Os planejamentos como a consulta os traz: a linha do mês com as metas
+   * dentro, dinheiro em Decimal — é por isso que o round-trip de JSON existe
+   * no serviço. */
+  let planejamentos: {
+    month: string;
+    income: Prisma.Decimal;
+    total: Prisma.Decimal;
+    items: { categoryId: string; amount: Prisma.Decimal; fromChildren: boolean }[];
+  }[];
 
   beforeEach(() => {
     viradas = [];
+    planejamentos = [];
     categorias = [{ id: 'cat-1', name: 'Alimentação', type: 'EXPENSE' }];
     contas = [
       {
@@ -93,6 +103,9 @@ describe('RelatorioService — do banco para a conta da tela', () => {
       // mês agrupa.
       category: { findMany: jest.fn(async () => categorias) },
       invoicePayment: { findMany: jest.fn(async () => pagamentos) },
+      // Os planejamentos, com as metas dentro — a mesma forma da rota
+      // /budgets, que é de onde o app os lê.
+      budget: { findMany: jest.fn(async () => planejamentos) },
       // As faturas viradas do usuário, na forma da consulta do service
       // (apenas `creditCardId`, `referenceMonth` e `earlyClosedAt`).
       creditCardInvoice: { findMany: jest.fn(async () => viradas) },
@@ -199,6 +212,39 @@ describe('RelatorioService — do banco para a conta da tela', () => {
   it('quem passa o regime não paga outra consulta por ele', async () => {
     const r = await service.doMes('u1', '2026-11', 'compra');
     expect(r.regime).toBe('compra');
+  });
+
+  /* O planejamento sai do banco com dinheiro em Decimal e volta como número,
+   * pelo mesmo round-trip de JSON do resto. Um Decimal chegando cru na conta
+   * do app viraria `NaN` na primeira subtração — e a resposta diria "ainda
+   * cabem R$ NaN". */
+  it('o planejamento do banco vira teto, meta e o que ainda cabe', async () => {
+    planejamentos = [
+      {
+        month: '2026-11',
+        income: dec(6000),
+        total: dec(3000),
+        items: [{ categoryId: 'cat-1', amount: dec(800), fromChildren: false }],
+      },
+    ];
+    lancamentos = [
+      lancamento({ amount: dec(650), categoryId: 'cat-1', transactionDate: data('2026-11-05') } as any),
+    ];
+    const r = await service.planoDoMes('u1', '2026-11', 'fatura', 'cat-1');
+    expect(r.temPlano).toBe(true);
+    expect([r.teto, r.gasto, r.resta]).toEqual([3000, 650, 2350]);
+    expect(r.categoria).toMatchObject({ nome: 'Alimentação', meta: 800, gasto: 650, resta: 150 });
+    // E a consulta é a do usuário que perguntou, não a de todos.
+    expect((service as any).prisma.budget.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'u1' } }),
+    );
+  });
+
+  it('mês sem planejamento não inventa teto nenhum', async () => {
+    const r = await service.planoDoMes('u1', '2026-11', 'fatura');
+    expect(r.temPlano).toBe(false);
+    expect(r.teto).toBeUndefined();
+    expect(r.planejados).toEqual([]);
   });
 });
 

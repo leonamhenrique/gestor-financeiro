@@ -193,6 +193,136 @@ describe('relatorio.js — a mesma conta da tela, fora dela', () => {
     });
   });
 
+  describe('o planejamento do mês', () => {
+    /* Novembro planejado: teto de 3.000, com 800 em Alimentação (que tem uma
+     * filha, Mercado) e 300 em Transporte. Os gastos:
+     *
+     *   - 300 em Alimentação, na conta, confirmado;
+     *   - 150 em Mercado, na conta, PREVISTO — é o que a pergunta "quanto
+     *     ainda posso gastar" precisa ver, e o padrão da tela conta;
+     *   - 200 em Alimentação no CARTÃO, comprado em 20/10: por fatura pesa em
+     *     novembro, por compra em outubro. É o caso que separa os regimes;
+     *   - 420 em Transporte, estourando a meta de 300;
+     *   - 80 em Lazer, que não tem meta nenhuma e cai em "outras categorias".
+     */
+    const comPlano = (over: Record<string, unknown> = {}) =>
+      dados({
+        lancamentos: [
+          lancamento({ amount: '300.00', categoryId: 'c1', transactionDate: '2026-11-02T00:00:00.000Z' }),
+          lancamento({ amount: '150.00', categoryId: 'c1a', transactionDate: '2026-11-20T00:00:00.000Z', isConfirmed: false }),
+          lancamento({ amount: '200.00', categoryId: 'c1', creditCardId: 'k1', bankAccountId: null, transactionDate: '2026-10-20T00:00:00.000Z' }),
+          lancamento({ amount: '420.00', categoryId: 'c2', transactionDate: '2026-11-03T00:00:00.000Z' }),
+          lancamento({ amount: '80.00', categoryId: 'c3', transactionDate: '2026-11-01T00:00:00.000Z' }),
+          lancamento({ type: 'INCOME', amount: '5000.00', categoryId: 'r1', transactionDate: '2026-11-05T00:00:00.000Z' }),
+        ],
+        categorias: [
+          { id: 'c1', name: 'Alimentação', type: 'EXPENSE', parentId: null },
+          { id: 'c1a', name: 'Mercado', type: 'EXPENSE', parentId: 'c1' },
+          { id: 'c2', name: 'Transporte', type: 'EXPENSE', parentId: null },
+          { id: 'c3', name: 'Lazer', type: 'EXPENSE', parentId: null },
+          { id: 'r1', name: 'Salário', type: 'INCOME', parentId: null },
+        ],
+        planejamentos: [
+          {
+            month: '2026-11',
+            income: '6000',
+            total: '3000',
+            items: [
+              { categoryId: 'c1', amount: '800' },
+              { categoryId: 'c2', amount: '300' },
+            ],
+          },
+          { month: '2026-10', income: '6000', total: '2500', items: [] },
+        ],
+        ...over,
+      });
+
+    const plano = (d: unknown, mes = '2026-11', regime = 'fatura', catId?: string) =>
+      relatorio.planoDoMes(d, mes, HOJE, regime, catId ?? null);
+
+    it('o teto, o usado e o que ainda cabe — com o previsto dentro', () => {
+      const r = plano(comPlano());
+      expect(r.temPlano).toBe(true);
+      expect(r.teto).toBe(3000);
+      // 300 + 150 previsto + 200 do cartão + 420 + 80.
+      expect(r.gasto).toBe(1150);
+      expect(r.resta).toBe(1850);
+      expect(r.pct).toBe(38);
+      expect(r.filtros).toEqual({ previsto: true, cartao: true, ocultas: false });
+      expect(r.receitaEsperada).toBe(6000);
+      expect(r.receitaLancada).toBe(5000);
+    });
+
+    it('as metas, linha por linha, com "outras categorias" fechando a conta', () => {
+      const r = plano(comPlano());
+      expect(r.linhas.map((l: any) => [l.nome, l.meta, l.gasto, l.resta, l.nivel])).toEqual([
+        // A filha soma no galho da pai: 300 + 150 + 200 = 650.
+        ['Alimentação', 800, 650, 150, 'warn'],
+        ['Transporte', 300, 420, -120, 'caro'],
+        // O resto do teto (3000 − 1100) contra o resto do gasto (Lazer).
+        ['Outras categorias', 1900, 80, 1820, 'accent'],
+      ]);
+    });
+
+    it('o REGIME muda o gasto da meta, e não só o total do mês', () => {
+      // Por compra, os 200 do cartão voltam para outubro: Alimentação sai de
+      // 650 para 450, e o que ainda cabe DOBRA.
+      const r = plano(comPlano(), '2026-11', 'compra');
+      expect(r.gasto).toBe(950);
+      const alimentacao = r.linhas[0];
+      expect([alimentacao.gasto, alimentacao.resta, alimentacao.nivel]).toEqual([450, 350, 'accent']);
+    });
+
+    it('a categoria pedida vem com a meta dela, e sabe quantas filhas somou', () => {
+      const r = plano(comPlano(), '2026-11', 'fatura', 'c1');
+      expect(r.categoria).toEqual({
+        id: 'c1', nome: 'Alimentação', temMeta: true, meta: 800, gasto: 650,
+        resta: 150, pct: 81, nivel: 'warn', filhas: 1,
+      });
+      expect(r.paiComMeta).toBeUndefined();
+    });
+
+    it('filha sem meta vem com a meta da PAI, que é a que limita o gasto', () => {
+      const r = plano(comPlano(), '2026-11', 'fatura', 'c1a');
+      expect(r.categoria.temMeta).toBe(false);
+      expect(r.categoria.gasto).toBe(150);
+      expect(r.paiComMeta).toEqual({
+        id: 'c1', nome: 'Alimentação', meta: 800, gasto: 650, resta: 150,
+        pct: 81, nivel: 'warn',
+      });
+    });
+
+    it('categoria sem meta e sem pai não ganha pai nenhum', () => {
+      const r = plano(comPlano(), '2026-11', 'fatura', 'c3');
+      expect(r.categoria.temMeta).toBe(false);
+      expect(r.categoria.gasto).toBe(80);
+      expect(r.paiComMeta).toBeUndefined();
+    });
+
+    it('mês sem plano diz quais meses TÊM, para dar o que copiar', () => {
+      const r = plano(comPlano(), '2026-12');
+      expect(r.temPlano).toBe(false);
+      expect(r.planejados).toEqual(['2026-11', '2026-10']);
+      expect(r.linhas).toEqual([]);
+      expect(r.teto).toBeUndefined();
+    });
+
+    /* Sobre o pagamento de fatura, que o recorte exclui do gasto
+     * (`gastoEntraNoPlano` recusa `t.pagamentoFaturaCartaoId`): aqui não há
+     * teste dele porque ele NÃO PODE CHEGAR por este caminho. Medido: no
+     * servidor, pagar uma fatura cria uma linha em `invoice_payments`, não um
+     * lançamento — e `lancamentoDaApi` não tem esse campo, então ele só
+     * existe no modo próprio do app, onde a tela o cria. Um teste que
+     * inventasse o campo na entrada da API estaria defendendo uma crença
+     * minha sobre o formato, que é o engano que este arquivo todo evita. */
+
+    it('sem planejamento nenhum, não há plano e não há meses', () => {
+      const r = plano(comPlano({ planejamentos: [] }));
+      expect(r.temPlano).toBe(false);
+      expect(r.planejados).toEqual([]);
+    });
+  });
+
   describe('a mesma compra de cartão, nos dois regimes', () => {
     // Compra em 05/11; o cartão fecha 10 e vence 17, então a fatura é a de
     // novembro e vence 17/11 — o mês é o mesmo nos dois regimes aqui, e é por

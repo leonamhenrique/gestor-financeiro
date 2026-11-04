@@ -16,7 +16,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { TransfersService } from '../transfers/transfers.service';
-import { LinhaDeFatura, RelatorioService } from '../relatorio/relatorio.service';
+import { LinhaDeFatura, LinhaDoPlano, PlanoDoMes, RelatorioService } from '../relatorio/relatorio.service';
 import { chaveDoMes, dia } from '../credit-cards/invoice-statement';
 import { CategoriesService } from '../categories/categories.service';
 import { BankAccountsService } from '../bank-accounts/bank-accounts.service';
@@ -194,6 +194,46 @@ export function perguntaDeMaiores(texto: string, temValor: boolean): 'EXPENSE' |
   // senão "qual o maior cartão" ou "meu maior saldo" cairiam aqui.
   if (/\bcategorias?\b/.test(t)) return 'EXPENSE';
   return null;
+}
+
+/**
+ * A frase pergunta pelo PLANEJAMENTO — "quanto ainda posso gastar com
+ * alimentação neste mês?"
+ *
+ * É uma quarta pergunta de mês, e a única que olha para a FRENTE: as outras
+ * três contam o que já aconteceu (saldo, resultado, maiores), e esta compara
+ * o que aconteceu com o que a pessoa se propôs. Sem planejamento salvo ela
+ * não tem resposta possível — e dizer isso é a resposta.
+ *
+ * Dois caminhos, e o segundo é o que importa:
+ *
+ *   1. o vocabulário da tela — meta, planejamento, teto, orçamento;
+ *   2. "quanto" + o verbo no INFINITIVO ("gastar"), que é o que separa esta
+ *      pergunta das outras. "Quanto gastei" é passado e é resultado; "quanto
+ *      posso gastar" é o que ainda cabe. Nenhum lançamento diz "gastar".
+ *
+ * Ela é lida ANTES de resultado e de saldo porque as frases se encostam:
+ * "quanto ainda tenho para gastar com alimentação" casa com `quanto tenho` da
+ * pergunta de saldo, e "quanto gastei da meta de alimentação esse mês" casa
+ * com a de resultado. Nos dois casos a pessoa receberia um número certo para
+ * a pergunta errada — o engano que mais parece acerto.
+ *
+ * Fica DEPOIS da de fatura, de propósito: "quanto ainda posso gastar na
+ * fatura do Nubank" é pergunta de cartão, e o limite da fatura não é o teto
+ * do mês.
+ *
+ * O preço de ler "meta" como planejamento: quem tem um objetivo de poupança
+ * ("minha meta da viagem") recebe o planejamento do mês. A resposta começa
+ * dizendo o que ela é, então o engano aparece na primeira linha em vez de
+ * virar um número sem procedência.
+ */
+export function perguntaDeMeta(texto: string, temValor: boolean): boolean {
+  if (temValor) return false;
+  const t = semAcento(texto);
+  if (/\bmetas?\b|\bplanejamento\b|\bplanejad[ao]s?\b|\bplanejei\b|\borcamento\b|\bteto\b/.test(t)) {
+    return true;
+  }
+  return /\bquant[oa]\b/.test(t) && /\bgastar\b/.test(t);
 }
 
 /**
@@ -557,6 +597,13 @@ export class ConversaService {
     // deixá-la perguntar primeiro resolve o encontro sem tirar nada da outra.
     if (perguntaDeFatura(texto, temValor)) {
       return { texto: await this.responderFaturas(userId, texto, ctx) };
+    }
+    // O PLANEJAMENTO vem antes das três contas do passado: ele é a única
+    // pergunta que olha para a frente, e as frases dela caem nas outras —
+    // "quanto ainda tenho para gastar" seria saldo, "quanto gastei da meta
+    // esse mês" seria resultado. Ver `perguntaDeMeta`.
+    if (perguntaDeMeta(texto, temValor)) {
+      return { texto: await this.responderMeta(userId, texto, ctx) };
     }
     // As MAIORES vêm antes do resultado: "quanto gastei em outubro" e "onde
     // mais gastei em outubro" dividem quase todas as palavras, e o que separa
@@ -1071,6 +1118,190 @@ export class ConversaService {
     linhas.push('');
     linhas.push(this.notaDoRegime(r.regime, preferido));
     return linhas.join('\n');
+  }
+
+  /**
+   * "Quanto ainda posso gastar com alimentação neste mês?" — o planejamento
+   * do mês e o quanto dele já foi usado, pela conta da tela de Planejamento.
+   *
+   * Três respostas, porque são três situações diferentes:
+   *
+   *   - **sem planejamento no mês**: não existe resposta numérica, e inventar
+   *     uma seria o pior resultado. A resposta diz que falta o teto e oferece
+   *     o que a tela oferece — copiar de um mês já planejado, ou começar do
+   *     zero;
+   *   - **com a categoria nomeada**: meta, usado e o que ainda cabe. Se a
+   *     categoria não tem meta própria mas a pai tem, é a meta da pai que
+   *     limita aquele gasto, e é ela que vem;
+   *   - **sem categoria**: o mês inteiro, com as metas linha por linha.
+   *
+   * O nome da categoria sai da frase pela MESMA porta do lançamento
+   * (`acharPorNome`), e sem o filtro de "lançável": a categoria pai é
+   * justamente a que mais costuma carregar a meta, e ela não recebe
+   * lançamento direto quando tem filhas.
+   *
+   * O previsto conta — é o padrão da tela —, e a resposta diz isso. Um teto
+   * que ignora a parcela do cartão e a conta agendada deste mês afirma que
+   * cabe dinheiro que já está comprometido, que é o erro que mais custa caro
+   * nesta pergunta.
+   */
+  private async responderMeta(userId: string, texto: string, ctx: any): Promise<string> {
+    const mes = mesDaPergunta(texto, diaDoUsuario());
+    const preferido = await this.relatorio.regime(userId);
+    const pedido = regimeDaPergunta(texto);
+    const cat = fala.acharPorNome(
+      (ctx.categorias || []).filter((c: any) => c.tipo === 'EXPENSE'),
+      fala.normalizarFala(texto),
+    );
+    const r = await this.relatorio.planoDoMes(
+      userId,
+      mes,
+      pedido ?? preferido,
+      cat ? cat.id : null,
+    );
+
+    if (!r.temPlano) {
+      const outros = r.planejados.filter((m) => m !== mes);
+      return (
+        '🎯 Planejamento de ' + this.rotuloMes(mes) + '\n\n' +
+        // Sem "neste mês": o mês já está no cabeçalho, e a pergunta pode ser
+        // sobre outro — "este" apontaria para o mês de hoje.
+        'Você ainda não definiu um teto, então não tenho com o que comparar os ' +
+        'seus gastos.\n\n' +
+        (outros.length
+          ? 'No app, em Planejamento, dá para copiar o de ' + this.rotuloMes(outros[0]) +
+            ' ou começar do zero.'
+          : 'No app, em Planejamento, você diz quanto quer gastar no mês e reparte ' +
+            'esse teto entre as categorias que quer acompanhar de perto.')
+      );
+    }
+
+    const rodape = [this.notaDoRegime(r.regime, preferido), this.notaDosFiltros(r.filtros)];
+
+    // ---- uma categoria ----
+    if (r.categoria) {
+      const c = r.categoria;
+      const linhas = ['🎯 ' + c.nome + ' em ' + this.rotuloMes(mes), ''];
+
+      if (c.temMeta) {
+        linhas.push('🏷️ Meta: ' + this.brl(c.meta));
+        linhas.push('📉 Já usou: ' + this.brl(c.gasto) + ' (' + c.pct + '%)');
+        linhas.push(
+          c.resta >= 0
+            ? '✅ Ainda cabem: ' + this.brl(c.resta)
+            : '🔺 Passou em: ' + this.brl(-c.resta),
+        );
+        if (c.filhas) {
+          linhas.push('');
+          linhas.push('🧩 Somando as subcategorias de ' + c.nome + '.');
+        }
+      } else {
+        linhas.push(c.nome + ' não tem meta neste planejamento.');
+        linhas.push('📉 Já usou: ' + this.brl(c.gasto));
+        linhas.push('');
+        if (r.paiComMeta) {
+          // A filha está DENTRO da pai: é a meta da pai que limita este gasto.
+          linhas.push('Esse gasto entra em ' + r.paiComMeta.nome + ', que tem meta:');
+          linhas.push('🏷️ ' + this.linhaDoPlano(r.paiComMeta));
+        } else {
+          const outras = r.linhas.filter((l) => l.outras)[0];
+          linhas.push('Ela entra no que sobrou do teto, junto com as outras sem meta:');
+          if (outras) linhas.push('🏷️ ' + this.linhaDoPlano(outras));
+        }
+      }
+
+      linhas.push('');
+      linhas.push('💵 No mês: ' + this.textoDoTeto(r));
+      linhas.push('');
+      linhas.push(...rodape);
+      return linhas.join('\n');
+    }
+
+    // ---- o mês inteiro ----
+    const linhas = ['🎯 Planejamento de ' + this.rotuloMes(mes), ''];
+    if ((r.teto ?? 0) <= 0) {
+      // A mesma frase da tela quando o teto é zero: sem teto não há
+      // porcentagem nem sobra, e mostrar "0%" seria dizer que está tudo bem.
+      linhas.push('Nenhum teto definido para o mês.');
+      linhas.push('📉 Já gastou: ' + this.brl(r.gasto ?? 0));
+    } else {
+      linhas.push('💵 Teto: ' + this.brl(r.teto ?? 0));
+      linhas.push('📉 Já usou: ' + this.brl(r.gasto ?? 0) + ' (' + r.pct + '%)');
+      linhas.push(
+        (r.resta ?? 0) >= 0
+          ? '✅ Ainda cabem: ' + this.brl(r.resta ?? 0)
+          : '🔺 Passou em: ' + this.brl(-(r.resta ?? 0)),
+      );
+    }
+
+    // A receita, que é a outra metade do planejamento: o teto foi repartido
+    // contando com um dinheiro que ia entrar, e "ainda cabem R$ 1.850" só
+    // vale se ele entrou. A tela mostra os dois lado a lado pelo mesmo
+    // motivo.
+    if ((r.receitaEsperada ?? 0) > 0 || (r.receitaLancada ?? 0) > 0) {
+      linhas.push('');
+      linhas.push(
+        '📈 Receitas: ' + this.brl(r.receitaLancada ?? 0) +
+          ((r.receitaEsperada ?? 0) > 0
+            ? ' · você esperava ' + this.brl(r.receitaEsperada ?? 0)
+            : ''),
+      );
+    }
+
+    // As metas, na ordem da tela: a pai, a filha logo abaixo dela, e "outras
+    // categorias" fechando a conta.
+    const metas = r.linhas.slice(0, 6);
+    if (metas.length) {
+      linhas.push('');
+      for (const l of metas) {
+        linhas.push((l.filha ? '   ↳ ' : '🏷️ ') + this.linhaDoPlano(l));
+      }
+      if (r.linhas.length > metas.length) {
+        linhas.push('… e outras ' + (r.linhas.length - metas.length) + ' metas.');
+      }
+    }
+
+    linhas.push('');
+    linhas.push(...rodape);
+    return linhas.join('\n');
+  }
+
+  /** Uma meta em uma linha: nome, usado, teto e o que ainda cabe. "de" em vez
+   * de "/" porque é como a tela escreve ("de R$ 800,00 planejados"). */
+  private linhaDoPlano(l: LinhaDoPlano): string {
+    const fim =
+      l.meta <= 0
+        ? (l.gasto > 0 ? ' · sem meta' : '')
+        : l.resta >= 0
+          ? ' · cabem ' + this.brl(l.resta)
+          : ' · passou ' + this.brl(-l.resta);
+    return l.nome + ': ' + this.brl(l.gasto) + ' de ' + this.brl(l.meta) + fim;
+  }
+
+  /** O mês inteiro em uma linha, com as palavras da tela. */
+  private textoDoTeto(r: PlanoDoMes): string {
+    const teto = r.teto ?? 0;
+    const gasto = r.gasto ?? 0;
+    const resta = r.resta ?? 0;
+    if (teto <= 0) return this.brl(gasto) + ' gastos, sem teto definido';
+    return (
+      this.brl(gasto) + ' de ' + this.brl(teto) + ' planejados · ' +
+      (resta >= 0 ? 'ainda cabem ' + this.brl(resta) : 'passou ' + this.brl(-resta))
+    );
+  }
+
+  /** O que entrou na conta do planejamento, nas palavras dos três botões da
+   * tela. Vai na resposta porque é o que permite conferir o número lá: sem
+   * saber que o previsto está dentro, a pessoa procura a diferença no lugar
+   * errado. */
+  private notaDosFiltros(f?: { previsto: boolean; cartao: boolean; ocultas: boolean }): string {
+    if (!f) return '';
+    const partes = [
+      f.previsto ? 'confirmado e previsto' : 'só o confirmado',
+      f.cartao ? 'com os gastos no cartão' : 'sem os gastos no cartão',
+    ];
+    if (f.ocultas) partes.push('incluindo contas ocultas');
+    return '💡 Contando ' + partes.join(', ') + ' — como a tela de Planejamento abre.';
   }
 
   private async responderResultado(userId: string, texto: string): Promise<string> {

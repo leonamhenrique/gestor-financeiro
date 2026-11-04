@@ -39,6 +39,8 @@ var CHAVE_RELATORIO = "gestor-relatorio-por";
 
 var relatorioPor = "fatura";
 
+var filtrosDoPlano = { previsto: true, cartao: true, ocultas: false };
+
 function byId(list, id) { return list.filter(function (x) { return x.id === id; })[0]; }
 
 function isoDate(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -306,6 +308,137 @@ function totalDoGrupo(itens) {
     return itens.reduce(function (s, d) { return s + d.valor; }, 0);
   }
 
+function filhasDe(id, categorias) {
+    return (categorias || state.categories).filter(function (c) { return c.paiId === id; });
+  }
+
+function raizesDe(tipo) { return state.categories.filter(function (c) { return c.tipo === tipo && !c.paiId; }); }
+
+function planejamentoDoMes(mk) {
+    return (state.planejamentos || []).filter(function (p) { return p.mes === mk; })[0] || null;
+  }
+
+function itemDoPlano(pl, catId) {
+    if (!pl) return null;
+    return pl.itens.filter(function (i) { return i.categoriaId === catId; })[0] || null;
+  }
+
+function temMeta(pl, catId) { return !!itemDoPlano(pl, catId); }
+
+function comprometidoDoPlano(pl) {
+    if (!pl) return 0;
+    return pl.itens.reduce(function (s, i) {
+      var c = byId(state.categories, i.categoriaId);
+      if (c && c.paiId && temMeta(pl, c.paiId)) return s;
+      return s + i.valor;
+    }, 0);
+  }
+
+function sobraDoPlano(pl) {
+    return pl ? Math.max(0, pl.total - comprometidoDoPlano(pl)) : 0;
+  }
+
+function gastoEntraNoPlano(t, f) {
+    if (t.tipo !== "EXPENSE" || t.pagamentoFaturaCartaoId) return false;
+    if (!f.previsto && !t.confirmada) return false;
+    if (!f.cartao && t.cartaoId) return false;
+    if (!f.ocultas && !transacaoVisivel(t)) return false;
+    return true;
+  }
+
+function receitaEntraNoPlano(t, f) {
+    if (t.tipo !== "INCOME") return false;
+    if (!f.previsto && !t.confirmada) return false;
+    if (!f.cartao && t.cartaoId) return false;
+    if (!f.ocultas && !transacaoVisivel(t)) return false;
+    return true;
+  }
+
+function lancamentosDoPlano(vm, f) {
+    var mk = monthKey(vm);
+    return state.transactions.filter(function (t) { return dataDeRelatorio(t).slice(0, 7) === mk; });
+  }
+
+function gastoPorCategoriaDoPlano(vm, f) {
+    var acc = { "": 0 };
+    lancamentosDoPlano(vm, f).forEach(function (t) {
+      if (!gastoEntraNoPlano(t, f)) return;
+      var k = t.categoriaId || "";
+      acc[k] = (acc[k] || 0) + t.valor;
+    });
+    return acc;
+  }
+
+function gastoComFilhas(acc, catId) {
+    return filhasDe(catId).reduce(function (s, f) { return s + (acc[f.id] || 0); }, acc[catId] || 0);
+  }
+
+function totalGastoDoPlano(acc) {
+    return Object.keys(acc).reduce(function (s, k) { return s + acc[k]; }, 0);
+  }
+
+function receitasDoPlanoNoMes(vm, f) {
+    return lancamentosDoPlano(vm, f).reduce(function (s, t) {
+      return receitaEntraNoPlano(t, f) ? s + t.valor : s;
+    }, 0);
+  }
+
+function nivelDaMeta(gasto, meta) {
+    if (meta <= 0) return gasto > 0 ? "caro" : "accent";
+    var pct = gasto / meta;
+    if (pct > 1) return "caro";
+    if (pct >= 0.8) return "warn";
+    return "accent";
+  }
+
+function pctDaMeta(gasto, meta) {
+    if (meta > 0) return Math.round((gasto / meta) * 100);
+    return gasto > 0 ? 100 : 0;
+  }
+
+function linhasDoPlanejamento(vm, f) {
+    var pl = planejamentoDoMes(monthKey(vm));
+    if (!pl) return [];
+    var acc = gastoPorCategoriaDoPlano(vm, f);
+    var linhas = [];
+    var gastoDosGalhos = 0;
+
+    function linha(c, filha) {
+      var item = itemDoPlano(pl, c.id);
+      var meta = item ? item.valor : 0;
+      var gasto = gastoComFilhas(acc, c.id);
+      linhas.push({
+        id: c.id, nome: c.nome, cor: c.cor, filha: !!filha,
+        meta: meta, gasto: gasto, resta: meta - gasto,
+        pct: pctDaMeta(gasto, meta), nivel: nivelDaMeta(gasto, meta),
+        somaFilhas: !!(item && item.somaFilhas)
+      });
+    }
+
+    raizesDe("EXPENSE").forEach(function (raiz) {
+      var filhasComMeta = filhasDe(raiz.id).filter(function (c) { return temMeta(pl, c.id); });
+      if (!temMeta(pl, raiz.id) && !filhasComMeta.length) return;
+      if (temMeta(pl, raiz.id)) {
+        linha(raiz, false);
+        gastoDosGalhos += gastoComFilhas(acc, raiz.id);
+      }
+      filhasComMeta.forEach(function (c) {
+        linha(c, temMeta(pl, raiz.id));
+        // Com meta na pai, o gasto da filha já entrou pelo galho dela.
+        if (!temMeta(pl, raiz.id)) gastoDosGalhos += gastoComFilhas(acc, c.id);
+      });
+    });
+
+    var sobra = sobraDoPlano(pl);
+    var resto = Math.max(0, totalGastoDoPlano(acc) - gastoDosGalhos);
+    linhas.push({
+      id: null, nome: "Outras categorias", cor: null, filha: false, outras: true,
+      meta: sobra, gasto: resto, resta: sobra - resto,
+      pct: pctDaMeta(resto, sobra), nivel: nivelDaMeta(resto, sobra)
+    });
+    return linhas;
+  }
+
 function soData(v) { return String(v || "").slice(0, 10); }
 
 function contaDaApi(j) {
@@ -365,6 +498,17 @@ function pagamentoDaApi(p) {
     return { pagamentoId: p.id, mesKey: p.referenceMonth, valor: Number(p.amount), data: soData(p.paidAt), contaId: p.bankAccountId };
   }
 
+function planejamentoDaApi(b) {
+    return {
+      mes: b.month,
+      receita: Number(b.income || 0),
+      total: Number(b.total || 0),
+      itens: (b.items || []).map(function (i) {
+        return { categoriaId: i.categoryId, valor: Number(i.amount), somaFilhas: !!i.fromChildren };
+      })
+    };
+  }
+
 // ------------------------------------------------------------
 // a porta de entrada
 // ------------------------------------------------------------
@@ -393,6 +537,12 @@ function estadoDaApi(dados) {
     // Sem as categorias o ranking do mês não tem como agrupar: ele pergunta
     // o NOME de cada uma, e um id solto não vira linha de resposta.
     categories: (dados.categorias || []).map(categoriaDaApi),
+    // O planejamento de TODOS os meses, como o app o carrega. O do mês
+    // perguntado seria o bastante para a conta, mas não para a resposta: sem
+    // os outros não há como dizer "você planejou outubro, mas não novembro"
+    // — e essa é a diferença entre oferecer copiar e oferecer começar do
+    // zero, que é o que a tela faz no mesmo caso.
+    planejamentos: (dados.planejamentos || []).map(planejamentoDaApi),
   };
 }
 
@@ -441,7 +591,7 @@ function comEstado(dados, mes, hoje, regime, contar) {
       return contar(parseMonthKey(mes));
     });
   } finally {
-    state = { accounts: [], cards: [], transactions: [], categories: [] };
+    state = { accounts: [], cards: [], transactions: [], categories: [], planejamentos: [] };
     HOJE = null;
     definirRelatorioPor(REGIME_PADRAO, false);
   }
@@ -529,6 +679,100 @@ function maioresDoMes(dados, mes, hoje, tipo, regime, quantas) {
 }
 
 /**
+ * O planejamento do mês e o quanto dele já foi usado — a tela de
+ * Planejamento, que é quem responde "quanto ainda posso gastar".
+ *
+ * **Por que a conta vem recortada e não somada aqui:** o gasto de uma meta
+ * não é "somar os lançamentos da categoria". São quatro regras juntas, e
+ * cada uma delas foi um defeito possível:
+ *
+ *   - pagamento de fatura não é gasto (as compras que a formaram já
+ *     contaram), senão o cartão conta duas vezes;
+ *   - o gasto da filha soma no da pai, porque é assim que a meta da pai se
+ *     reparte;
+ *   - mas a META da filha está DENTRO da meta da pai, e somar as duas faria
+ *     o teto do mês caber menos do que ele diz;
+ *   - e o mês de cada lançamento sai de `dataDeRelatorio`, não da data da
+ *     compra: por fatura, a compra no cartão pesa no mês do vencimento — o
+ *     mesmo regime do resto do app.
+ *
+ * **`categoriaId` é opcional**, e muda a pergunta: com ele, a resposta é de
+ * uma categoria ("quanto ainda posso gastar com alimentação"); sem ele, é do
+ * mês inteiro. A categoria sai resolvida de fora, por `acharPorNome` — a
+ * mesma porta que reconhece o nome num lançamento.
+ *
+ * Quando a categoria pedida não tem meta mas a PAI dela tem, a pai vem junto
+ * em `paiComMeta`: na árvore de um nível, o gasto da filha já está dentro da
+ * meta da pai, e dizer só "não tem meta" esconderia o teto que de fato
+ * limita aquele gasto.
+ */
+function planoDoMes(dados, mes, hoje, regime, categoriaId) {
+  return comEstado(dados, mes, hoje, regime, function (vm) {
+    var mk = monthKey(vm);
+    var pl = planejamentoDoMes(mk);
+    // Os meses que a pessoa JÁ planejou. Sem plano no mês perguntado, é o que
+    // separa "copie de outubro" de "comece do zero" — as duas ofertas que a
+    // própria tela faz nesse caso.
+    var planejados = (state.planejamentos || []).map(function (p) { return p.mes; });
+    var base = { mes: mk, regime: relatorioPor, planejados: planejados };
+    if (!pl) return Object.assign(base, { temPlano: false, linhas: [] });
+
+    // Os filtros do app, no padrão dele: confirmado e previsto, cartão
+    // dentro, conta oculta fora. Vão na resposta para a pessoa poder conferir
+    // o número contra a tela, que tem os mesmos três botões.
+    var f = filtrosDoPlano;
+    var acc = gastoPorCategoriaDoPlano(vm, f);
+    var gasto = totalGastoDoPlano(acc);
+
+    var r = Object.assign(base, {
+      temPlano: true,
+      teto: pl.total,
+      gasto: gasto,
+      resta: pl.total - gasto,
+      pct: pctDaMeta(gasto, pl.total),
+      nivel: nivelDaMeta(gasto, pl.total),
+      repartido: comprometidoDoPlano(pl),
+      sobraDoTeto: sobraDoPlano(pl),
+      receitaEsperada: pl.receita,
+      receitaLancada: receitasDoPlanoNoMes(vm, f),
+      filtros: { previsto: !!f.previsto, cartao: !!f.cartao, ocultas: !!f.ocultas },
+      linhas: linhasDoPlanejamento(vm, f).map(function (l) {
+        return {
+          id: l.id, nome: l.nome, filha: !!l.filha, outras: !!l.outras,
+          meta: l.meta, gasto: l.gasto, resta: l.resta, pct: l.pct, nivel: l.nivel,
+        };
+      }),
+    });
+
+    var c = categoriaId ? byId(state.categories, categoriaId) : null;
+    if (c) {
+      var item = itemDoPlano(pl, c.id);
+      var meta = item ? item.valor : 0;
+      var usado = gastoComFilhas(acc, c.id);
+      r.categoria = {
+        id: c.id, nome: c.nome, temMeta: !!item, meta: meta, gasto: usado,
+        resta: meta - usado, pct: pctDaMeta(usado, meta), nivel: nivelDaMeta(usado, meta),
+        // Quantas filhas somam nesse gasto: é o que explica um número maior
+        // do que a pessoa esperava ver na categoria pai.
+        filhas: filhasDe(c.id).length,
+      };
+      var pai = c.paiId ? byId(state.categories, c.paiId) : null;
+      if (!item && pai && temMeta(pl, pai.id)) {
+        var itemPai = itemDoPlano(pl, pai.id);
+        var usadoPai = gastoComFilhas(acc, pai.id);
+        r.paiComMeta = {
+          id: pai.id, nome: pai.nome, meta: itemPai.valor, gasto: usadoPai,
+          resta: itemPai.valor - usadoPai,
+          pct: pctDaMeta(usadoPai, itemPai.valor),
+          nivel: nivelDaMeta(usadoPai, itemPai.valor),
+        };
+      }
+    }
+    return r;
+  });
+}
+
+/**
  * As faturas que VENCEM no mês, uma por cartão, com o total.
  *
  * **Por que sempre pelo regime de fatura, seja qual for a preferência:** a
@@ -566,4 +810,4 @@ function faturasDoMes(dados, mes, hoje) {
  * recorte, para não haver um padrão aqui e outro lá. */
 var REGIME_PADRAO = relatorioPor;
 
-module.exports = { calcularMes, faturasDoMes, maioresDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };
+module.exports = { calcularMes, faturasDoMes, maioresDoMes, planoDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };

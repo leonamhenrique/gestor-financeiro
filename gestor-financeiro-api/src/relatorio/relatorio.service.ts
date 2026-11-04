@@ -77,6 +77,58 @@ export interface MaioresDoMes {
   itens: LinhaDeCategoria[];
 }
 
+/** Uma linha do acompanhamento: a meta de uma categoria e o quanto dela já
+ * foi usado. `id` é nulo em "Outras categorias", que é o resto do teto. */
+export interface LinhaDoPlano {
+  id: string | null;
+  nome: string;
+  /** Subcategoria de uma pai que também tem meta — a meta dela está DENTRO
+   * da meta da pai. */
+  filha: boolean;
+  outras: boolean;
+  meta: number;
+  gasto: number;
+  /** Meta menos gasto. Negativo quer dizer que passou. */
+  resta: number;
+  pct: number;
+  /** 'accent' (dentro), 'warn' (80% ou mais), 'caro' (passou) — os mesmos
+   * três níveis da barra na tela. */
+  nivel: string;
+}
+
+/** A categoria que a pergunta nomeou. */
+export interface CategoriaDoPlano extends LinhaDoPlano {
+  temMeta: boolean;
+  /** Quantas subcategorias somam neste gasto. */
+  filhas: number;
+}
+
+export interface PlanoDoMes {
+  mes: string;
+  regime: 'compra' | 'fatura';
+  temPlano: boolean;
+  /** Os meses que já têm planejamento — para a resposta poder oferecer
+   * copiar, como a tela faz. */
+  planejados: string[];
+  teto?: number;
+  gasto?: number;
+  resta?: number;
+  pct?: number;
+  nivel?: string;
+  /** Quanto do teto está repartido em metas. */
+  repartido?: number;
+  /** O que sobrou do teto: a meta implícita de "outras categorias". */
+  sobraDoTeto?: number;
+  receitaEsperada?: number;
+  receitaLancada?: number;
+  filtros?: { previsto: boolean; cartao: boolean; ocultas: boolean };
+  linhas: LinhaDoPlano[];
+  categoria?: CategoriaDoPlano;
+  /** Quando a categoria pedida não tem meta mas a pai dela tem: é essa meta
+   * que de fato limita o gasto. */
+  paiComMeta?: LinhaDoPlano;
+}
+
 export interface ResultadoDoMes {
   mes: string;
   regime: 'compra' | 'fatura';
@@ -162,6 +214,34 @@ export class RelatorioService {
   }
 
   /**
+   * O planejamento do mês e o quanto dele já foi usado — a tela de
+   * Planejamento, que é quem responde "quanto ainda posso gastar".
+   *
+   * `categoriaId` é opcional: com ele a resposta é de uma categoria, sem ele
+   * é do mês inteiro. Quem resolve o NOME dito para um id é a conversa, pela
+   * mesma porta que reconhece um cadastro num lançamento.
+   *
+   * O regime entra como no resultado: a preferência da pessoa, ou o que a
+   * pergunta pediu só para aquela resposta — e ele muda o número de verdade,
+   * porque a compra no cartão pesa num mês ou no outro.
+   */
+  async planoDoMes(
+    userId: string,
+    mes: string,
+    regime?: 'compra' | 'fatura',
+    categoriaId?: string | null,
+  ): Promise<PlanoDoMes> {
+    const escolhido = regime ?? (await this.regime(userId));
+    return relatorio.planoDoMes(
+      await this.estado(userId),
+      mes,
+      instanteDoUsuario(),
+      escolhido,
+      categoriaId ?? null,
+    );
+  }
+
+  /**
    * As faturas que vencem no mês — o que o cartão vai cobrar da conta.
    *
    * Sem regime: a lista é a mesma para quem conta relatório por compra e por
@@ -194,7 +274,7 @@ export class RelatorioService {
    * para saber que está oculta.
    */
   private async estado(userId: string) {
-    const [contas, cartoes, lancamentos, categorias] = await Promise.all([
+    const [contas, cartoes, lancamentos, categorias, planejamentos] = await Promise.all([
       // Na mesma ordem das rotas que o app usa: a ordem que o usuário
       // arrastou. Ela não muda total nenhum, mas muda em que ordem as faturas
       // saem na resposta — e é melhor que seja a ordem da tela dele.
@@ -204,6 +284,15 @@ export class RelatorioService {
       // As do usuário E as padrão: o lançamento aponta para qualquer uma das
       // duas, e uma categoria que falta aqui some do ranking em silêncio.
       this.prisma.category.findMany({ where: { OR: [{ userId }, { userId: null }] } }),
+      // O planejamento de todos os meses, com as metas dentro — a mesma
+      // consulta da rota /budgets (ver BudgetsService.findAllByUser), que é
+      // de onde o app os lê. São uma linha por mês e algumas dezenas de
+      // metas: ordens de grandeza menos que os lançamentos já trazidos acima.
+      this.prisma.budget.findMany({
+        where: { userId },
+        include: { items: true },
+        orderBy: { month: 'desc' },
+      }),
     ]);
 
     // Os pagamentos de fatura, por cartão — a mesma forma da rota
@@ -247,7 +336,14 @@ export class RelatorioService {
     const comViradas = cartoes.map((k) => ({ ...k, earlyClosures: porCartao[k.id] ?? {} }));
 
     return JSON.parse(
-      JSON.stringify({ contas, cartoes: comViradas, lancamentos, categorias, pagamentos }),
+      JSON.stringify({
+        contas,
+        cartoes: comViradas,
+        lancamentos,
+        categorias,
+        pagamentos,
+        planejamentos,
+      }),
     );
   }
 }

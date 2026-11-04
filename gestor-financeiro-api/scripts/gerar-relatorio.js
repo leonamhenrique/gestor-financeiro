@@ -43,6 +43,18 @@ const CONSTANTES_LINHA = [
   'var cacheDeFaturas = ',
   'var CHAVE_RELATORIO = ',
   'var relatorioPor = ',
+  // Os filtros do acompanhamento do planejamento, com o PADRÃO do app:
+  // confirmado e previsto juntos, cartão contando, conta oculta de fora.
+  //
+  // Vêm recortados, e só a linha do padrão — a tela ainda os lê do
+  // localStorage, que é do aparelho. O WhatsApp não tem aparelho, e por isso
+  // responde pelo padrão; reescrever esses três booleanos aqui seria deixar
+  // o WhatsApp contando uma coisa e a tela recém-aberta outra.
+  //
+  // O previsto é o que a pergunta "quanto ainda posso gastar" pede: o cartão
+  // parcelado deste mês e a conta de luz agendada já estão comprometidos, e
+  // um teto que os ignora diz que cabe dinheiro que não cabe.
+  'var filtrosDoPlano = ',
 ];
 
 /** As funções. A ordem não importa para o JavaScript (`function` sobe), mas
@@ -87,6 +99,32 @@ const FUNCOES = [
   'movimentoDoMes',
   'rankingCategorias',
   'totalDoGrupo',
+  // ---- o planejamento: o teto do mês, a meta de cada categoria e o quanto
+  // de cada uma já foi usado.
+  //
+  // Vem inteiro porque "quanto ainda posso gastar com alimentação" é a conta
+  // da tela de Planejamento, linha por linha, e ela tem três regras que não
+  // se adivinham: pagamento de fatura não é gasto (as compras que a formaram
+  // já contaram), o gasto da filha soma no da pai, e a meta da filha está
+  // DENTRO da meta da pai quando a pai tem meta — somar as duas faria o teto
+  // caber menos do que ele diz.
+  'filhasDe',
+  'raizesDe',
+  'planejamentoDoMes',
+  'itemDoPlano',
+  'temMeta',
+  'comprometidoDoPlano',
+  'sobraDoPlano',
+  'gastoEntraNoPlano',
+  'receitaEntraNoPlano',
+  'lancamentosDoPlano',
+  'gastoPorCategoriaDoPlano',
+  'gastoComFilhas',
+  'totalGastoDoPlano',
+  'receitasDoPlanoNoMes',
+  'nivelDaMeta',
+  'pctDaMeta',
+  'linhasDoPlanejamento',
   // a tradução do que a API devolve — a MESMA que o app usa ao carregar
   'soData',
   'contaDaApi',
@@ -96,6 +134,7 @@ const FUNCOES = [
   'cartaoDaApi',
   'lancamentoDaApi',
   'pagamentoDaApi',
+  'planejamentoDaApi',
 ];
 
 const CABECALHO = `// ============================================================
@@ -157,6 +196,12 @@ function estadoDaApi(dados) {
     // Sem as categorias o ranking do mês não tem como agrupar: ele pergunta
     // o NOME de cada uma, e um id solto não vira linha de resposta.
     categories: (dados.categorias || []).map(categoriaDaApi),
+    // O planejamento de TODOS os meses, como o app o carrega. O do mês
+    // perguntado seria o bastante para a conta, mas não para a resposta: sem
+    // os outros não há como dizer "você planejou outubro, mas não novembro"
+    // — e essa é a diferença entre oferecer copiar e oferecer começar do
+    // zero, que é o que a tela faz no mesmo caso.
+    planejamentos: (dados.planejamentos || []).map(planejamentoDaApi),
   };
 }
 
@@ -205,7 +250,7 @@ function comEstado(dados, mes, hoje, regime, contar) {
       return contar(parseMonthKey(mes));
     });
   } finally {
-    state = { accounts: [], cards: [], transactions: [], categories: [] };
+    state = { accounts: [], cards: [], transactions: [], categories: [], planejamentos: [] };
     HOJE = null;
     definirRelatorioPor(REGIME_PADRAO, false);
   }
@@ -293,6 +338,100 @@ function maioresDoMes(dados, mes, hoje, tipo, regime, quantas) {
 }
 
 /**
+ * O planejamento do mês e o quanto dele já foi usado — a tela de
+ * Planejamento, que é quem responde "quanto ainda posso gastar".
+ *
+ * **Por que a conta vem recortada e não somada aqui:** o gasto de uma meta
+ * não é "somar os lançamentos da categoria". São quatro regras juntas, e
+ * cada uma delas foi um defeito possível:
+ *
+ *   - pagamento de fatura não é gasto (as compras que a formaram já
+ *     contaram), senão o cartão conta duas vezes;
+ *   - o gasto da filha soma no da pai, porque é assim que a meta da pai se
+ *     reparte;
+ *   - mas a META da filha está DENTRO da meta da pai, e somar as duas faria
+ *     o teto do mês caber menos do que ele diz;
+ *   - e o mês de cada lançamento sai de \`dataDeRelatorio\`, não da data da
+ *     compra: por fatura, a compra no cartão pesa no mês do vencimento — o
+ *     mesmo regime do resto do app.
+ *
+ * **\`categoriaId\` é opcional**, e muda a pergunta: com ele, a resposta é de
+ * uma categoria ("quanto ainda posso gastar com alimentação"); sem ele, é do
+ * mês inteiro. A categoria sai resolvida de fora, por \`acharPorNome\` — a
+ * mesma porta que reconhece o nome num lançamento.
+ *
+ * Quando a categoria pedida não tem meta mas a PAI dela tem, a pai vem junto
+ * em \`paiComMeta\`: na árvore de um nível, o gasto da filha já está dentro da
+ * meta da pai, e dizer só "não tem meta" esconderia o teto que de fato
+ * limita aquele gasto.
+ */
+function planoDoMes(dados, mes, hoje, regime, categoriaId) {
+  return comEstado(dados, mes, hoje, regime, function (vm) {
+    var mk = monthKey(vm);
+    var pl = planejamentoDoMes(mk);
+    // Os meses que a pessoa JÁ planejou. Sem plano no mês perguntado, é o que
+    // separa "copie de outubro" de "comece do zero" — as duas ofertas que a
+    // própria tela faz nesse caso.
+    var planejados = (state.planejamentos || []).map(function (p) { return p.mes; });
+    var base = { mes: mk, regime: relatorioPor, planejados: planejados };
+    if (!pl) return Object.assign(base, { temPlano: false, linhas: [] });
+
+    // Os filtros do app, no padrão dele: confirmado e previsto, cartão
+    // dentro, conta oculta fora. Vão na resposta para a pessoa poder conferir
+    // o número contra a tela, que tem os mesmos três botões.
+    var f = filtrosDoPlano;
+    var acc = gastoPorCategoriaDoPlano(vm, f);
+    var gasto = totalGastoDoPlano(acc);
+
+    var r = Object.assign(base, {
+      temPlano: true,
+      teto: pl.total,
+      gasto: gasto,
+      resta: pl.total - gasto,
+      pct: pctDaMeta(gasto, pl.total),
+      nivel: nivelDaMeta(gasto, pl.total),
+      repartido: comprometidoDoPlano(pl),
+      sobraDoTeto: sobraDoPlano(pl),
+      receitaEsperada: pl.receita,
+      receitaLancada: receitasDoPlanoNoMes(vm, f),
+      filtros: { previsto: !!f.previsto, cartao: !!f.cartao, ocultas: !!f.ocultas },
+      linhas: linhasDoPlanejamento(vm, f).map(function (l) {
+        return {
+          id: l.id, nome: l.nome, filha: !!l.filha, outras: !!l.outras,
+          meta: l.meta, gasto: l.gasto, resta: l.resta, pct: l.pct, nivel: l.nivel,
+        };
+      }),
+    });
+
+    var c = categoriaId ? byId(state.categories, categoriaId) : null;
+    if (c) {
+      var item = itemDoPlano(pl, c.id);
+      var meta = item ? item.valor : 0;
+      var usado = gastoComFilhas(acc, c.id);
+      r.categoria = {
+        id: c.id, nome: c.nome, temMeta: !!item, meta: meta, gasto: usado,
+        resta: meta - usado, pct: pctDaMeta(usado, meta), nivel: nivelDaMeta(usado, meta),
+        // Quantas filhas somam nesse gasto: é o que explica um número maior
+        // do que a pessoa esperava ver na categoria pai.
+        filhas: filhasDe(c.id).length,
+      };
+      var pai = c.paiId ? byId(state.categories, c.paiId) : null;
+      if (!item && pai && temMeta(pl, pai.id)) {
+        var itemPai = itemDoPlano(pl, pai.id);
+        var usadoPai = gastoComFilhas(acc, pai.id);
+        r.paiComMeta = {
+          id: pai.id, nome: pai.nome, meta: itemPai.valor, gasto: usadoPai,
+          resta: itemPai.valor - usadoPai,
+          pct: pctDaMeta(usadoPai, itemPai.valor),
+          nivel: nivelDaMeta(usadoPai, itemPai.valor),
+        };
+      }
+    }
+    return r;
+  });
+}
+
+/**
  * As faturas que VENCEM no mês, uma por cartão, com o total.
  *
  * **Por que sempre pelo regime de fatura, seja qual for a preferência:** a
@@ -330,7 +469,7 @@ function faturasDoMes(dados, mes, hoje) {
  * recorte, para não haver um padrão aqui e outro lá. */
 var REGIME_PADRAO = relatorioPor;
 
-module.exports = { calcularMes, faturasDoMes, maioresDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };
+module.exports = { calcularMes, faturasDoMes, maioresDoMes, planoDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };
 `;
 
 function gerar() {

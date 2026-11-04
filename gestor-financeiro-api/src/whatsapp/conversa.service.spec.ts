@@ -19,11 +19,17 @@ import {
   mesDaPergunta,
   perguntaDeFatura,
   perguntaDeMaiores,
+  perguntaDeMeta,
   perguntaDeResultado,
   perguntaDeSaldo,
   regimeDaPergunta,
 } from './conversa.service';
-import type { FaturasDoMes, RelatorioService, ResultadoDoMes } from '../relatorio/relatorio.service';
+import type {
+  FaturasDoMes,
+  PlanoDoMes,
+  RelatorioService,
+  ResultadoDoMes,
+} from '../relatorio/relatorio.service';
 import type { BankAccountsService } from '../bank-accounts/bank-accounts.service';
 import type { CreditCardsService } from '../credit-cards/credit-cards.service';
 import type { CategoriesService } from '../categories/categories.service';
@@ -76,11 +82,19 @@ describe('ConversaService', () => {
    * este mock nao consegue inventar um campo que o servico nao devolve. */
   let resultado: ResultadoDoMes;
   let faturasDoMes: FaturasDoMes;
-  let relatorio: Pick<RelatorioService, 'doMes' | 'faturasDoMes' | 'maioresDoMes' | 'regime'>;
+  let relatorio: Pick<
+    RelatorioService,
+    'doMes' | 'faturasDoMes' | 'maioresDoMes' | 'planoDoMes' | 'regime'
+  >;
   /** O regime guardado no cadastro de quem perguntou. */
   let preferido: 'compra' | 'fatura';
   /** O ranking do mês, como o serviço o devolve. */
   let maiores: any;
+  /* O planejamento do mês, TIPADO pelo mesmo motivo do resultado: a conta
+   * está provada em relatorio.spec.ts, e o que se prova aqui é o texto. Um
+   * mock solto poderia trazer um campo que o serviço não devolve, e o teste
+   * passaria defendendo uma crença. */
+  let plano: PlanoDoMes;
 
   beforeEach(() => {
     criados = [];
@@ -245,10 +259,34 @@ describe('ConversaService', () => {
         { categoria: 'Transporte', valor: 200, lancamentos: 1, parte: 36.37 },
       ],
     };
+    // Novembro planejado: teto de 3.000, meta de 800 em Alimentação (que já
+    // usou 650, com a filha dentro) e 300 em Compras (que passou).
+    plano = {
+      mes: '2026-11',
+      regime: 'fatura',
+      temPlano: true,
+      planejados: ['2026-11', '2026-10'],
+      teto: 3000,
+      gasto: 1150,
+      resta: 1850,
+      pct: 38,
+      nivel: 'accent',
+      repartido: 1100,
+      sobraDoTeto: 1900,
+      receitaEsperada: 6000,
+      receitaLancada: 5000,
+      filtros: { previsto: true, cartao: true, ocultas: false },
+      linhas: [
+        { id: 'c1', nome: 'Alimentação', filha: false, outras: false, meta: 800, gasto: 650, resta: 150, pct: 81, nivel: 'warn' },
+        { id: 'c9', nome: 'Compras', filha: false, outras: false, meta: 300, gasto: 420, resta: -120, pct: 140, nivel: 'caro' },
+        { id: null, nome: 'Outras categorias', filha: false, outras: true, meta: 1900, gasto: 80, resta: 1820, pct: 4, nivel: 'accent' },
+      ],
+    };
     relatorio = {
       doMes: jest.fn(async () => resultado),
       faturasDoMes: jest.fn(async () => faturasDoMes),
       maioresDoMes: jest.fn(async () => maiores),
+      planoDoMes: jest.fn(async () => plano),
       regime: jest.fn(async () => preferido),
     };
 
@@ -778,6 +816,214 @@ describe('ConversaService', () => {
       await service.responderA(msg('qual meu resultado nesse mes'));
       expect(relatorio.maioresDoMes).not.toHaveBeenCalled();
       expect(relatorio.doMes).toHaveBeenCalled();
+    });
+  });
+
+  describe('a pergunta do planejamento', () => {
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    /** A categoria com meta, como o serviço a devolve quando a frase a
+     * nomeia. */
+    const comAlimentacao = () => ({
+      ...plano,
+      categoria: {
+        id: 'c1', nome: 'Alimentação', filha: false, outras: false,
+        temMeta: true, meta: 800, gasto: 650, resta: 150, pct: 81, nivel: 'warn', filhas: 0,
+      },
+    });
+
+    it('uma categoria: meta, usado e o que ainda cabe', async () => {
+      plano = comAlimentacao();
+      const r = await service.responderA(
+        msg('quanto ainda posso gastar com alimentacao neste mes?'),
+      );
+      expect(r?.texto).toBe(
+        [
+          '🎯 Alimentação em Novembro 2026',
+          '',
+          '🏷️ Meta: R$ 800,00',
+          '📉 Já usou: R$ 650,00 (81%)',
+          '✅ Ainda cabem: R$ 150,00',
+          '',
+          '💵 No mês: R$ 1.150,00 de R$ 3.000,00 planejados · ainda cabem R$ 1.850,00',
+          '',
+          '🧮 Contado pelo vencimento da fatura: compra no cartão pesa no mês em que a fatura vence.',
+          '💡 Contando confirmado e previsto, com os gastos no cartão — como a tela de Planejamento abre.',
+        ].join('\n'),
+      );
+      // A categoria dita sai da frase pela mesma porta do lançamento, e vai
+      // RESOLVIDA para a conta: o nome fica na conversa, o id no cálculo.
+      expect(relatorio.planoDoMes).toHaveBeenCalledWith('user-1', '2026-11', 'fatura', 'c1');
+    });
+
+    it('passar da meta diz quanto passou, e nao um numero negativo', async () => {
+      plano = {
+        ...plano,
+        categoria: {
+          id: 'c9', nome: 'Compras', filha: false, outras: false,
+          temMeta: true, meta: 300, gasto: 420, resta: -120, pct: 140, nivel: 'caro', filhas: 0,
+        },
+      };
+      const r = await service.responderA(msg('quanto ainda posso gastar com compras esse mes?'));
+      expect(r?.texto).toContain('🔺 Passou em: R$ 120,00');
+      expect(r?.texto).not.toContain('-R$');
+    });
+
+    it('o mes inteiro, quando a frase nao nomeia categoria', async () => {
+      const r = await service.responderA(msg('quanto ainda posso gastar neste mes?'));
+      expect(r?.texto).toBe(
+        [
+          '🎯 Planejamento de Novembro 2026',
+          '',
+          '💵 Teto: R$ 3.000,00',
+          '📉 Já usou: R$ 1.150,00 (38%)',
+          '✅ Ainda cabem: R$ 1.850,00',
+          '',
+          '📈 Receitas: R$ 5.000,00 · você esperava R$ 6.000,00',
+          '',
+          '🏷️ Alimentação: R$ 650,00 de R$ 800,00 · cabem R$ 150,00',
+          '🏷️ Compras: R$ 420,00 de R$ 300,00 · passou R$ 120,00',
+          '🏷️ Outras categorias: R$ 80,00 de R$ 1.900,00 · cabem R$ 1.820,00',
+          '',
+          '🧮 Contado pelo vencimento da fatura: compra no cartão pesa no mês em que a fatura vence.',
+          '💡 Contando confirmado e previsto, com os gastos no cartão — como a tela de Planejamento abre.',
+        ].join('\n'),
+      );
+      expect(relatorio.planoDoMes).toHaveBeenCalledWith('user-1', '2026-11', 'fatura', null);
+    });
+
+    it('sem planejamento no mes, oferece copiar de um mes planejado', async () => {
+      plano = { mes: '2026-12', regime: 'fatura', temPlano: false, planejados: ['2026-11'], linhas: [] };
+      const r = await service.responderA(msg('quanto posso gastar em dezembro?'));
+      expect(r?.texto).toBe(
+        [
+          '🎯 Planejamento de Dezembro 2026',
+          '',
+          'Você ainda não definiu um teto, então não tenho com o que comparar os seus gastos.',
+          '',
+          'No app, em Planejamento, dá para copiar o de Novembro 2026 ou começar do zero.',
+        ].join('\n'),
+      );
+      expect(relatorio.planoDoMes).toHaveBeenCalledWith('user-1', '2026-12', 'fatura', null);
+    });
+
+    it('sem planejamento NENHUM, explica o que e o planejamento', async () => {
+      plano = { mes: '2026-11', regime: 'fatura', temPlano: false, planejados: [], linhas: [] };
+      const r = await service.responderA(msg('quanto ainda posso gastar esse mes?'));
+      expect(r?.texto).toContain('você diz quanto quer gastar no mês e reparte');
+      expect(r?.texto).not.toContain('copiar');
+    });
+
+    it('categoria sem meta propria mostra a meta da pai, que e a que limita', async () => {
+      plano = {
+        ...plano,
+        categoria: {
+          id: 'c1a', nome: 'Mercado', filha: true, outras: false,
+          temMeta: false, meta: 0, gasto: 150, resta: -150, pct: 100, nivel: 'caro', filhas: 0,
+        },
+        paiComMeta: {
+          id: 'c1', nome: 'Alimentação', filha: false, outras: false,
+          meta: 800, gasto: 650, resta: 150, pct: 81, nivel: 'warn',
+        },
+      };
+      const r = await service.responderA(msg('quanto ainda posso gastar no mercado esse mes?'));
+      expect(r?.texto).toBe(
+        [
+          '🎯 Mercado em Novembro 2026',
+          '',
+          'Mercado não tem meta neste planejamento.',
+          '📉 Já usou: R$ 150,00',
+          '',
+          'Esse gasto entra em Alimentação, que tem meta:',
+          '🏷️ Alimentação: R$ 650,00 de R$ 800,00 · cabem R$ 150,00',
+          '',
+          '💵 No mês: R$ 1.150,00 de R$ 3.000,00 planejados · ainda cabem R$ 1.850,00',
+          '',
+          '🧮 Contado pelo vencimento da fatura: compra no cartão pesa no mês em que a fatura vence.',
+          '💡 Contando confirmado e previsto, com os gastos no cartão — como a tela de Planejamento abre.',
+        ].join('\n'),
+      );
+      // E nada de "passou em R$ 150,00": sem meta não há o que estourar, e
+      // `nivel: caro` do recorte quer dizer outra coisa (gastou sem meta).
+      expect(r?.texto).not.toContain('Passou');
+    });
+
+    it('categoria sem meta e sem pai cai no resto do teto', async () => {
+      plano = {
+        ...plano,
+        categoria: {
+          id: 'c3', nome: 'Lazer', filha: false, outras: false,
+          temMeta: false, meta: 0, gasto: 80, resta: -80, pct: 100, nivel: 'caro', filhas: 0,
+        },
+      };
+      const r = await service.responderA(msg('quanto ainda posso gastar com lazer esse mes?'));
+      expect(r?.texto).toContain('Ela entra no que sobrou do teto, junto com as outras sem meta:');
+      expect(r?.texto).toContain('🏷️ Outras categorias: R$ 80,00 de R$ 1.900,00 · cabem R$ 1.820,00');
+    });
+
+    it('a frase pode pedir o outro regime, so para aquela resposta', async () => {
+      plano = { ...comAlimentacao(), regime: 'compra' };
+      const r = await service.responderA(
+        msg('quanto ainda posso gastar com alimentacao esse mes pela data da compra?'),
+      );
+      expect(relatorio.planoDoMes).toHaveBeenCalledWith('user-1', '2026-11', 'compra', 'c1');
+      expect(r?.texto).toContain('Contado pela data da compra, só nesta resposta.');
+      expect(r?.texto).toContain('continua sendo o vencimento da fatura');
+    });
+
+    it('o teto zerado nao vira "0%", que diria que esta tudo bem', async () => {
+      plano = { ...plano, teto: 0, gasto: 400, resta: 0, pct: 100, nivel: 'caro', linhas: [] };
+      const r = await service.responderA(msg('qual meu planejamento desse mes?'));
+      expect(r?.texto).toContain('Nenhum teto definido para o mês.');
+      expect(r?.texto).toContain('Já gastou: R$ 400,00');
+      expect(r?.texto).not.toContain('Ainda cabem');
+    });
+
+    // ---- as vizinhas, que esta pergunta NÃO pode roubar ----
+
+    it('nao rouba a pergunta de saldo', async () => {
+      await service.responderA(msg('qual meu saldo?'));
+      expect(relatorio.planoDoMes).not.toHaveBeenCalled();
+    });
+
+    it('nao rouba a pergunta do resultado', async () => {
+      await service.responderA(msg('qual meu resultado nesse mes'));
+      expect(relatorio.planoDoMes).not.toHaveBeenCalled();
+      expect(relatorio.doMes).toHaveBeenCalled();
+    });
+
+    it('nao rouba a pergunta da fatura', async () => {
+      await service.responderA(msg('quanto ainda posso gastar na fatura do nubank?'));
+      expect(relatorio.planoDoMes).not.toHaveBeenCalled();
+      expect(relatorio.faturasDoMes).toHaveBeenCalled();
+    });
+
+    /* O contrário das três de cima: estas DUAS frases caem nas vizinhas se a
+     * pergunta do planejamento for lida depois delas — e a pessoa receberia
+     * um número certo para a pergunta errada. */
+    it('"quanto tenho para gastar" e planejamento, nao saldo', async () => {
+      // Sem "ainda" a frase casa com o `quanto tenho` da pergunta de saldo, e
+      // a pessoa receberia o dinheiro que tem no banco no lugar do que ainda
+      // cabe no mês — dois números bem diferentes.
+      const r = await service.responderA(msg('quanto tenho para gastar esse mes?'));
+      expect(relatorio.planoDoMes).toHaveBeenCalled();
+      expect(r?.texto).toContain('Planejamento de Novembro 2026');
+    });
+
+    it('"quanto gastei da meta" e planejamento, nao resultado', async () => {
+      plano = comAlimentacao();
+      const r = await service.responderA(msg('quanto gastei da meta de alimentacao esse mes?'));
+      expect(relatorio.doMes).not.toHaveBeenCalled();
+      expect(r?.texto).toContain('Alimentação em Novembro 2026');
+    });
+
+    it('frase com dinheiro nao e pergunta, e segue sendo lancamento', async () => {
+      await service.responderA(msg('gastei 50 no mercado categoria alimentacao'));
+      expect(relatorio.planoDoMes).not.toHaveBeenCalled();
     });
   });
 
@@ -1649,6 +1895,45 @@ describe('perguntaDeMaiores', () => {
 
   it('frase com dinheiro nao e pergunta', () => {
     expect(perguntaDeMaiores('gastei 30 no maior mercado da cidade', true)).toBeNull();
+  });
+});
+
+describe('perguntaDeMeta', () => {
+  it('reconhece o vocabulario da tela', () => {
+    for (const f of [
+      'qual minha meta de alimentacao',
+      'como esta meu planejamento',
+      'quanto falta do meu orcamento de novembro',
+      'qual o teto desse mes',
+      'quanto eu tinha planejado para novembro',
+    ]) {
+      expect(perguntaDeMeta(f, false)).toBe(true);
+    }
+  });
+
+  it('reconhece o verbo no infinitivo, que e o que separa esta das outras', () => {
+    for (const f of [
+      'quanto ainda posso gastar com alimentacao neste mes',
+      'quanto ainda tenho para gastar esse mes',
+      'quanto da para gastar em dezembro',
+      'quanto me resta gastar com mercado',
+    ]) {
+      expect(perguntaDeMeta(f, false)).toBe(true);
+    }
+  });
+
+  it('o passado nao e esta pergunta: "quanto gastei" e resultado', () => {
+    expect(perguntaDeMeta('quanto gastei em outubro', false)).toBe(false);
+    expect(perguntaDeMeta('qual meu resultado nesse mes', false)).toBe(false);
+    expect(perguntaDeMeta('qual meu saldo', false)).toBe(false);
+    expect(perguntaDeMeta('quais foram meus maiores gastos em novembro', false)).toBe(false);
+  });
+
+  it('frase com dinheiro nao e pergunta', () => {
+    // O mesmo guarda das outras: senão "gastei 50 no mercado, ia gastar
+    // menos" responderia o planejamento e engoliria o lançamento.
+    expect(perguntaDeMeta('gastei 50 na meta de alimentacao', true)).toBe(false);
+    expect(perguntaDeMeta('vou gastar 200 no mercado', true)).toBe(false);
   });
 });
 
