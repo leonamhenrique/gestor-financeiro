@@ -20,12 +20,14 @@ import {
   perguntaDeFatura,
   perguntaDeMaiores,
   perguntaDeMeta,
+  perguntaDeObjetivos,
   perguntaDeResultado,
   perguntaDeSaldo,
   regimeDaPergunta,
 } from './conversa.service';
 import type {
   FaturasDoMes,
+  ObjetivosDeHoje,
   PlanoDoMes,
   RelatorioService,
   ResultadoDoMes,
@@ -84,7 +86,7 @@ describe('ConversaService', () => {
   let faturasDoMes: FaturasDoMes;
   let relatorio: Pick<
     RelatorioService,
-    'doMes' | 'faturasDoMes' | 'maioresDoMes' | 'planoDoMes' | 'regime'
+    'doMes' | 'faturasDoMes' | 'maioresDoMes' | 'planoDoMes' | 'objetivos' | 'regime'
   >;
   /** O regime guardado no cadastro de quem perguntou. */
   let preferido: 'compra' | 'fatura';
@@ -95,6 +97,10 @@ describe('ConversaService', () => {
    * mock solto poderia trazer um campo que o serviço não devolve, e o teste
    * passaria defendendo uma crença. */
   let plano: PlanoDoMes;
+  /** Os objetivos, como o servico os devolve. Tipado pelo mesmo motivo dos
+   * outros: o que se prova aqui e o TEXTO, e um mock solto poderia trazer um
+   * campo que o servico nao tem. */
+  let objetivos: ObjetivosDeHoje;
 
   beforeEach(() => {
     criados = [];
@@ -282,11 +288,27 @@ describe('ConversaService', () => {
         { id: null, nome: 'Outras categorias', filha: false, outras: true, meta: 1900, gasto: 80, resta: 1820, pct: 4, nivel: 'accent' },
       ],
     };
+    /* Dois objetivos em andamento e um concluído, com o saldo inicial que
+     * separa "guardado" de "aplicado das contas". */
+    objetivos = {
+      guardado: 3900,
+      dasContas: 3300,
+      inicial: 2000,
+      quantos: 3,
+      ativos: [
+        { id: 'g1', nome: 'Viagem', meta: 12000, guardado: 2900, falta: 9100, pct: 24, prazo: '2027-06-30', meses: 8, mensal: 1137.5, atrasado: false, concluido: false, dasContas: 800 },
+        { id: 'g2', nome: 'Notebook', meta: 5000, guardado: 1000, falta: 4000, pct: 20, prazo: '2026-10-31', meses: 1, mensal: 4000, atrasado: true, concluido: false, dasContas: 1000 },
+      ],
+      concluidos: [
+        { id: 'g3', nome: 'Cadeira', meta: 1500, guardado: 1500, falta: 0, pct: 100, prazo: '2026-08-31', meses: 1, mensal: 0, atrasado: false, concluido: true, dasContas: 1500 },
+      ],
+    };
     relatorio = {
       doMes: jest.fn(async () => resultado),
       faturasDoMes: jest.fn(async () => faturasDoMes),
       maioresDoMes: jest.fn(async () => maiores),
       planoDoMes: jest.fn(async () => plano),
+      objetivos: jest.fn(async () => objetivos),
       regime: jest.fn(async () => preferido),
     };
 
@@ -816,6 +838,100 @@ describe('ConversaService', () => {
       await service.responderA(msg('qual meu resultado nesse mes'));
       expect(relatorio.maioresDoMes).not.toHaveBeenCalled();
       expect(relatorio.doMes).toHaveBeenCalled();
+    });
+  });
+
+  describe('a pergunta dos objetivos', () => {
+    it('responde o guardado, cada objetivo e de onde o dinheiro veio', async () => {
+      const r = await service.responderA(
+        msg('quanto tenho guardado nos meus objetivos hoje?'),
+      );
+      expect(r?.texto).toBe(
+        [
+          '🎯 Guardado nos objetivos: R$ 3.900,00',
+          '2 objetivos em andamento',
+          '',
+          '🏷️ Viagem: R$ 2.900,00 de R$ 12.000,00 (24%)',
+          '   Faltam R$ 9.100,00 · R$ 1.137,50 por mês até 30/06/2027',
+          '🏷️ Notebook: R$ 1.000,00 de R$ 5.000,00 (20%)',
+          // Prazo vencido não ganha um "por mês": seria "tudo neste mês",
+          // que não é um plano.
+          '   Faltam R$ 4.000,00 · o prazo venceu em 31/10/2026',
+          '',
+          'De onde vem o guardado',
+          '💰 Aplicado das contas: R$ 3.300,00 — saiu de uma conta e continua no seu saldo.',
+          '🪙 Saldo inicial: R$ 2.000,00 — dinheiro que já era seu, fora das contas.',
+          '',
+          '✅ 1 objetivo concluído: Cadeira.',
+        ].join('\n'),
+      );
+      expect(relatorio.objetivos).toHaveBeenCalledWith('user-1');
+    });
+
+    it('objetivo alcancado nao pede mais nada por mes', async () => {
+      objetivos = {
+        ...objetivos,
+        ativos: [{ ...objetivos.ativos[0], guardado: 12000, falta: 0, pct: 100 }],
+      };
+      const r = await service.responderA(msg('quanto tenho guardado?'));
+      expect(r?.texto).toContain('Meta alcançada 🎉');
+      expect(r?.texto).not.toContain('por mês');
+    });
+
+    it('sem objetivo nenhum, diz onde se cria um', async () => {
+      objetivos = { guardado: 0, dasContas: 0, inicial: 0, quantos: 0, ativos: [], concluidos: [] };
+      const r = await service.responderA(msg('quanto tenho guardado nos objetivos?'));
+      expect(r?.texto).toContain('Você ainda não tem objetivo cadastrado');
+      expect(r?.texto).not.toContain('R$ 0,00');
+    });
+
+    it('todos concluidos nao viram "R$ 0,00 guardado"', async () => {
+      // Seria verdade sobre os em andamento e mentira sobre o esforço da
+      // pessoa, que está logo abaixo na mesma resposta.
+      objetivos = { ...objetivos, guardado: 0, ativos: [] };
+      const r = await service.responderA(msg('quanto tenho guardado nos objetivos?'));
+      expect(r?.texto).toContain('Nenhum objetivo em andamento agora.');
+      expect(r?.texto).toContain('✅ 1 objetivo concluído: Cadeira.');
+      expect(r?.texto).not.toContain('Guardado nos objetivos: R$ 0,00');
+    });
+
+    it('com mais de cinco, a lista corta e diz onde ver o resto', async () => {
+      const muitos = Array.from({ length: 7 }, (_, i) => ({
+        ...objetivos.ativos[0],
+        id: 'g' + i,
+        nome: 'Objetivo ' + i,
+      }));
+      objetivos = { ...objetivos, ativos: muitos };
+      const r = await service.responderA(msg('quanto tenho guardado nos objetivos?'));
+      expect(r?.texto).toContain('… e mais 2 no app.');
+      expect(r?.texto).not.toContain('Objetivo 5');
+    });
+
+    /* As vizinhas. A de saldo é a que mais encosta: "quanto tenho guardado"
+     * casa com o `quanto tenho` dela. */
+    it('"quanto tenho guardado" e objetivo, nao saldo', async () => {
+      const r = await service.responderA(msg('quanto tenho guardado hoje?'));
+      expect(relatorio.objetivos).toHaveBeenCalled();
+      expect(r?.texto).toContain('Guardado nos objetivos');
+    });
+
+    it('nao rouba a pergunta de saldo', async () => {
+      const r = await service.responderA(msg('qual meu saldo?'));
+      expect(relatorio.objetivos).not.toHaveBeenCalled();
+      expect(r?.texto).toContain('Saldo de hoje');
+    });
+
+    it('objetivo nomeado ganha do planejamento, mesmo falando em meta', async () => {
+      // "meta" quer dizer coisas diferentes nas duas telas: aqui é o alvo do
+      // objetivo, lá é o teto da categoria no mês.
+      const r = await service.responderA(msg('quanto falta para a meta do meu objetivo da viagem?'));
+      expect(relatorio.planoDoMes).not.toHaveBeenCalled();
+      expect(r?.texto).toContain('Guardado nos objetivos');
+    });
+
+    it('frase com dinheiro nao e pergunta, e segue sendo lancamento', async () => {
+      await service.responderA(msg('guardei 500 na viagem'));
+      expect(relatorio.objetivos).not.toHaveBeenCalled();
     });
   });
 
@@ -1926,6 +2042,39 @@ describe('perguntaDeMaiores', () => {
 
   it('frase com dinheiro nao e pergunta', () => {
     expect(perguntaDeMaiores('gastei 30 no maior mercado da cidade', true)).toBeNull();
+  });
+});
+
+describe('perguntaDeObjetivos', () => {
+  it('reconhece as formas comuns', () => {
+    for (const f of [
+      'quanto tenho guardado nos meus objetivos hoje',
+      'meus objetivos',
+      'quanto ja guardei',
+      'como esta minha reserva',
+      'quanto tenho no cofrinho',
+      'quanto eu poupei ate agora',
+    ]) {
+      expect(perguntaDeObjetivos(f, false)).toBe(true);
+    }
+  });
+
+  it('poupanca e tipo de conta, e continua sendo pergunta de saldo', () => {
+    // "conta poupança" existe no app; quem pergunta por ela quer o saldo
+    // dela, e não o que está guardado em objetivo.
+    expect(perguntaDeObjetivos('quanto tenho na poupanca', false)).toBe(false);
+    expect(perguntaDeSaldo('quanto tenho na poupanca', false)).toBe(true);
+  });
+
+  it('as outras perguntas nao caem aqui', () => {
+    expect(perguntaDeObjetivos('qual meu saldo', false)).toBe(false);
+    expect(perguntaDeObjetivos('qual meu resultado nesse mes', false)).toBe(false);
+    expect(perguntaDeObjetivos('quanto ainda posso gastar com alimentacao', false)).toBe(false);
+    expect(perguntaDeObjetivos('qual o valor das minhas faturas', false)).toBe(false);
+  });
+
+  it('frase com dinheiro nao e pergunta', () => {
+    expect(perguntaDeObjetivos('guardei 500 no objetivo da viagem', true)).toBe(false);
   });
 });
 

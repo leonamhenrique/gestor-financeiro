@@ -16,7 +16,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { TransfersService } from '../transfers/transfers.service';
-import { LinhaDeFatura, LinhaDoPlano, PlanoDoMes, RelatorioService } from '../relatorio/relatorio.service';
+import {
+  LinhaDeFatura,
+  LinhaDeObjetivo,
+  LinhaDoPlano,
+  PlanoDoMes,
+  RelatorioService,
+} from '../relatorio/relatorio.service';
 import { chaveDoMes, dia } from '../credit-cards/invoice-statement';
 import { CategoriesService } from '../categories/categories.service';
 import { BankAccountsService } from '../bank-accounts/bank-accounts.service';
@@ -227,6 +233,32 @@ export function perguntaDeMaiores(texto: string, temValor: boolean): 'EXPENSE' |
  * dizendo o que ela é, então o engano aparece na primeira linha em vez de
  * virar um número sem procedência.
  */
+/**
+ * A frase pergunta pelos OBJETIVOS — "quanto tenho guardado nos meus
+ * objetivos hoje?"
+ *
+ * Ela é lida antes de todas as outras de consulta, e isso resolve dois
+ * encontros que já existiam:
+ *
+ *   - **saldo**: "quanto tenho guardado" casa com o `quanto tenho` da
+ *     pergunta de saldo, e a pessoa recebia o saldo das contas com UMA linha
+ *     de objetivos dentro — o número certo para outra pergunta, e sem o
+ *     quanto falta, o prazo, ou um objetivo sequer nomeado;
+ *   - **planejamento**: "minha meta da viagem" é objetivo, não teto do mês.
+ *     Quem nomeia objetivo está falando de objetivo, mesmo usando a palavra
+ *     meta — que nos dois lugares quer dizer coisas diferentes.
+ *
+ * "Poupança" ficou DE FORA das palavras-pista de propósito: ela é um tipo de
+ * conta no app ("conta poupança"), e "quanto tenho na poupança" é pergunta
+ * de saldo.
+ */
+export function perguntaDeObjetivos(texto: string, temValor: boolean): boolean {
+  if (temValor) return false;
+  const t = semAcento(texto);
+  if (/\bobjetivos?\b/.test(t)) return true;
+  return /\bguardad[oa]s?\b|\bguardei\b|\bguardo\b|\bpoupad[oa]s?\b|\bpoupei\b|\breserva\b|\bcofrinho\b/.test(t);
+}
+
 export function perguntaDeMeta(texto: string, temValor: boolean): boolean {
   if (temValor) return false;
   const t = semAcento(texto);
@@ -597,6 +629,12 @@ export class ConversaService {
     // deixá-la perguntar primeiro resolve o encontro sem tirar nada da outra.
     if (perguntaDeFatura(texto, temValor)) {
       return { texto: await this.responderFaturas(userId, texto, ctx) };
+    }
+    // Os OBJETIVOS vêm na frente das outras consultas: "quanto tenho
+    // guardado" caía no saldo, e "minha meta da viagem" cairia no
+    // planejamento. Ver `perguntaDeObjetivos`.
+    if (perguntaDeObjetivos(texto, temValor)) {
+      return { texto: await this.responderObjetivos(userId) };
     }
     // O PLANEJAMENTO vem antes das três contas do passado: ele é a única
     // pergunta que olha para a frente, e as frases dela caem nas outras —
@@ -1118,6 +1156,105 @@ export class ConversaService {
     linhas.push('');
     linhas.push(this.notaDoRegime(r.regime, preferido));
     return linhas.join('\n');
+  }
+
+  /**
+   * "Quanto tenho guardado nos meus objetivos hoje?" — a tela de Objetivos.
+   *
+   * **Os três números do topo da tela vêm com os rótulos da tela**, e sem
+   * nunca serem somados entre si. Eles se parecem e são sobre conjuntos
+   * diferentes: o guardado é dos objetivos EM ANDAMENTO, e o "aplicado das
+   * contas" é de todos, concluídos incluídos. Apresentá-los como uma
+   * repartição faria a conta não fechar na tela do lado — e quem compara os
+   * dois acharia que um dos dois está errado.
+   *
+   * O que cada um responde, em uma linha: o guardado é o que a pessoa juntou;
+   * o aplicado das contas é a parte que ainda é saldo dela (e é a única que o
+   * "quanto tenho" soma); o saldo inicial é o que já era dela e nunca passou
+   * por uma conta do app.
+   */
+  private async responderObjetivos(userId: string): Promise<string> {
+    const r = await this.relatorio.objetivos(userId);
+
+    if (!r.quantos) {
+      return (
+        '🎯 Você ainda não tem objetivo cadastrado.\n\n' +
+        'No app, em Objetivos, você diz quanto quer juntar e até quando — e ' +
+        'o app passa a dizer quanto falta por mês.'
+      );
+    }
+
+    const linhas: string[] = [];
+    if (r.ativos.length) {
+      linhas.push('🎯 Guardado nos objetivos: ' + this.brl(r.guardado));
+      linhas.push(
+        r.ativos.length === 1
+          ? '1 objetivo em andamento'
+          : r.ativos.length + ' objetivos em andamento',
+      );
+      linhas.push('');
+      // Cinco, como as maiores categorias: a lista é para reconhecer, e o
+      // resto cabe no app.
+      for (const o of r.ativos.slice(0, 5)) linhas.push(...this.linhasDoObjetivo(o));
+      if (r.ativos.length > 5) {
+        linhas.push('… e mais ' + (r.ativos.length - 5) + ' no app.');
+      }
+    } else {
+      // Todos concluídos: dizer "R$ 0,00 guardado" seria verdade sobre os em
+      // andamento e mentira sobre o esforço da pessoa.
+      linhas.push('🎯 Nenhum objetivo em andamento agora.');
+    }
+
+    if (r.dasContas || r.inicial) {
+      linhas.push('');
+      linhas.push('De onde vem o guardado');
+      if (r.dasContas) {
+        linhas.push(
+          '💰 Aplicado das contas: ' + this.brl(r.dasContas) +
+          ' — saiu de uma conta e continua no seu saldo.',
+        );
+      }
+      if (r.inicial) {
+        linhas.push(
+          '🪙 Saldo inicial: ' + this.brl(r.inicial) +
+          ' — dinheiro que já era seu, fora das contas.',
+        );
+      }
+    }
+
+    if (r.concluidos.length) {
+      linhas.push('');
+      const nomes = r.concluidos.slice(0, 3).map((o) => o.nome).join(', ');
+      linhas.push(
+        '✅ ' + (r.concluidos.length === 1 ? '1 objetivo concluído' : r.concluidos.length + ' objetivos concluídos') +
+        ': ' + nomes + (r.concluidos.length > 3 ? ' e outros.' : '.'),
+      );
+    }
+
+    return linhas.join('\n');
+  }
+
+  /** Um objetivo em duas linhas: onde ele está, e o que falta para chegar.
+   *
+   * O "por mês" só aparece quando ainda dá tempo. Depois do prazo ele seria
+   * um número inventado — `mesesAteOPrazo` nunca desce de 1, então o valor
+   * passaria a ser "tudo o que falta, neste mês", que não é um plano. */
+  private linhasDoObjetivo(o: LinhaDeObjetivo): string[] {
+    const cabeca =
+      '🏷️ ' + o.nome + ': ' + this.brl(o.guardado) + ' de ' + this.brl(o.meta) +
+      ' (' + o.pct + '%)';
+    if (o.falta <= 0) return [cabeca, '   Meta alcançada 🎉'];
+    if (o.atrasado) {
+      return [
+        cabeca,
+        '   Faltam ' + this.brl(o.falta) + ' · o prazo venceu em ' + this.dataBR(o.prazo),
+      ];
+    }
+    return [
+      cabeca,
+      '   Faltam ' + this.brl(o.falta) + ' · ' + this.brl(o.mensal) +
+      ' por mês até ' + this.dataBR(o.prazo),
+    ];
   }
 
   /**

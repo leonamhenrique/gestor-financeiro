@@ -133,6 +133,45 @@ export interface PlanoDoMes {
   paiComMeta?: LinhaDoPlano;
 }
 
+/** Um objetivo como quem pergunta precisa dele: o quanto já tem, o quanto
+ * falta e em quanto tempo. */
+export interface LinhaDeObjetivo {
+  id: string;
+  nome: string;
+  meta: number;
+  /** Tudo o que está no objetivo, saldo inicial incluído. */
+  guardado: number;
+  falta: number;
+  pct: number;
+  /** 'AAAA-MM-DD'. */
+  prazo: string;
+  /** Meses que ainda cabem até o prazo, contando o corrente. Nunca menos de 1. */
+  meses: number;
+  /** Quanto por mês para chegar no prazo — recalculado a cada leitura. */
+  mensal: number;
+  /** Passou do prazo e ainda falta dinheiro. */
+  atrasado: boolean;
+  concluido: boolean;
+  /** A parte deste objetivo que saiu das contas visíveis. */
+  dasContas: number;
+}
+
+export interface ObjetivosDeHoje {
+  /** O guardado nos objetivos EM ANDAMENTO, saldo inicial incluído — o número
+   * grande da tela de Objetivos. */
+  guardado: number;
+  /** "Aplicado das contas": saiu de uma conta e continua no saldo geral. É
+   * sobre TODOS os objetivos, como na tela — e é este, e só este, que o saldo
+   * soma. */
+  dasContas: number;
+  /** "Saldo inicial": dinheiro que já era da pessoa, fora das contas. */
+  inicial: number;
+  /** Quantos objetivos existem, concluídos incluídos. */
+  quantos: number;
+  ativos: LinhaDeObjetivo[];
+  concluidos: LinhaDeObjetivo[];
+}
+
 export interface ResultadoDoMes {
   mes: string;
   regime: 'compra' | 'fatura';
@@ -242,6 +281,33 @@ export class RelatorioService {
       instanteDoUsuario(),
       escolhido,
       categoriaId ?? null,
+    );
+  }
+
+  /**
+   * O que está guardado nos objetivos — a tela de Objetivos, em números.
+   *
+   * **Carrega menos que as outras perguntas, de propósito.** Objetivo não
+   * depende de lançamento, de fatura nem de regime: o guardado é a soma dos
+   * movimentos sobre o saldo inicial. Então aqui vão só as contas (para saber
+   * qual está oculta) e os objetivos com os movimentos dentro — e não a lista
+   * inteira de lançamentos, que nesta conta não entraria em nada.
+   *
+   * A ordem é a da rota /goals, que é a da tela: em andamento primeiro, e
+   * dentro disso o prazo mais próximo na frente.
+   */
+  async objetivos(userId: string): Promise<ObjetivosDeHoje> {
+    const [contas, objetivos] = await Promise.all([
+      this.prisma.bankAccount.findMany({ where: { userId }, orderBy: ORDEM_DA_LISTA }),
+      this.prisma.goal.findMany({
+        where: { userId },
+        include: { movements: { orderBy: [{ movementDate: 'desc' }, { createdAt: 'desc' }] } },
+        orderBy: [{ completedAt: { sort: 'asc', nulls: 'first' } }, { targetDate: 'asc' }],
+      }),
+    ]);
+    return relatorio.objetivosDeHoje(
+      JSON.parse(JSON.stringify({ contas, objetivos })),
+      instanteDoUsuario(),
     );
   }
 

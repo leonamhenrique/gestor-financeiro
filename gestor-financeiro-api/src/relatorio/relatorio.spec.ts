@@ -349,6 +349,115 @@ describe('relatorio.js — a mesma conta da tela, fora dela', () => {
     });
   });
 
+  describe('o que está guardado nos objetivos', () => {
+    /* Uma conta visível e uma OCULTA, porque é a conta oculta que separa os
+     * dois números que mais se parecem: o guardado (tudo o que está no
+     * objetivo) e o aplicado das contas (o que continua sendo saldo). */
+    const comObjetivos = (over: Record<string, unknown> = {}) =>
+      dados({
+        contas: [conta(), conta({ id: 'a2', institutionName: 'Cofre', isHidden: true })],
+        objetivos: [
+          {
+            id: 'g1', name: 'Viagem', startDate: '2026-01-01', targetDate: '2027-06-30',
+            targetAmount: '12000', initialBalance: '2000', accountId: 'a1', completedAt: null,
+            movements: [
+              { id: 'm1', type: 'DEPOSIT', amount: '500', bankAccountId: 'a1', movementDate: '2026-10-05' },
+              { id: 'm2', type: 'DEPOSIT', amount: '300', bankAccountId: 'a1', movementDate: '2026-11-01' },
+              // Da conta OCULTA: entra no guardado, não entra no aplicado.
+              { id: 'm3', type: 'DEPOSIT', amount: '100', bankAccountId: 'a2', movementDate: '2026-11-01' },
+            ],
+          },
+          {
+            id: 'g2', name: 'Notebook', startDate: '2026-06-01', targetDate: '2026-10-31',
+            targetAmount: '5000', initialBalance: '0', accountId: 'a1', completedAt: null,
+            movements: [
+              { id: 'm4', type: 'DEPOSIT', amount: '1000', bankAccountId: 'a1', movementDate: '2026-09-10' },
+            ],
+          },
+          {
+            id: 'g3', name: 'Cadeira', startDate: '2026-01-01', targetDate: '2026-08-31',
+            targetAmount: '1500', initialBalance: '0', accountId: 'a1', completedAt: '2026-08-20',
+            movements: [
+              { id: 'm5', type: 'DEPOSIT', amount: '1500', bankAccountId: 'a1', movementDate: '2026-08-01' },
+            ],
+          },
+        ],
+        ...over,
+      });
+
+    const objetivos = (d: unknown, hoje = HOJE) => relatorio.objetivosDeHoje(d, hoje);
+
+    it('os três números do topo da tela, cada um sobre o seu conjunto', () => {
+      const r = objetivos(comObjetivos());
+      // Em andamento: 2.900 (Viagem, com os 2.000 de saldo inicial) + 1.000.
+      expect(r.guardado).toBe(3900);
+      // Aplicado das contas VISÍVEIS, sobre TODOS — concluído incluído, como
+      // na tela: 800 + 1.000 + 1.500. Os 100 da conta oculta ficam de fora.
+      expect(r.dasContas).toBe(3300);
+      // O que não veio de conta nenhuma: o saldo inicial que ainda está lá.
+      expect(r.inicial).toBe(2000);
+      expect(r.quantos).toBe(3);
+    });
+
+    it('o concluído sai dos ativos e continua guardando o que tem', () => {
+      const r = objetivos(comObjetivos());
+      expect(r.ativos.map((o: any) => o.nome)).toEqual(['Viagem', 'Notebook']);
+      expect(r.concluidos.map((o: any) => [o.nome, o.guardado])).toEqual([['Cadeira', 1500]]);
+    });
+
+    it('cada objetivo diz onde está e quanto falta por mês', () => {
+      const r = objetivos(comObjetivos());
+      const viagem = r.ativos[0];
+      expect([viagem.guardado, viagem.meta, viagem.pct, viagem.falta]).toEqual([2900, 12000, 24, 9100]);
+      // De 11/2026 a 06/2027, contando o mês corrente: 8 meses.
+      expect([viagem.meses, viagem.mensal, viagem.atrasado]).toEqual([8, 1137.5, false]);
+      // E a parte dele que saiu das contas visíveis — 800 dos 2.900.
+      expect(viagem.dasContas).toBe(800);
+    });
+
+    it('prazo vencido com dinheiro faltando é atraso, e não um plano novo', () => {
+      // HOJE é 1º/11/2026 e o prazo era 31/10. `mesesAteOPrazo` nunca desce de
+      // 1, então o "por mês" viraria "tudo neste mês" — por isso a marca.
+      const r = objetivos(comObjetivos());
+      const note = r.ativos[1];
+      expect([note.falta, note.meses, note.atrasado]).toEqual([4000, 1, true]);
+    });
+
+    it('resgatar mais do que aplicou come o saldo inicial, e não vira negativo', () => {
+      const d = comObjetivos({
+        objetivos: [
+          {
+            id: 'g1', name: 'Viagem', startDate: '2026-01-01', targetDate: '2027-06-30',
+            targetAmount: '12000', initialBalance: '2000', accountId: 'a1', completedAt: null,
+            movements: [
+              { id: 'm1', type: 'DEPOSIT', amount: '300', bankAccountId: 'a1', movementDate: '2026-10-05' },
+              { id: 'm2', type: 'WITHDRAW', amount: '800', bankAccountId: 'a1', movementDate: '2026-10-20' },
+            ],
+          },
+        ],
+      });
+      const r = objetivos(d);
+      // Guardado: 2.000 + 300 − 800 = 1.500.
+      expect(r.guardado).toBe(1500);
+      // Aplicado: −500 vira 0, porque esse dinheiro saiu do saldo inicial e
+      // já virou saldo de conta. Sem o piso, o total do app ficaria parado.
+      expect(r.dasContas).toBe(0);
+      expect(r.inicial).toBe(1500);
+    });
+
+    it('sem objetivo nenhum, tudo zero e nada quebra', () => {
+      const r = objetivos(comObjetivos({ objetivos: [] }));
+      expect([r.guardado, r.dasContas, r.inicial, r.quantos]).toEqual([0, 0, 0, 0]);
+      expect(r.ativos).toEqual([]);
+    });
+
+    it('sem `hoje` não há prazo possível, e a porta recusa', () => {
+      // O fallback do app é `dataDeHoje()`, que aqui não existe: seria o
+      // relógio do servidor contando o prazo de quem perguntou.
+      expect(() => relatorio.objetivosDeHoje(comObjetivos(), null)).toThrow(/hoje/);
+    });
+  });
+
   describe('a mesma compra de cartão, nos dois regimes', () => {
     // Compra em 05/11; o cartão fecha 10 e vence 17, então a fatura é a de
     // novembro e vence 17/11 — o mês é o mesmo nos dois regimes aqui, e é por

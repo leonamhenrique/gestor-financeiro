@@ -129,6 +129,25 @@ const FUNCOES = [
   'nivelDaMeta',
   'pctDaMeta',
   'linhasDoPlanejamento',
+  // ---- os objetivos: quanto está guardado, e o que falta para cada um.
+  //
+  // São três números diferentes e fáceis de confundir, e a tela de Objetivos
+  // mostra os três lado a lado: o GUARDADO (que inclui o saldo inicial, o
+  // dinheiro que já era da pessoa e nunca passou por uma conta do app), o
+  // APLICADO das contas (que continua sendo saldo dela, e é o que o saldo
+  // geral soma) e a diferença entre os dois. Escolher um e chamar de "o
+  // total" seria responder outra pergunta.
+  //
+  // `progressoDoObjetivo` recebe o "hoje" por parâmetro SEMPRE: o fallback
+  // dele é `dataDeHoje()`, que aqui não existe de propósito — seria o relógio
+  // do servidor decidindo o prazo de quem perguntou, e é melhor estourar.
+  'movimentosDoObjetivo',
+  'saldoDoObjetivo',
+  'aplicadoDoObjetivo',
+  'emObjetivos',
+  'mesesAteOPrazo',
+  'progressoDoObjetivo',
+  'objetivoConcluido',
   // a tradução do que a API devolve — a MESMA que o app usa ao carregar
   'soData',
   'contaDaApi',
@@ -139,6 +158,8 @@ const FUNCOES = [
   'lancamentoDaApi',
   'pagamentoDaApi',
   'planejamentoDaApi',
+  'objetivoDaApi',
+  'movimentoDeObjetivoDaApi',
 ];
 
 const CABECALHO = `// ============================================================
@@ -206,6 +227,10 @@ function estadoDaApi(dados) {
     // — e essa é a diferença entre oferecer copiar e oferecer começar do
     // zero, que é o que a tela faz no mesmo caso.
     planejamentos: (dados.planejamentos || []).map(planejamentoDaApi),
+    // Os objetivos vêm com os movimentos dentro, como a rota /goals os
+    // entrega: o guardado de cada um É a soma deles sobre o saldo inicial,
+    // e um objetivo sem os movimentos apareceria zerado em silêncio.
+    objetivos: (dados.objetivos || []).map(objetivoDaApi),
   };
 }
 
@@ -254,7 +279,7 @@ function comEstado(dados, mes, hoje, regime, contar) {
       return contar(parseMonthKey(mes));
     });
   } finally {
-    state = { accounts: [], cards: [], transactions: [], categories: [], planejamentos: [] };
+    state = { accounts: [], cards: [], transactions: [], categories: [], planejamentos: [], objetivos: [] };
     HOJE = null;
     definirRelatorioPor(REGIME_PADRAO, false);
   }
@@ -473,11 +498,87 @@ function faturasDoMes(dados, mes, hoje) {
   });
 }
 
+/**
+ * O que está guardado nos objetivos — a tela de Objetivos, em números.
+ *
+ * **Sem mês e sem regime**, e por isso não passa por \`comEstado\`: objetivo
+ * não tem competência. "Quanto tenho guardado?" é uma pergunta de HOJE, como
+ * a do saldo, e o mês só apareceria aqui como um parâmetro que não muda
+ * resposta nenhuma — do tipo que alguém acabaria usando.
+ *
+ * **Os três números do topo da tela vão juntos, e é de propósito.** Eles se
+ * parecem e não são a mesma coisa:
+ *
+ *   - \`guardado\` é o que está nos objetivos EM ANDAMENTO, saldo inicial
+ *     incluído. É o número grande da tela;
+ *   - \`dasContas\` é o que saiu de uma conta e continua sendo saldo da
+ *     pessoa — é este que o saldo geral soma, e só este;
+ *   - \`inicial\` é o que já era dela e nunca passou por uma conta do app.
+ *
+ * Responder só o primeiro faria a pessoa somar esse dinheiro ao saldo das
+ * contas e contar parte dele duas vezes. Responder só o segundo esconderia
+ * dinheiro que ela guardou de verdade.
+ *
+ * \`hoje\` é obrigatório porque o prazo é contado a partir dele: é ele que
+ * diz quantos meses faltam e quanto por mês. O fallback do app
+ * (\`dataDeHoje()\`) não existe aqui de propósito — seria o relógio do
+ * servidor decidindo o prazo de quem perguntou.
+ */
+function objetivosDeHoje(dados, hoje) {
+  if (!(hoje instanceof Date) || isNaN(hoje.getTime())) {
+    throw new Error('relatorio.js: passe \`hoje\` (Date) — é ele que conta os meses que faltam até o prazo.');
+  }
+  state = estadoDaApi(dados);
+  HOJE = hoje;
+  try {
+    var todos = state.objetivos || [];
+    var linha = function (o) {
+      var p = progressoDoObjetivo(o, hoje);
+      return {
+        id: o.id,
+        nome: o.nome,
+        meta: o.meta,
+        guardado: p.guardado,
+        falta: p.falta,
+        // Inteiro, como a tela escreve na barra.
+        pct: Math.round(p.pct * 100),
+        prazo: o.prazo,
+        meses: p.meses,
+        // Quanto por mês para chegar no prazo — recalculado, nunca gravado:
+        // quem depositou menos vê subir, quem depositou mais vê descer.
+        mensal: p.mensal,
+        // Fora do prazo e ainda faltando dinheiro.
+        atrasado: !p.noPrazo,
+        concluido: objetivoConcluido(o),
+        // Quanto deste objetivo veio das contas; o resto é saldo inicial.
+        dasContas: aplicadoDoObjetivo(o, true),
+      };
+    };
+    var ativos = todos.filter(function (o) { return !objetivoConcluido(o); });
+    return {
+      guardado: ativos.reduce(function (s, o) { return s + saldoDoObjetivo(o); }, 0),
+      dasContas: emObjetivos(),
+      // A subtração, e não um campo: resgatar mais do que foi aplicado come o
+      // saldo inicial, e um número gravado mentiria depois disso. Sobre TODOS
+      // os objetivos, como na tela.
+      inicial: todos.reduce(function (s, o) {
+        return s + (saldoDoObjetivo(o) - aplicadoDoObjetivo(o));
+      }, 0),
+      quantos: todos.length,
+      ativos: ativos.map(linha),
+      concluidos: todos.filter(objetivoConcluido).map(linha),
+    };
+  } finally {
+    state = { accounts: [], cards: [], transactions: [], categories: [], planejamentos: [], objetivos: [] };
+    HOJE = null;
+  }
+}
+
 /** O regime que o app assume quando ninguém escolheu — lido do próprio
  * recorte, para não haver um padrão aqui e outro lá. */
 var REGIME_PADRAO = relatorioPor;
 
-module.exports = { calcularMes, faturasDoMes, maioresDoMes, planoDoMes, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };
+module.exports = { calcularMes, faturasDoMes, maioresDoMes, planoDoMes, objetivosDeHoje, estadoDaApi, REGIME_PADRAO: REGIME_PADRAO };
 `;
 
 function gerar() {

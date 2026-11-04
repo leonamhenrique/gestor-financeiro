@@ -64,9 +64,14 @@ describe('RelatorioService — do banco para a conta da tela', () => {
     items: { categoryId: string; amount: Prisma.Decimal; fromChildren: boolean }[];
   }[];
 
+  /** Os objetivos como a consulta os traz: dinheiro em Decimal, data em
+   * coluna Date, movimentos dentro. */
+  let objetivos: any[];
+
   beforeEach(() => {
     viradas = [];
     planejamentos = [];
+    objetivos = [];
     categorias = [{ id: 'cat-1', name: 'Alimentação', type: 'EXPENSE' }];
     contas = [
       {
@@ -106,6 +111,8 @@ describe('RelatorioService — do banco para a conta da tela', () => {
       // Os planejamentos, com as metas dentro — a mesma forma da rota
       // /budgets, que é de onde o app os lê.
       budget: { findMany: jest.fn(async () => planejamentos) },
+      // Os objetivos, com os movimentos dentro, como a rota /goals os entrega.
+      goal: { findMany: jest.fn(async () => objetivos) },
       // As faturas viradas do usuário, na forma da consulta do service
       // (apenas `creditCardId`, `referenceMonth` e `earlyClosedAt`).
       creditCardInvoice: { findMany: jest.fn(async () => viradas) },
@@ -238,6 +245,50 @@ describe('RelatorioService — do banco para a conta da tela', () => {
     expect((service as any).prisma.budget.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: 'u1' } }),
     );
+  });
+
+  /* O objetivo sai do banco com dinheiro em Decimal e DATA EM COLUNA Date, e
+   * volta como número e 'AAAA-MM-DD'. O prazo é o que mais sofre: um Date
+   * cru faria `new Date(o.prazo + 'T00:00:00')` virar Invalid Date, e os
+   * meses até o prazo sairiam NaN — "R$ NaN por mês". */
+  it('o objetivo do banco vira guardado, falta e quanto por mês', async () => {
+    objetivos = [
+      {
+        id: 'g1',
+        name: 'Viagem',
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        targetDate: new Date('2027-06-30T00:00:00.000Z'),
+        targetAmount: dec(12000),
+        initialBalance: dec(2000),
+        accountId: 'a1',
+        completedAt: null,
+        movements: [
+          {
+            id: 'm1',
+            type: 'DEPOSIT',
+            amount: dec(900),
+            bankAccountId: 'a1',
+            movementDate: new Date('2026-10-05T00:00:00.000Z'),
+          },
+        ],
+      },
+    ];
+    const r = await service.objetivos('u1');
+    expect([r.guardado, r.dasContas, r.inicial, r.quantos]).toEqual([2900, 900, 2000, 1]);
+    expect(r.ativos[0]).toMatchObject({ nome: 'Viagem', meta: 12000, falta: 9100, prazo: '2027-06-30' });
+    expect(Number.isFinite(r.ativos[0].mensal)).toBe(true);
+    // E a consulta é a de quem perguntou.
+    expect((service as any).prisma.goal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'u1' } }),
+    );
+  });
+
+  it('a pergunta dos objetivos não carrega os lançamentos', async () => {
+    // Objetivo não depende de lançamento, fatura nem regime. Carregar a
+    // lista inteira aqui seria pagar a conta mais cara do serviço à toa.
+    await service.objetivos('u1');
+    expect((service as any).prisma.transaction.findMany).not.toHaveBeenCalled();
+    expect((service as any).prisma.creditCard.findMany).not.toHaveBeenCalled();
   });
 
   it('mês sem planejamento não inventa teto nenhum', async () => {
