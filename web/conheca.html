@@ -144,8 +144,8 @@ section{padding-block:64px;border-top:1px solid var(--hairline)}
 
 /* título digitado */
 .hero h1 .w{white-space:nowrap}
-.hero h1.digitando .ch{opacity:.14}
-.hero h1.digitando .ch.on{opacity:1}
+.hero h1.datilografa .ch{opacity:.14}
+.hero h1.datilografa .ch.on{opacity:1}
 .cursor{display:inline-block;width:3px;height:.85em;background:var(--accent);margin-left:3px;vertical-align:-0.06em;animation:cursor 1s steps(1) infinite}
 @keyframes cursor{50%{opacity:0}}
 .hero h1 em{background:linear-gradient(var(--accent),var(--accent)) 0 96%/0% 3px no-repeat;transition:background-size .9s cubic-bezier(.2,.8,.2,1)}
@@ -182,7 +182,7 @@ section{padding-block:64px;border-top:1px solid var(--hairline)}
 .seta{color:var(--fg-subtle)}
 .transc{font-size:13px}
 .transc .ch{transition:opacity .1s}
-.transc.digitando .ch{opacity:.14} .transc.digitando .ch.on{opacity:1}
+.transc.datilografa .ch{opacity:.14} .transc.datilografa .ch.on{opacity:1}
 .lixo{flex-basis:100%;font-size:11px;color:var(--fg-subtle);transition:opacity .4s}
 .lixo.esp{opacity:0}
 .cadeado{width:26px;height:26px;color:var(--accent);overflow:visible}
@@ -809,11 +809,11 @@ function emLaco(el,fn,pausa){
   const h=document.querySelector('.hero h1'); h.setAttribute('aria-label',h.textContent);
   const em=h.querySelector('em');
   if(reduz){em.classList.add('acende');return}
-  const chars=quebrar(h); h.classList.add('digitando');
+  const chars=quebrar(h); h.classList.add('datilografa');
   const cur=document.createElement('span'); cur.className='cursor'; cur.setAttribute('aria-hidden','true');
   await espera(250);
   for(const c of chars){c.classList.add('on');c.after(cur);if(c.parentElement.parentElement===em&&c===chars.filter(x=>em.contains(x)).pop())em.classList.add('acende');await espera(/[.!?]/.test(c.textContent)?260:30)}
-  await espera(1600); cur.remove(); h.classList.remove('digitando');
+  await espera(1600); cur.remove(); h.classList.remove('datilografa');
 })();
 
 /* 2. passos: a linha corre de 1 a 3, e cada passo tem sua cena repetindo */
@@ -846,11 +846,11 @@ emLaco($('cena-sim'),async()=>{
 const onda2=$('cena-audio').querySelector('.onda2'), transc=$('cena-audio').querySelector('.transc'), lixo=$('cena-audio').querySelector('.lixo');
 const transcChars=quebrar(transc);
 emLaco($('cena-audio'),async()=>{
-  lixo.classList.add('esp');transc.classList.add('digitando');transcChars.forEach(c=>c.classList.remove('on'));
+  lixo.classList.add('esp');transc.classList.add('datilografa');transcChars.forEach(c=>c.classList.remove('on'));
   onda2.classList.remove('some');onda2.classList.add('tocando');await espera(1300);
   onda2.classList.remove('tocando');
   for(const c of transcChars){c.classList.add('on');await espera(35)}
-  await espera(400);onda2.classList.add('some');lixo.classList.remove('esp');transc.classList.remove('digitando');
+  await espera(400);onda2.classList.add('some');lixo.classList.remove('esp');transc.classList.remove('datilografa');
 },2800);
 const cad=$('cena-cad').querySelector('.cadeado'), codCad=[...$('cena-cad').querySelectorAll('b')];
 emLaco($('cena-cad'),async()=>{
