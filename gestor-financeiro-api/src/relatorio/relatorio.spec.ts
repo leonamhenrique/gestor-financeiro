@@ -77,11 +77,21 @@ const maiores = (
 ) => relatorio.maioresDoMes(d, mes, hoje, tipo, regime, quantas);
 
 describe('relatorio.js — a mesma conta da tela, fora dela', () => {
+  /* A quebra de linha sai da comparação, e não é detalhe de gosto.
+   *
+   * O `index.html` é lido do disco, e no Windows o git entrega o arquivo com
+   * CRLF (`core.autocrlf`); o recorte então carrega esses `\r` para dentro do
+   * texto gerado, enquanto o arquivo versionado volta do commit com LF. O
+   * teste ficava vermelho mostrando 425 linhas "diferentes" que eram iguais
+   * letra por letra — e o que ele existe para pegar é a REGRA que mudou no
+   * app, não o sistema operacional de quem roda `npm test`. */
+  const semCR = (s: string) => s.replace(/\r\n/g, '\n');
+
   it('o arquivo versionado bate com o app de agora', () => {
     const noDisco = fs.readFileSync(DESTINO, 'utf8');
     // Falhou? A conta do mês mudou no app. Rode `npm run sync:relatorio` e
     // confira o diff: é a sua própria mudança chegando ao WhatsApp.
-    expect(noDisco).toBe(gerar());
+    expect(semCR(noDisco)).toBe(semCR(gerar()));
   });
 
   it('soma receitas e despesas do mês, previstas incluídas', () => {
