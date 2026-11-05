@@ -49,6 +49,11 @@ const CONSTANTES_LINHA = [
   'var FUTURO = ',
   'var ENTRADA = ',
   'var TRANSFERENCIA = ',
+  // O movimento de objetivo: dois grupos de verbos e a palavra que amarra.
+  // Nenhum dos três basta sozinho — ver `movimentoDeObjetivoNaFala`.
+  'var OBJETIVO_ENTRA = ',
+  'var OBJETIVO_SAI = ',
+  'var DIZ_OBJETIVO = ',
   'var RE_PARCELA = ',
   'var RE_PARCELA_DE = ',
   'var RE_PARCELA_EM = ',
@@ -121,6 +126,12 @@ const FUNCOES = [
   'cartaoDaFala',
   'descricaoDaFala',
   'transferenciaDaFala',
+  // Aplicar e resgatar num objetivo pela frase. A mesma leitura serve a tela
+  // (o ditado) e o WhatsApp -- se cada ponta lesse a frase do seu jeito, a
+  // mesma mensagem moveria dinheiro de um lugar aqui e de outro la.
+  'objetivoDaFalaCitado',
+  'movimentoDeObjetivoNaFala',
+  'objetivoDaFala',
   'interpretarFala',
 ];
 

@@ -110,6 +110,12 @@ var ENTRADA = /receita|\brecebi\b|recebimento|\ba receber\b|vou receber|vao rece
 
 var TRANSFERENCIA = /transferenc|transferir|transferi\b|transfiro|transferido|transferida/;
 
+var OBJETIVO_ENTRA = /\bapliquei\b|\baplicar\b|\baplica[çc][ãa]o\b|\baplicacao\b|\bguardei\b|\bguardar\b|\bpoupei\b|\bpoupar\b|\bjuntei\b|\bjuntar\b|\bseparei\b|\bseparar\b/;
+
+var OBJETIVO_SAI = /\bresgatei\b|\bresgatar\b|\bresgate\b|\btirei\b|\btirar\b|\bretirei\b|\bretirar\b|\bsaquei\b|\bsacar\b/;
+
+var DIZ_OBJETIVO = /\bobjetivos?\b/;
+
 var RE_PARCELA = /^(.*?)\s*-\s*Parcela\s+(\d+)\/(\d+)$/i;
 
 var RE_PARCELA_DE = /\b(\d{1,2}|[a-z]+)\s*(?:x|vezes|parcelas?)\s+de\s+(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)/;
@@ -721,12 +727,82 @@ function transferenciaDaFala(texto, frase, r, ctx) {
     return r;
   }
 
+function objetivoDaFalaCitado(texto, ctx) {
+    return acharPorNome(ctx.objetivos || [], texto);
+  }
+
+function movimentoDeObjetivoNaFala(texto, ctx) {
+    var sai = OBJETIVO_SAI.test(texto);
+    var entra = OBJETIVO_ENTRA.test(texto);
+    if (!sai && !entra) return null;
+    // Com as duas listas na mesma frase manda a de saída: "resgatei para
+    // guardar em outro" tira de um objetivo.
+    var tipo = sai ? "WITHDRAW" : "DEPOSIT";
+    var alvo = objetivoDaFalaCitado(texto, ctx);
+    if (!alvo && !DIZ_OBJETIVO.test(texto)) return null;
+    return { tipo: tipo, objetivo: alvo || null };
+  }
+
+function objetivoDaFala(texto, frase, r, ctx, achado) {
+    ctx = ctx || contextoDaFala();
+    r.objetivo = true;
+    r.tipo = "GOAL";
+    r.movimento = achado.tipo;
+    r.categoriaId = null;
+    r.cartaoId = null;
+    r.faltando = [];
+
+    r.valor = valorDaFala(texto);
+    if (!r.valor) r.faltando.push("valor");
+
+    r.objetivoId = achado.objetivo ? achado.objetivo.id : null;
+    /* Concluído não recebe mais aplicação — resgatar dele continua valendo,
+     * senão o dinheiro ficaria preso em algo que já terminou. Não entra em
+     * `faltando` porque nada falta: a frase foi entendida inteira, e o que
+     * há é um impedimento. Quem mostra decide a palavra. */
+    r.objetivoConcluido = !!(achado.objetivo && achado.objetivo.concluidoEm && r.movimento === "DEPOSIT");
+    if (!r.objetivoId) {
+      r.faltando.push("objetivo");
+      // O nome dito que não é de nenhum objetivo existente. Quem lê não cria
+      // nada: só diz o que ouviu, e quem recebe decide o que fazer.
+      var dito = categoriaDaFala(frase, texto, ctx);
+      if (dito) r.objetivoDito = dito;
+    }
+
+    /* De qual conta sai (ou para qual volta). Três tentativas, nesta ordem:
+     * a conta DITA na frase; a conta sugerida do objetivo; e, com uma conta
+     * só cadastrada, ela. A sugestão do objetivo vem antes do atalho da
+     * conta única porque é uma escolha que a pessoa já fez. */
+    var ativas = (ctx.contas || []).filter(function (a) { return a.isActive !== false; });
+    var dita = acharPorNome(ativas, texto);
+    r.contaId = dita ? dita.id
+      : (achado.objetivo && achado.objetivo.contaId ? achado.objetivo.contaId
+        : (ativas.length === 1 ? ativas[0].id : null));
+    if (!r.contaId) r.faltando.push("conta");
+
+    var hoje = ctx.hoje;
+    r.data = dataDaFala(texto, hoje) || isoDate(hoje);
+    // Movimento de objetivo não tem "previsto": ele acontece quando acontece.
+    r.confirmada = true;
+
+    var mDescO = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
+    r.desc = mDescO ? mDescO[1].trim().slice(0, 60) : "";
+    return r;
+  }
+
 function interpretarFala(frase, ctx) {
     ctx = ctx || contextoDaFala();
     var texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
     var r = { frase: frase, tipo: "EXPENSE", valor: null, categoriaId: null, contaId: null,
       cartaoId: null, faturaMes: null, data: null, confirmada: false, desc: "", faltando: [] };
     if (!texto) { r.faltando = ["valor", "destino", "categoria"]; return r; }
+
+    // Movimento de objetivo vem ANTES da transferência: "guardei 500 no
+    // objetivo viagem" não é conta → conta, e as duas leituras disputariam a
+    // palavra "para". Só entra aqui quem tem verbo E objetivo — ver
+    // `movimentoDeObjetivoNaFala`.
+    var noObjetivo = movimentoDeObjetivoNaFala(texto, ctx);
+    if (noObjetivo) return objetivoDaFala(texto, frase, r, ctx, noObjetivo);
 
     // Transferência é outro tipo de lançamento, e sai por outro caminho: não
     // tem categoria, não tem cartão, e o que importa é a ORDEM das contas.

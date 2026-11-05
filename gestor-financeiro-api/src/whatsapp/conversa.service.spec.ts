@@ -34,6 +34,7 @@ import type {
 } from '../relatorio/relatorio.service';
 import type { BankAccountsService } from '../bank-accounts/bank-accounts.service';
 import type { CreditCardsService } from '../credit-cards/credit-cards.service';
+import type { GoalsService } from '../goals/goals.service';
 import type { CategoriesService } from '../categories/categories.service';
 import type { Cupom, CupomService } from './cupom.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
@@ -68,6 +69,11 @@ describe('ConversaService', () => {
   let servicoDeContas: any;
   let contasCriadas: any[];
   let servicoDeCartoes: any;
+  let servicoDeObjetivos: any;
+  /** O que foi pedido ao servico de objetivos. */
+  let movidos: any[];
+  /** Os objetivos como o banco os devolve para o contexto. */
+  let objetivosDoBanco: any[];
   let cartoesCriados: any[];
   let whatsapp: any;
   let audio: any;
@@ -156,6 +162,9 @@ describe('ConversaService', () => {
       // caminho normal é o cartão que fecha no dia do calendário.
       creditCardInvoice: { findMany: jest.fn(async () => viradasDoBanco) },
       category: { findMany: jest.fn(async () => categorias) },
+      // Os objetivos do dono da mensagem: e por eles que "apliquei 500 na
+      // viagem" vira um id.
+      goal: { findMany: jest.fn(async () => objetivosDoBanco) },
       categoryRule: {
         findMany: jest.fn(async () => regrasDoBanco),
         upsert: jest.fn(async (args: any) => {
@@ -336,6 +345,25 @@ describe('ConversaService', () => {
       }),
     };
 
+    /* Aplicar e resgatar passam pelo serviço de objetivos — o mesmo do app.
+     * O mock registra o que foi pedido; a trava do guardado é dele e está
+     * provada em goals.service.spec, não aqui. */
+    objetivosDoBanco = [
+      { id: "g1", name: "Viagem", accountId: "a1", completedAt: null },
+      { id: "g2", name: "Notebook", accountId: null, completedAt: new Date("2026-08-01T00:00:00.000Z") },
+    ];
+    movidos = [];
+    servicoDeObjetivos = {
+      aplicar: jest.fn(async (goalId: string, entrada: any) => {
+        movidos.push({ goalId, tipo: 'DEPOSIT', ...entrada });
+        return { id: 'mv-nova' };
+      }),
+      resgatar: jest.fn(async (goalId: string, entrada: any) => {
+        movidos.push({ goalId, tipo: 'WITHDRAW', ...entrada });
+        return { id: 'mv-nova' };
+      }),
+    };
+
     service = new ConversaService(
       prisma,
       transactions,
@@ -347,6 +375,7 @@ describe('ConversaService', () => {
       servicoDeCategorias as CategoriesService,
       servicoDeContas as BankAccountsService,
       servicoDeCartoes as CreditCardsService,
+      servicoDeObjetivos as GoalsService,
     );
   });
 
@@ -838,6 +867,122 @@ describe('ConversaService', () => {
       await service.responderA(msg('qual meu resultado nesse mes'));
       expect(relatorio.maioresDoMes).not.toHaveBeenCalled();
       expect(relatorio.doMes).toHaveBeenCalled();
+    });
+  });
+
+  describe('aplicar e resgatar no objetivo pela mensagem', () => {
+    /* Relogio preso: a data entra no resumo e na confirmacao, e um teste
+     * que depende do dia de hoje quebra sozinho na virada da meia-noite
+     * -- foi o que aconteceu com a primeira versao deste bloco. */
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('a frase vira resumo, e nada se move antes do sim', async () => {
+      const r = await service.responderA(msg('apliquei 500 na viagem'));
+      expect(r?.texto).toBe(
+        [
+          '🎯 Aplicar no objetivo',
+          '💵 Valor: R$ 500,00',
+          '🏁 Objetivo: Viagem',
+          // A conta sugerida do objetivo, sem ninguém dizer.
+          '🏦 Sai da conta: Nubank',
+          '📅 Data: 10/11/2026',
+          '',
+          'Confirma?',
+        ].join('\n'),
+      );
+      expect(r?.confirmar).toBe(true);
+      expect(movidos).toEqual([]);
+    });
+
+    it('o sim move pelo servico de objetivos, nao por escrita propria', async () => {
+      await service.responderA(msg('apliquei 500 na viagem'));
+      const r = await service.responderA(msg('sim'));
+      expect(movidos).toHaveLength(1);
+      expect(movidos[0]).toMatchObject({
+        goalId: 'g1',
+        tipo: 'DEPOSIT',
+        bankAccountId: 'a1',
+        amount: 500,
+        movementDate: '2026-11-10',
+      });
+      // A chave de repetição vai junto: dois "sim" não guardam duas vezes.
+      expect(movidos[0].clientKey).toMatch(/^wa-/);
+      expect(r?.texto).toBe('✅ Aplicado. R$ 500,00 em 10/11/2026.');
+    });
+
+    it('resgatar e a outra direcao, pelo verbo', async () => {
+      await service.responderA(msg('resgatei 200 do objetivo viagem'));
+      const r = await service.responderA(msg('sim'));
+      expect(movidos[0]).toMatchObject({ goalId: 'g1', tipo: 'WITHDRAW', amount: 200 });
+      expect(r?.texto).toBe('✅ Resgatado. R$ 200,00 em 10/11/2026.');
+    });
+
+    it('a conta dita na frase ganha da sugerida pelo objetivo', async () => {
+      await service.responderA(msg('guardei 300 na viagem pelo cofre'));
+      await service.responderA(msg('sim'));
+      expect(movidos[0]).toMatchObject({ bankAccountId: 'a2', amount: 300 });
+    });
+
+    /* A recusa do serviço é repassada como veio: o número que ela traz é o
+     * que resolve a dúvida de quem mandou a mensagem. */
+    it('resgate maior que o guardado devolve a frase do servico', async () => {
+      servicoDeObjetivos.resgatar.mockRejectedValueOnce(
+        Object.assign(new Error('O objetivo tem R$ 300,00 guardados — não dá para resgatar mais que isso.'), {
+          status: 400,
+        }),
+      );
+      await service.responderA(msg('resgatei 5000 do objetivo viagem'));
+      const r = await service.responderA(msg('sim'));
+      expect(r?.texto).toBe(
+        '⚠️ O objetivo tem R$ 300,00 guardados — não dá para resgatar mais que isso.',
+      );
+    });
+
+    it('falha de verdade nao vira mensagem de regra', async () => {
+      servicoDeObjetivos.aplicar.mockRejectedValueOnce(new Error('ECONNRESET'));
+      await service.responderA(msg('apliquei 500 na viagem'));
+      const r = await service.responderA(msg('sim'));
+      expect(r?.texto).toContain('Não consegui mexer no objetivo agora');
+      expect(r?.texto).not.toContain('ECONNRESET');
+    });
+
+    it('objetivo concluido nao recebe aplicacao, e diz por que', async () => {
+      const r = await service.responderA(msg('apliquei 100 no notebook'));
+      expect(r?.texto).toContain('já foi concluído e não recebe novas aplicações');
+      expect(r?.confirmar).toBeFalsy();
+      expect(movidos).toEqual([]);
+    });
+
+    it('mas resgatar do concluido continua valendo', async () => {
+      // A conta vai DITA: o Notebook nao tem conta sugerida, e com duas
+      // contas cadastradas a frase sem conta e incompleta de verdade.
+      await service.responderA(msg('resgatei 100 do notebook para o nubank'));
+      await service.responderA(msg('sim'));
+      expect(movidos[0]).toMatchObject({ goalId: 'g2', tipo: 'WITHDRAW', amount: 100 });
+    });
+
+    it('objetivo que nao existe lista os que existem, sem criar nada', async () => {
+      const r = await service.responderA(msg('apliquei 100 no objetivo casa propria'));
+      expect(r?.texto).toContain('Os seus são: Viagem, Notebook.');
+      expect(movidos).toEqual([]);
+    });
+
+    it('sem objetivo cadastrado, manda criar um no app', async () => {
+      objetivosDoBanco = [];
+      const r = await service.responderA(msg('apliquei 100 no objetivo viagem'));
+      expect(r?.texto).toContain('ainda não tem objetivo cadastrado');
+    });
+
+    /* O verbo sozinho não basta, e esta é a prova de que o lançamento comum
+     * não foi sequestrado: "guardei 50 de gasolina" continua sendo despesa. */
+    it('verbo sem objetivo continua sendo lancamento', async () => {
+      const r = await service.responderA(msg('guardei 50 de gasolina no nubank'));
+      expect(movidos).toEqual([]);
+      expect(r?.texto).not.toContain('Aplicar no objetivo');
     });
   });
 

@@ -4717,6 +4717,29 @@
       return soma + (m.tipo === "DEPOSIT" ? m.valor : -m.valor);
     }, 0));
   }
+  /* ---------- o guardado não pode ficar negativo ----------
+   * Resgatar já é travado no que o objetivo tem, mas essa é só uma das três
+   * portas. As outras duas mexem no passado:
+   *
+   *   - BAIXAR o saldo inicial, que conta no teto do resgate: quem tinha
+   *     10.000 de saldo inicial pôde resgatar 10.000, e pôr o saldo inicial
+   *     em zero depois disso deixa o resgate sem de onde sair;
+   *   - APAGAR uma aplicação que cobria um resgate: o resgate fica lá, sem o
+   *     dinheiro que o pagava.
+   *
+   * As duas apareceram juntas num objetivo de verdade, que ficou com
+   * R$ -10.000,00 guardados. O servidor recusa as duas; estas funções são
+   * para a tela dizer antes, com o mesmo número. */
+
+  /** O que o objetivo teria guardado com OUTRO saldo inicial. */
+  function guardadoComOutroInicial(o, inicial) {
+    return inicial + (saldoDoObjetivo(o) - (o.saldoInicial || 0));
+  }
+  /** O que sobraria guardado sem um dos movimentos. */
+  function guardadoSemOMovimento(o, mov) {
+    return saldoDoObjetivo(o) - (mov.tipo === "DEPOSIT" ? mov.valor : -mov.valor);
+  }
+
   /** O que está guardado nos objetivos e continua sendo saldo seu. */
   function emObjetivos() {
     return (state.objetivos || []).reduce(function (s, o) { return s + aplicadoDoObjetivo(o, true); }, 0);
@@ -5577,6 +5600,9 @@
       cartoes: state.cards || [],
       categorias: state.categories || [],
       regras: state.regrasCategoria || [],
+      // Os objetivos entram porque a frase pode mover dinheiro para dentro de
+      // um ("apliquei 500 na viagem"), e o nome dito só vira id com a lista.
+      objetivos: state.objetivos || [],
       hoje: dataDeHoje()
     };
   }
@@ -6212,6 +6238,97 @@
   /** Interpreta a frase ditada e devolve o lançamento que ela descreve, mais a
    * lista do que faltou. Nunca lança sozinho: o que sai daqui vai para a tela
    * de conferência e para o formulário. */
+  /* ---------- movimento de objetivo ----------
+   * "Apliquei 500 na viagem", "resgatei 200 do objetivo viagem".
+   *
+   * Duas listas de verbos, e NENHUMA delas basta sozinha: "guardei 50 de
+   * gasolina" não é objetivo, e "tirei 30 do caixa" também não. O que faz a
+   * frase ser desta leitura é o verbo MAIS o objetivo — ou o nome de um que
+   * existe, ou a palavra "objetivo". É o mesmo cuidado da transferência, que
+   * exige a palavra em vez de aceitar "de X para Y".
+   *
+   * "Transferi" ficou de fora de propósito: no app essa palavra quer dizer
+   * conta → conta, e aceitá-la aqui tornaria a gramática da transferência
+   * ambígua. Quem quer aplicar diz aplicar. */
+  var OBJETIVO_ENTRA = /\bapliquei\b|\baplicar\b|\baplica[çc][ãa]o\b|\baplicacao\b|\bguardei\b|\bguardar\b|\bpoupei\b|\bpoupar\b|\bjuntei\b|\bjuntar\b|\bseparei\b|\bseparar\b/;
+  var OBJETIVO_SAI = /\bresgatei\b|\bresgatar\b|\bresgate\b|\btirei\b|\btirar\b|\bretirei\b|\bretirar\b|\bsaquei\b|\bsacar\b/;
+  var DIZ_OBJETIVO = /\bobjetivos?\b/;
+
+  /** O objetivo que a frase nomeia, entre os que a pessoa tem.
+   *
+   * Concluído entra na busca, inclusive para aplicar — e isso é deliberado.
+   * Tirá-lo daqui faria "apliquei 100 no notebook" não ser movimento de
+   * objetivo nenhum, cair na leitura de lançamento e virar uma despesa
+   * chamada "notebook". Entender e recusar é melhor que não entender: quem
+   * recusa é `objetivoDaFala`, com o motivo na mão. */
+  function objetivoDaFalaCitado(texto, ctx) {
+    return acharPorNome(ctx.objetivos || [], texto);
+  }
+
+  /** A frase é um movimento de objetivo? Devolve o que a leitura precisa
+   * saber, ou null — para `interpretarFala` decidir por qual caminho ir. */
+  function movimentoDeObjetivoNaFala(texto, ctx) {
+    var sai = OBJETIVO_SAI.test(texto);
+    var entra = OBJETIVO_ENTRA.test(texto);
+    if (!sai && !entra) return null;
+    // Com as duas listas na mesma frase manda a de saída: "resgatei para
+    // guardar em outro" tira de um objetivo.
+    var tipo = sai ? "WITHDRAW" : "DEPOSIT";
+    var alvo = objetivoDaFalaCitado(texto, ctx);
+    if (!alvo && !DIZ_OBJETIVO.test(texto)) return null;
+    return { tipo: tipo, objetivo: alvo || null };
+  }
+
+  /** A frase move dinheiro de/para um objetivo. Não é lançamento: não tem
+   * categoria nem cartão, e o dinheiro não entra nem sai do seu patrimônio —
+   * só muda de lugar, como na transferência. */
+  function objetivoDaFala(texto, frase, r, ctx, achado) {
+    ctx = ctx || contextoDaFala();
+    r.objetivo = true;
+    r.tipo = "GOAL";
+    r.movimento = achado.tipo;
+    r.categoriaId = null;
+    r.cartaoId = null;
+    r.faltando = [];
+
+    r.valor = valorDaFala(texto);
+    if (!r.valor) r.faltando.push("valor");
+
+    r.objetivoId = achado.objetivo ? achado.objetivo.id : null;
+    /* Concluído não recebe mais aplicação — resgatar dele continua valendo,
+     * senão o dinheiro ficaria preso em algo que já terminou. Não entra em
+     * `faltando` porque nada falta: a frase foi entendida inteira, e o que
+     * há é um impedimento. Quem mostra decide a palavra. */
+    r.objetivoConcluido = !!(achado.objetivo && achado.objetivo.concluidoEm && r.movimento === "DEPOSIT");
+    if (!r.objetivoId) {
+      r.faltando.push("objetivo");
+      // O nome dito que não é de nenhum objetivo existente. Quem lê não cria
+      // nada: só diz o que ouviu, e quem recebe decide o que fazer.
+      var dito = categoriaDaFala(frase, texto, ctx);
+      if (dito) r.objetivoDito = dito;
+    }
+
+    /* De qual conta sai (ou para qual volta). Três tentativas, nesta ordem:
+     * a conta DITA na frase; a conta sugerida do objetivo; e, com uma conta
+     * só cadastrada, ela. A sugestão do objetivo vem antes do atalho da
+     * conta única porque é uma escolha que a pessoa já fez. */
+    var ativas = (ctx.contas || []).filter(function (a) { return a.isActive !== false; });
+    var dita = acharPorNome(ativas, texto);
+    r.contaId = dita ? dita.id
+      : (achado.objetivo && achado.objetivo.contaId ? achado.objetivo.contaId
+        : (ativas.length === 1 ? ativas[0].id : null));
+    if (!r.contaId) r.faltando.push("conta");
+
+    var hoje = ctx.hoje;
+    r.data = dataDaFala(texto, hoje) || isoDate(hoje);
+    // Movimento de objetivo não tem "previsto": ele acontece quando acontece.
+    r.confirmada = true;
+
+    var mDescO = frase.match(/descri[çc][ãa]o\s+(.+)$/i);
+    r.desc = mDescO ? mDescO[1].trim().slice(0, 60) : "";
+    return r;
+  }
+
   /** A frase disse "transferência". Daqui em diante a leitura é outra: duas
    * contas na ordem em que foram ditas, valor, data e situação. Sem categoria
    * — transferência não tem, e cobrá-la aqui seria pedir o que não existe. */
@@ -6252,6 +6369,13 @@
     var r = { frase: frase, tipo: "EXPENSE", valor: null, categoriaId: null, contaId: null,
       cartaoId: null, faturaMes: null, data: null, confirmada: false, desc: "", faltando: [] };
     if (!texto) { r.faltando = ["valor", "destino", "categoria"]; return r; }
+
+    // Movimento de objetivo vem ANTES da transferência: "guardei 500 no
+    // objetivo viagem" não é conta → conta, e as duas leituras disputariam a
+    // palavra "para". Só entra aqui quem tem verbo E objetivo — ver
+    // `movimentoDeObjetivoNaFala`.
+    var noObjetivo = movimentoDeObjetivoNaFala(texto, ctx);
+    if (noObjetivo) return objetivoDaFala(texto, frase, r, ctx, noObjetivo);
 
     // Transferência é outro tipo de lançamento, e sai por outro caminho: não
     // tem categoria, não tem cartão, e o que importa é a ORDEM das contas.
@@ -6398,6 +6522,28 @@
   /** Frase do resultado, para o usuário conferir antes de lançar. */
   function resumoDaFala(r) {
     var linhas = [];
+    /* Movimento de objetivo tem resumo próprio pelo mesmo motivo da
+     * transferência: não há categoria nem fatura, e o que a pessoa precisa
+     * conferir é a DIREÇÃO — de qual conta sai e para qual objetivo vai. */
+    if (r.objetivo) {
+      var aplicando = r.movimento === "DEPOSIT";
+      var alvo = r.objetivoId ? objetivoPorId(r.objetivoId) : null;
+      var conta = r.contaId ? byId(state.accounts, r.contaId) : null;
+      linhas.push({ rotulo: "Tipo", valor: aplicando ? "Aplicar no objetivo" : "Resgatar do objetivo", ok: true });
+      linhas.push({ rotulo: "Valor", valor: r.valor ? brl(r.valor) : "não identificado", ok: !!r.valor });
+      linhas.push({
+        rotulo: "Objetivo",
+        valor: alvo ? alvo.nome : (r.objetivoDito ? '"' + r.objetivoDito + '" não existe' : "não identificado"),
+        ok: !!alvo
+      });
+      linhas.push({
+        rotulo: aplicando ? "Sai da conta" : "Entra na conta",
+        valor: conta ? conta.nome : "não identificada", ok: !!conta
+      });
+      if (r.desc) linhas.push({ rotulo: "Descrição", valor: r.desc, ok: true });
+      linhas.push({ rotulo: "Data", valor: fmtDataBR(r.data), ok: true });
+      return linhas;
+    }
     // Transferência tem outro resumo porque é outra coisa: não há categoria
     // para mostrar nem fatura para escolher, e as duas contas têm papéis
     // diferentes — dizer "Conta" duas vezes esconderia justamente o que a
@@ -12488,7 +12634,10 @@
     // isto o botão de lançar ficaria ativo para um pedido que o servidor
     // recusa.
     var completo = !falaAtual.faltando.length &&
-      !(falaAtual.transferencia && falaAtual.deId && falaAtual.deId === falaAtual.paraId);
+      !(falaAtual.transferencia && falaAtual.deId && falaAtual.deId === falaAtual.paraId) &&
+      // Entendido e impedido: aplicar em objetivo concluído não é "faltando",
+      // mas também não pode ser lançado.
+      !falaAtual.objetivoConcluido;
     document.getElementById("voz-lancar").disabled = !completo;
     document.getElementById("voz-revisar").disabled = false;
     document.getElementById("voz-erro").textContent = completo ? "" : recadoDoQueFaltou(falaAtual);
@@ -12499,6 +12648,25 @@
    * comparar, o recado precisa dizer isso — senão parece que o microfone
    * entendeu errado, e a pessoa repete a frase mais devagar sem sucesso. */
   function recadoDoQueFaltou(r) {
+    if (r.objetivo) {
+      if (!(state.objetivos || []).length) {
+        return "Você ainda não tem objetivo cadastrado. Crie um na tela de Objetivos para poder aplicar e resgatar.";
+      }
+      if (r.objetivoConcluido) {
+        return "Esse objetivo já foi concluído e não recebe novas aplicações. Reabra ele se quiser voltar a guardar — resgatar continua valendo.";
+      }
+      if (!r.objetivoId) {
+        return r.objetivoDito
+          ? 'Não achei o objetivo "' + r.objetivoDito + '". Diga o nome como está cadastrado: ' +
+            (state.objetivos || []).map(function (o) { return o.nome; }).join(", ") + "."
+          : "Não entendi em qual objetivo. Diga o nome dele: " +
+            (state.objetivos || []).map(function (o) { return o.nome; }).join(", ") + ".";
+      }
+      if (!r.contaId) {
+        return "Não achei a conta. Diga de qual conta o dinheiro sai, com o nome como está cadastrado.";
+      }
+      return "Faltou " + r.faltando.join(", ") + ". Complete no formulário ou diga de novo.";
+    }
     if (r.transferencia) {
       var ativas = state.accounts.filter(function (a) { return a.isActive !== false; });
       if (ativas.length < 2) {
@@ -12757,6 +12925,12 @@
     if (!falaAtual) return;
     fechar("dlg-voz");
     if (falaAtual.transferencia) { abrirTransferencia({ daFala: falaAtual }); return; }
+    // Sem objetivo achado não há formulário para abrir: ele é por objetivo.
+    if (falaAtual.objetivo) {
+      if (falaAtual.objetivoId) abrirMovObjetivo(falaAtual.objetivoId, falaAtual.movimento, falaAtual);
+      else irPara("objetivos");
+      return;
+    }
     abrirLancamento(opcoesDaFala(falaAtual));
   });
 
@@ -12765,6 +12939,7 @@
     if (bloqueado()) return;
     var r = falaAtual;
     if (r.transferencia) { await lancarTransferenciaDaFala(r); return; }
+    if (r.objetivo) { await lancarObjetivoDaFala(r); return; }
     if (MODO_API) {
       var corpoVoz = {
         type: r.tipo, amount: r.valor, categoryId: r.categoriaId,
@@ -13570,6 +13745,43 @@
       desc: r.desc || "", confirmada: r.confirmada };
     state.transferencias.push(nova);
     aplicarEfeitoTransferencia(nova, 1);
+    persist(); renderAll(); fechar("dlg-voz");
+  }
+
+  /** Aplicar ou resgatar vindo do ditado, pelo MESMO caminho do formulário:
+   * a mesma rota, a mesma trava do guardado e a mesma chave de repetição.
+   *
+   * Não vai para a fila offline, diferente do lançamento: a fila existe para
+   * o lançamento, que é o que se faz no caixa do mercado. Mover dinheiro
+   * entre conta e objetivo é uma decisão de mesa, e guardá-la para depois
+   * deixaria o saldo errado no aparelho até a conexão voltar. */
+  async function lancarObjetivoDaFala(r) {
+    var o = objetivoPorId(r.objetivoId);
+    if (!o) return;
+    var aplicar = r.movimento === "DEPOSIT";
+    if (!aplicar && r.valor > saldoDoObjetivo(o) + 0.001) {
+      avisar("Não dá para resgatar isso",
+        "O objetivo tem R$ " + money(saldoDoObjetivo(o)) + " guardados.");
+      return;
+    }
+    var corpo = {
+      bankAccountId: r.contaId, amount: r.valor, movementDate: r.data,
+      description: r.desc || undefined
+    };
+    if (MODO_API) {
+      corpo.clientKey = uid("gm") + "-" + Date.now();
+      var caminho = "/goals/" + o.id + (aplicar ? "/deposits" : "/withdrawals");
+      var ok = await comServidor(aplicar ? "aplicar no objetivo" : "resgatar do objetivo", function () {
+        return api(caminho, corpo);
+      });
+      if (!ok) return;
+      fechar("dlg-voz");
+      return;
+    }
+    var mov = { id: uid("gm"), tipo: r.movimento, valor: r.valor, contaId: r.contaId,
+      desc: r.desc || "", data: r.data };
+    o.movimentos.push(mov);
+    aplicarEfeitoDoMovimento(mov, 1);
     persist(); renderAll(); fechar("dlg-voz");
   }
 
@@ -14437,6 +14649,18 @@
     if (!nome) { erro.textContent = "Dê um nome ao objetivo."; return; }
     if (!meta || meta <= 0) { erro.textContent = "Informe um valor maior que zero."; return; }
     if (inicial < 0) { erro.textContent = "O saldo inicial não pode ser negativo."; return; }
+    // Baixar o saldo inicial abaixo do que já foi resgatado deixaria o
+    // guardado negativo. Só na edição: objetivo novo não tem movimento.
+    var emEdicao = editandoObjetivo ? objetivoPorId(editandoObjetivo) : null;
+    if (emEdicao) {
+      var depois = guardadoComOutroInicial(emEdicao, inicial);
+      if (depois < -0.001) {
+        erro.textContent = "Com saldo inicial de R$ " + money(inicial) +
+          " o objetivo ficaria com R$ " + money(depois) +
+          ". Apague antes os resgates que dependiam do saldo inicial.";
+        return;
+      }
+    }
     if (!prazo) { erro.textContent = "Escolha a data final."; return; }
     if (prazo < inicio) { erro.textContent = "A data final não pode ser antes da inicial."; return; }
 
@@ -14479,7 +14703,7 @@
   });
 
   /* ---------- aplicar e resgatar ---------- */
-  function abrirMovObjetivo(id, tipo) {
+  function abrirMovObjetivo(id, tipo, daFala) {
     var o = objetivoPorId(id);
     if (!o) return;
     var contas = contasParaObjetivo();
@@ -14516,6 +14740,17 @@
     calObjetivoMov.fechar();
     calObjetivoMov.definir(isoDate(dataDeHoje()), true);
     preencherSelect(document.getElementById("obm-conta"), contas, o.contaId || contas[0].id);
+    /* Vindo do ditado, o formulário abre preenchido com o que a frase disse.
+     * É o mesmo caminho do "Revisar" do lançamento: a leitura não grava
+     * nada, ela adianta o preenchimento e a pessoa confere. */
+    if (daFala) {
+      if (daFala.valor) document.getElementById("obm-valor").value = daFala.valor;
+      if (daFala.desc) document.getElementById("obm-desc").value = daFala.desc;
+      if (daFala.data) calObjetivoMov.definir(daFala.data, true);
+      if (daFala.contaId && contas.some(function (c) { return c.id === daFala.contaId; })) {
+        document.getElementById("obm-conta").value = daFala.contaId;
+      }
+    }
     abrir("dlg-objetivo-mov");
   }
   document.getElementById("obm-hoje").addEventListener("click", function () {
@@ -14683,6 +14918,15 @@
     })[0];
     if (!o) return;
     var mov = (o.movimentos || []).filter(function (m) { return m.id === movId; })[0];
+    // Apagar a aplicação que cobria um resgate deixaria o guardado negativo.
+    // O aviso vem no lugar da confirmação: não é uma escolha a fazer.
+    var sobraria = guardadoSemOMovimento(o, mov);
+    if (sobraria < -0.001) {
+      avisar("Não dá para apagar esta aplicação",
+        "Sem ela o objetivo ficaria com R$ " + money(sobraria) +
+        " guardados. Apague antes os resgates que ela cobriu.");
+      return;
+    }
     pedirConfirmacao({
       titulo: "Excluir movimento",
       ctx: (mov.tipo === "DEPOSIT" ? "Aplicação" : "Resgate") + " · " + money(mov.valor),

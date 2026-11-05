@@ -33,6 +33,10 @@ describe('GoalsService', () => {
         create: jest.fn(async ({ data }: any) => ({ id: 'mv-1', ...data })),
         findFirst: jest.fn(async () => null),
         delete: jest.fn(async () => ({})),
+        // Os movimentos do objetivo, para as travas do negativo: baixar o
+        // saldo inicial e apagar uma aplicação precisam recontar o guardado.
+        // Vazio por padrão — cada teste põe o que o seu caso exige.
+        findMany: jest.fn(async () => []),
       },
       bankAccount: {
         findFirst: jest.fn(async ({ where }: any) => ({ id: where.id })),
@@ -220,6 +224,45 @@ describe('GoalsService', () => {
       expect(prismaMock.bankAccount.update).not.toHaveBeenCalled();
     });
 
+    /* A segunda porta do negativo. O resgate é travado no que o objetivo
+     * tem, e o saldo inicial conta nesse teto — então quem tinha 10.000 de
+     * saldo inicial pôde resgatar 10.000. Baixar o saldo inicial depois
+     * disso deixa o resgate sem de onde sair, e o guardado vira −10.000. */
+    it('baixar o saldo inicial abaixo do que ja foi resgatado e recusado', async () => {
+      prismaMock.goal.findFirst.mockResolvedValueOnce(
+        objetivoGravado({ initialBalance: d(10000) }),
+      );
+      prismaMock.goalMovement.findMany.mockResolvedValueOnce([
+        { type: 'WITHDRAW', amount: d(10000) },
+      ]);
+      await expect(service.update('ob-1', { initialBalance: 0 }, 'u1')).rejects.toThrow(
+        /ficaria com R\$ -10000\.00/,
+      );
+      expect(prismaMock.goal.update).not.toHaveBeenCalled();
+    });
+
+    it('baixar o saldo inicial ate onde ainda cabe e permitido', async () => {
+      prismaMock.goal.findFirst.mockResolvedValueOnce(
+        objetivoGravado({ initialBalance: d(10000) }),
+      );
+      prismaMock.goalMovement.findMany.mockResolvedValueOnce([
+        { type: 'WITHDRAW', amount: d(4000) },
+      ]);
+      await service.update('ob-1', { initialBalance: 4000 }, 'u1');
+      expect(prismaMock.goal.update).toHaveBeenCalled();
+    });
+
+    it('saldo inicial igual nao paga consulta de movimento nenhuma', async () => {
+      // Salvar o formulário sem mexer no saldo inicial é o caso comum: ele
+      // vem junto em toda edição, e recontar a cada salvamento seria uma
+      // consulta a mais por nada.
+      prismaMock.goal.findFirst.mockResolvedValueOnce(
+        objetivoGravado({ initialBalance: d(10000) }),
+      );
+      await service.update('ob-1', { initialBalance: 10000, name: 'Outro nome' }, 'u1');
+      expect(prismaMock.goalMovement.findMany).not.toHaveBeenCalled();
+    });
+
     it('desvincular a conta é mandar null, e isso não vira busca de conta', async () => {
       prismaMock.goal.findFirst.mockResolvedValueOnce(objetivoGravado({ accountId: 'a1' }));
       const o: any = await service.update('ob-1', { accountId: null }, 'u1');
@@ -378,11 +421,45 @@ describe('GoalsService', () => {
   describe('removerMovimento', () => {
     it('apagar uma aplicação devolve o dinheiro para a conta', async () => {
       prismaMock.goalMovement.findFirst.mockResolvedValueOnce({
-        id: 'mv-1', userId: 'u1', bankAccountId: 'a1', type: 'DEPOSIT', amount: d(500),
+        id: 'mv-1', userId: 'u1', goalId: 'ob-1', bankAccountId: 'a1', type: 'DEPOSIT', amount: d(500),
       });
+      // O objetivo sem ela: 800 de saldo inicial e nada mais — sobra
+      // guardado, então a aplicação pode sair.
+      prismaMock.goal.findFirst.mockResolvedValueOnce({ initialBalance: d(800) });
       await service.removerMovimento('mv-1', 'u1');
       expect(movimentos()).toEqual([['a1', '+', '500']]);
       expect(prismaMock.goalMovement.delete).toHaveBeenCalled();
+    });
+
+    /* A terceira porta do negativo, e a mais fácil de abrir sem perceber:
+     * aplicar 10.000, resgatar 10.000 e apagar a aplicação deixaria o
+     * objetivo com −10.000, porque o resgate continua lá sem o dinheiro que
+     * o cobria. Foi assim que um objetivo apareceu com R$ -10.000,00. */
+    it('apagar a aplicação que cobria um resgate é recusado', async () => {
+      prismaMock.goalMovement.findFirst.mockResolvedValueOnce({
+        id: 'mv-1', userId: 'u1', goalId: 'ob-1', bankAccountId: 'a1', type: 'DEPOSIT', amount: d(10000),
+      });
+      prismaMock.goal.findFirst.mockResolvedValueOnce({ initialBalance: d(0) });
+      // O que sobra sem ela: só o resgate de 10.000.
+      prismaMock.goalMovement.findMany.mockResolvedValueOnce([
+        { type: 'WITHDRAW', amount: d(10000) },
+      ]);
+      await expect(service.removerMovimento('mv-1', 'u1')).rejects.toThrow(
+        /ficaria com R\$ -10000\.00/,
+      );
+      expect(prismaMock.goalMovement.delete).not.toHaveBeenCalled();
+      // E o saldo da conta não foi tocado: a recusa é antes de mexer em nada.
+      expect(movimentos()).toEqual([]);
+    });
+
+    it('apagar um resgate nunca é travado: para cima não há limite', async () => {
+      prismaMock.goalMovement.findFirst.mockResolvedValueOnce({
+        id: 'mv-1', userId: 'u1', goalId: 'ob-1', bankAccountId: 'a1', type: 'WITHDRAW', amount: d(10000),
+      });
+      await service.removerMovimento('mv-1', 'u1');
+      expect(prismaMock.goalMovement.delete).toHaveBeenCalled();
+      // Nem precisou olhar o objetivo.
+      expect(prismaMock.goalMovement.findMany).not.toHaveBeenCalled();
     });
 
     it('apagar um resgate tira de volta da conta', async () => {

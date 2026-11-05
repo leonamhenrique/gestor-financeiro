@@ -145,6 +145,34 @@ export class GoalsService {
       await this.conferirConta(this.prisma, requestingUserId, input.accountId);
     }
 
+    /* Baixar o saldo inicial é a segunda porta para o objetivo ficar
+     * negativo, e era a única sem tranca.
+     *
+     * O resgate já é travado no que o objetivo tem (ver `movimentar`), e o
+     * saldo inicial conta nesse teto — ele é dinheiro de verdade, só que
+     * fora das contas do app. Então quem guardou 10.000 de saldo inicial
+     * pode resgatar 10.000; mas se depois editar o objetivo e puser saldo
+     * inicial zero, aqueles 10.000 resgatados deixam de ter de onde sair, e
+     * o guardado vira −10.000 — que foi exatamente o que apareceu na tela.
+     *
+     * A conta é a mesma do resgate, com o valor NOVO no lugar do antigo. */
+    if (input.initialBalance !== undefined) {
+      const novo = new Prisma.Decimal(input.initialBalance);
+      if (!novo.equals(atual.initialBalance)) {
+        const movimentos = (await this.prisma.goalMovement.findMany({
+          where: { goalId: id },
+          select: { type: true, amount: true },
+        })) as MovimentoDoObjetivo[];
+        const saldo = saldoDoObjetivo(novo, movimentos);
+        if (saldo.lessThan(0)) {
+          throw new BadRequestException(
+            `Com saldo inicial de R$ ${emReais(novo)} o objetivo ficaria com R$ ${emReais(saldo)}. ` +
+              'Apague antes os resgates que dependiam do saldo inicial.',
+          );
+        }
+      }
+    }
+
     return this.prisma.goal.update({
       where: { id },
       data: {
@@ -209,6 +237,35 @@ export class GoalsService {
     return this.prisma.$transaction(async (tx) => {
       const m = await tx.goalMovement.findFirst({ where: { id, userId: requestingUserId } });
       if (!m) throw new NotFoundException('Movimento não encontrado');
+
+      /* Apagar uma APLICAÇÃO é a terceira porta para o negativo, e a mais
+       * fácil de abrir sem perceber: aplicar 10.000, resgatar 10.000 e então
+       * apagar a aplicação deixa o objetivo com −10.000, porque o resgate
+       * continua lá sem o dinheiro que o cobria.
+       *
+       * O resgate não precisa da mesma conta: apagar um resgate só devolve
+       * dinheiro ao objetivo, e para cima não há limite. */
+      if (m.type === 'DEPOSIT') {
+        const outros = (await tx.goalMovement.findMany({
+          where: { goalId: m.goalId, id: { not: id } },
+          select: { type: true, amount: true },
+        })) as MovimentoDoObjetivo[];
+        const objetivo = await tx.goal.findFirst({
+          where: { id: m.goalId },
+          select: { initialBalance: true },
+        });
+        // O movimento tem chave estrangeira para o objetivo, então isto não
+        // acontece. Se acontecer, o banco está inconsistente e seguir em
+        // frente escreveria em cima disso.
+        if (!objetivo) throw new NotFoundException('Objetivo não encontrado');
+        const saldo = saldoDoObjetivo(objetivo.initialBalance, outros);
+        if (saldo.lessThan(0)) {
+          throw new BadRequestException(
+            `Sem esta aplicação o objetivo ficaria com R$ ${emReais(saldo)}. ` +
+              'Apague antes os resgates que ela cobriu.',
+          );
+        }
+      }
 
       // DEPOSIT tirou da conta: devolve. WITHDRAW pôs na conta: tira.
       await this.mexerNaConta(tx, m.bankAccountId, m.type === 'DEPOSIT' ? 'increment' : 'decrement', m.amount);

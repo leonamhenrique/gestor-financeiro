@@ -27,6 +27,7 @@ import { chaveDoMes, dia } from '../credit-cards/invoice-statement';
 import { CategoriesService } from '../categories/categories.service';
 import { BankAccountsService } from '../bank-accounts/bank-accounts.service';
 import { CreditCardsService } from '../credit-cards/credit-cards.service';
+import { GoalsService } from '../goals/goals.service';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -403,6 +404,10 @@ export class ConversaService {
     private readonly categorias: CategoriesService,
     private readonly contas: BankAccountsService,
     private readonly cartoes: CreditCardsService,
+    // Aplicar e resgatar passam pelo serviço de objetivos, e não por uma
+    // escrita própria: é ele que trava o resgate no guardado e que mexe no
+    // saldo da conta dentro da mesma transação.
+    private readonly goals: GoalsService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -664,6 +669,11 @@ export class ConversaService {
     // caminho é o mesmo — resumo, "sim", grava.
     if (r.transferencia) return this.lerTransferencia(userId, r, ctx);
 
+    // Aplicar e resgatar num objetivo: outro caminho pelo mesmo motivo da
+    // transferência — não tem categoria, não tem cartão, e o dinheiro só
+    // muda de lugar.
+    if (r.objetivo) return this.lerMovimentoDeObjetivo(userId, r, ctx);
+
     const cartao = this.ofereceCriarCartao(userId, r, ctx);
     if (cartao) return cartao;
 
@@ -741,6 +751,76 @@ export class ConversaService {
     };
   }
 
+  /**
+   * "Apliquei 500 na viagem" / "resgatei 200 do objetivo viagem".
+   *
+   * Move dinheiro entre uma conta e um objetivo, e por isso não é lançamento:
+   * não entra em receita nem em despesa, não tem categoria e não mexe no
+   * resultado do mês. É a mesma natureza da transferência, e segue o mesmo
+   * rito — resumo, "sim", grava.
+   *
+   * **A trava do resgate não é refeita aqui.** Quem sabe quanto o objetivo
+   * tem é o `GoalsService`, que recusa resgate maior que o guardado com a
+   * frase certa; recalcular o guardado nesta conversa seria uma segunda
+   * implementação da mesma regra, e o dia em que as duas discordassem seria
+   * o dia em que o WhatsApp prometeria o que a tela nega.
+   */
+  private lerMovimentoDeObjetivo(userId: string, r: any, ctx: any): Resposta {
+    const objetivos = ctx.objetivos || [];
+    if (!objetivos.length) {
+      return {
+        texto:
+          'Você ainda não tem objetivo cadastrado. Crie um no app, em Objetivos — ' +
+          'depois dá para aplicar e resgatar por aqui.',
+      };
+    }
+    if (r.objetivoConcluido) {
+      return {
+        texto:
+          '🎯 Esse objetivo já foi concluído e não recebe novas aplicações.\n\n' +
+          'Reabra ele no app se quiser voltar a guardar. Resgatar continua valendo.',
+      };
+    }
+    if (!r.objetivoId) {
+      const nomes = objetivos.map((o: any) => o.nome).join(', ');
+      return {
+        texto:
+          (r.objetivoDito
+            ? 'Não achei o objetivo "' + r.objetivoDito + '".'
+            : 'Não entendi em qual objetivo.') +
+          '\n\nOs seus são: ' + nomes + '.',
+      };
+    }
+    if (r.faltando.length) {
+      return {
+        texto:
+          this.resumoDeObjetivo(r, ctx) +
+          '\n\nFaltou ' + r.faltando.join(', ') + '. ' +
+          (r.faltando.indexOf('conta') >= 0 ? this.nomesDeConta(ctx) : ''),
+      };
+    }
+
+    this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
+    return { texto: this.resumoDeObjetivo(r, ctx) + '\n\nConfirma?', confirmar: true };
+  }
+
+  /** O resumo do movimento: a direção em primeiro lugar, que é o que a
+   * pessoa precisa conferir — de qual conta sai e para qual objetivo vai. */
+  private resumoDeObjetivo(r: any, ctx: any): string {
+    const aplicando = r.movimento === 'DEPOSIT';
+    const alvo = (ctx.objetivos || []).filter((o: any) => o.id === r.objetivoId)[0];
+    const conta = (ctx.contas || []).filter((c: any) => c.id === r.contaId)[0];
+    const linhas = [
+      aplicando ? '🎯 Aplicar no objetivo' : '🎯 Resgatar do objetivo',
+      '💵 Valor: ' + this.brl(r.valor),
+      '🏁 Objetivo: ' + (alvo ? alvo.nome : '—'),
+      (aplicando ? '🏦 Sai da conta: ' : '🏦 Entra na conta: ') + (conta ? conta.nome : '—'),
+      '📅 Data: ' + this.dataBR(r.data),
+    ];
+    if (r.desc) linhas.push('📝 Descrição: ' + r.desc);
+    return linhas.join('\n');
+  }
+
   // ----------------------------------------------------------
   // o que fazer com quem ainda não conectou
   // ----------------------------------------------------------
@@ -771,6 +851,7 @@ export class ConversaService {
     const r = rascunho.lancamento;
     if (r.transferencia)
       return this.gravarTransferencia(userId, r, rascunho.criadoEm);
+    if (r.objetivo) return this.gravarMovimentoDeObjetivo(userId, r, rascunho.criadoEm);
 
     if (rascunho.cartaoNovo?.fechamento && rascunho.cartaoNovo.vencimento) {
       const criado = await this.criarCartao(userId, rascunho.cartaoNovo as Required<typeof rascunho.cartaoNovo>);
@@ -1013,6 +1094,52 @@ export class ConversaService {
     return {
       texto:
         '✅ Transferido. ' +
+        this.brl(r.valor) +
+        ' em ' +
+        this.dataBR(r.data) +
+        '.',
+    };
+  }
+
+  /**
+   * Grava o movimento de objetivo pela MESMA porta do app: as rotas de
+   * aplicar e resgatar do `GoalsService`, com a mesma `clientKey` que impede
+   * o "sim" repetido de guardar duas vezes.
+   *
+   * **A recusa do serviço é repassada como está.** Resgatar mais do que o
+   * objetivo tem, ou aplicar num objetivo concluído, voltam dele com a frase
+   * pronta ("O objetivo tem R$ 300,00 guardados — não dá para resgatar mais
+   * que isso"). Trocar essa frase por uma genérica esconderia justamente o
+   * número que resolve a dúvida de quem mandou a mensagem.
+   */
+  private async gravarMovimentoDeObjetivo(
+    userId: string,
+    r: any,
+    criadoEm: number,
+  ): Promise<Resposta> {
+    const aplicando = r.movimento === 'DEPOSIT';
+    const entrada = {
+      userId,
+      bankAccountId: r.contaId,
+      amount: r.valor,
+      description: r.desc || undefined,
+      movementDate: r.data,
+      clientKey: 'wa-' + userId.slice(0, 8) + '-' + Math.round(criadoEm / 1000),
+    };
+    try {
+      if (aplicando) await this.goals.aplicar(r.objetivoId, entrada);
+      else await this.goals.resgatar(r.objetivoId, entrada);
+    } catch (e: any) {
+      // 400 é regra de negócio e vem com a frase certa; o resto é falha.
+      if (e?.status === 400 && e?.message) return { texto: '⚠️ ' + e.message };
+      this.log.error('falha ao mover objetivo pelo WhatsApp: ' + (e?.message || e));
+      return {
+        texto: 'Não consegui mexer no objetivo agora. Tente de novo em instantes, ou faça pelo app.',
+      };
+    }
+    return {
+      texto:
+        (aplicando ? '✅ Aplicado. ' : '✅ Resgatado. ') +
         this.brl(r.valor) +
         ' em ' +
         this.dataBR(r.data) +
@@ -1608,7 +1735,7 @@ export class ConversaService {
    * conta, cartão e categoria; o banco fala `bankAccount`, `creditCard` e
    * `category`. */
   async contextoDoUsuario(userId: string) {
-    const [contas, cartoes, categorias, regras, viradas] = await Promise.all([
+    const [contas, cartoes, categorias, regras, viradas, objetivos] = await Promise.all([
       this.prisma.bankAccount.findMany({ where: { userId } }),
       this.prisma.creditCard.findMany({ where: { userId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } }),
       this.prisma.category.findMany({
@@ -1621,6 +1748,10 @@ export class ConversaService {
       this.prisma.creditCardInvoice.findMany({
         where: { creditCard: { userId }, earlyClosedAt: { not: null } },
         select: { creditCardId: true, referenceMonth: true, earlyClosedAt: true },
+      }),
+      this.prisma.goal.findMany({
+        where: { userId },
+        select: { id: true, name: true, accountId: true, completedAt: true },
       }),
     ]);
 
@@ -1666,6 +1797,21 @@ export class ConversaService {
       regras: regras.map((r) => ({
         lojista: r.merchant,
         categoriaId: r.categoryId,
+      })),
+      /* Os objetivos entram porque a frase pode mover dinheiro para dentro de
+       * um ("apliquei 500 na viagem"), e o nome dito só vira id com a lista
+       * na mão. `contaId` é a conta sugerida do objetivo — é o que evita
+       * perguntar de qual conta sai quando a pessoa já escolheu uma.
+       *
+       * O GUARDADO não vem aqui: ele é a soma dos movimentos sobre o saldo
+       * inicial, e calculá-lo nesta consulta seria uma segunda implementação
+       * da regra que o `GoalsService` já tem. Quem trava o resgate é ele, e a
+       * conversa repassa a frase dele. */
+      objetivos: objetivos.map((o) => ({
+        id: o.id,
+        nome: o.name,
+        contaId: o.accountId,
+        concluidoEm: o.completedAt ? dia(o.completedAt) : null,
       })),
       // O dia é o de quem falou, não o do servidor — ver `diaDoUsuario`.
       hoje: diaDoUsuario(),
