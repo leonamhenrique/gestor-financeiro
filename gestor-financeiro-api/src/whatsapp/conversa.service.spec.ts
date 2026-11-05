@@ -17,6 +17,10 @@ import {
   ConversaService,
   diaDoUsuario,
   mesDaPergunta,
+  nomeDoObjetivoDito,
+  partesDoObjetivo,
+  pedidoDeCriarObjetivo,
+  prazoDoObjetivo,
   perguntaDeFatura,
   perguntaDeMaiores,
   perguntaDeMeta,
@@ -72,6 +76,8 @@ describe('ConversaService', () => {
   let servicoDeObjetivos: any;
   /** O que foi pedido ao servico de objetivos. */
   let movidos: any[];
+  /** E os objetivos que ele foi mandado criar, como o pedido chegou. */
+  let objetivosCriados: any[];
   /** Os objetivos como o banco os devolve para o contexto. */
   let objetivosDoBanco: any[];
   let cartoesCriados: any[];
@@ -353,7 +359,36 @@ describe('ConversaService', () => {
       { id: "g2", name: "Notebook", accountId: null, completedAt: new Date("2026-08-01T00:00:00.000Z") },
     ];
     movidos = [];
+    objetivosCriados = [];
     servicoDeObjetivos = {
+      /* Criar passa pelo MESMO serviço do formulário — é ele que confere o
+       * prazo contra a data de início e guarda o valor como decimal. */
+      create: jest.fn(async (entrada: any) => {
+        objetivosCriados.push(entrada);
+        return {
+          id: 'g-novo',
+          name: entrada.name,
+          targetAmount: dec(entrada.targetAmount),
+          startDate: new Date(entrada.startDate + 'T00:00:00.000Z'),
+          targetDate: new Date(entrada.targetDate + 'T00:00:00.000Z'),
+          initialBalance: dec(entrada.initialBalance ?? 0),
+        };
+      }),
+      /* As contas do objetivo recém-criado. Os números são os de verdade para
+       * R$ 6.000,00 até 31/12/2027 vistos em 10/11/2026 (14 meses contando o
+       * corrente, 6000 ÷ 14 arredondado para cima) — a DIVISÃO está provada
+       * em goals.service.spec; o que se prova aqui é o texto. */
+      findOne: jest.fn(async () => ({
+        appliedFromAccounts: '0.00',
+        progress: {
+          saved: '0.00',
+          remaining: '6000.00',
+          percent: 0,
+          monthsLeft: 14,
+          monthlyTarget: '428.58',
+          onTrack: true,
+        },
+      })),
       aplicar: jest.fn(async (goalId: string, entrada: any) => {
         movidos.push({ goalId, tipo: 'DEPOSIT', ...entrada });
         return { id: 'mv-nova' };
@@ -983,6 +1018,187 @@ describe('ConversaService', () => {
       const r = await service.responderA(msg('guardei 50 de gasolina no nubank'));
       expect(movidos).toEqual([]);
       expect(r?.texto).not.toContain('Aplicar no objetivo');
+    });
+  });
+
+  describe('criar objetivo pela mensagem', () => {
+    /* Relógio preso: a data de início do objetivo é hoje, e o prazo dito por
+     * nome de mês depende de que mês é agora. Sem prender, estes testes
+     * quebrariam sozinhos na virada do mês. */
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('a frase completa vira resumo, e nada nasce antes do sim', async () => {
+      const r = await service.responderA(msg('criar objetivo Carro de 6000 até dezembro de 2027'));
+      expect(r?.texto).toBe(
+        [
+          '🎯 Objetivo novo',
+          // O nome sai com as maiúsculas de quem escreveu.
+          '🏷️ Nome: Carro',
+          '💰 Meta: R$ 6.000,00',
+          // "Até dezembro" é dezembro INTEIRO, e não o dia 1º.
+          '📅 Prazo: 31/12/2027',
+          '',
+          'Criar o objetivo Carro?',
+        ].join('\n'),
+      );
+      expect(r?.confirmar).toBe(true);
+      expect(objetivosCriados).toEqual([]);
+    });
+
+    /* O defeito que isto conserta: a frase tem dinheiro, e frase com dinheiro
+     * nunca era pergunta — então ela caía na leitura de lançamento e voltava
+     * como um rascunho de DESPESA de R$ 6.000,00 chamada "Criar objetivo
+     * Carro". Quem pedia um objetivo recebia um gasto. */
+    it('o pedido nao e mais lido como despesa', async () => {
+      const r = await service.responderA(msg('criar objetivo Carro de 6000 até dezembro de 2027'));
+      expect(r?.texto).not.toMatch(/Despesa/);
+      expect(criados).toEqual([]);
+    });
+
+    it('o sim cria pelo servico do app, e a resposta diz o por mes', async () => {
+      await service.responderA(msg('criar objetivo Carro de 6000 até dezembro de 2027'));
+      const r = await service.responderA(msg('sim'));
+      expect(objetivosCriados).toHaveLength(1);
+      expect(objetivosCriados[0]).toMatchObject({
+        userId: 'user-1',
+        name: 'Carro',
+        // Começa hoje, no fuso de quem falou.
+        startDate: '2026-11-10',
+        targetDate: '2027-12-31',
+        targetAmount: 6000,
+      });
+      // Saldo inicial não é perguntado por aqui: nasce zero, e a resposta diz
+      // onde se informa o que a pessoa já tem guardado fora do app.
+      expect(objetivosCriados[0].initialBalance).toBeUndefined();
+      expect(r?.texto).toBe(
+        [
+          '✅ Objetivo criado',
+          '🏷️ Carro: R$ 0,00 de R$ 6.000,00 (0%)',
+          '   Faltam R$ 6.000,00 · R$ 428,58 por mês até 31/12/2027',
+          '',
+          'Para guardar nele, mande: "apliquei 500 no objetivo Carro".',
+          'Já tem dinheiro guardado fora do app? O saldo inicial é no app, em Objetivos.',
+        ].join('\n'),
+      );
+    });
+
+    it('le o nome composto, o "mil" e o mes com ano', async () => {
+      const r = await service.responderA(
+        msg('quero criar um objetivo chamado Casa de Praia, 12 mil até julho de 2027'),
+      );
+      expect(r?.texto).toContain('🏷️ Nome: Casa de Praia');
+      expect(r?.texto).toContain('💰 Meta: R$ 12.000,00');
+      expect(r?.texto).toContain('📅 Prazo: 31/07/2027');
+    });
+
+    it('sem nenhuma informacao, pergunta as tres', async () => {
+      const r = await service.responderA(msg('quero criar um objetivo'));
+      expect(r?.texto).toBe(
+        [
+          '🎯 Objetivo novo',
+          '🏷️ Nome: —',
+          '💰 Meta: —',
+          '📅 Prazo: —',
+          '',
+          'Falta o nome, quanto você quer juntar e até quando.',
+          '',
+          '👉 Responda numa frase. Exemplo:',
+          '',
+          // O ano do exemplo sai de hoje: escrito à mão, ele envelheceria
+          // para um exemplo que o próprio app recusaria.
+          'Viagem, 6000 até dezembro de 2027',
+          '',
+          'Ou responda “não” para desistir.',
+        ].join('\n'),
+      );
+      // Perguntar não é confirmar: os botões Sim/Cancelar não entram aqui.
+      expect(r?.confirmar).toBeUndefined();
+    });
+
+    it('a resposta completa o rascunho, e o sim cria', async () => {
+      await service.responderA(msg('quero criar um objetivo'));
+      const r = await service.responderA(msg('Carro, 6000 até dezembro de 2027'));
+      expect(r?.texto).toContain('Criar o objetivo Carro?');
+      await service.responderA(msg('sim'));
+      expect(objetivosCriados[0]).toMatchObject({ name: 'Carro', targetAmount: 6000 });
+    });
+
+    /* O nome já dado MANDA sobre o que a resposta trouxer: o leitor corta o
+     * nome no primeiro número, e numa resposta como "6000" ele não acharia
+     * nome nenhum — o nome do rascunho seria apagado pelo vazio. */
+    it('o que ja esta no rascunho nao e apagado pela resposta', async () => {
+      const pedido = await service.responderA(msg('criar objetivo Carro'));
+      expect(pedido?.texto).toContain('Falta quanto você quer juntar e até quando.');
+      expect(pedido?.texto).toContain('6000 até dezembro de 2027');
+      const r = await service.responderA(msg('6000 até dezembro de 2027'));
+      expect(r?.texto).toContain('🏷️ Nome: Carro');
+      expect(r?.texto).toContain('Criar o objetivo Carro?');
+    });
+
+    it('mes sem ano e o proximo mes com aquele nome, nao o que passou', async () => {
+      // Em novembro de 2026, "até março" é março de 2027.
+      const r = await service.responderA(msg('criar objetivo Carro de 1000 até março'));
+      expect(r?.texto).toContain('📅 Prazo: 31/03/2027');
+      // E "até dezembro" ainda é o deste ano.
+      const outro = await service.responderA(msg('não'));
+      expect(outro?.texto).toBe('Ok, não criei o objetivo.');
+      const dez = await service.responderA(msg('criar objetivo Casa de 1000 até dezembro'));
+      expect(dez?.texto).toContain('📅 Prazo: 31/12/2026');
+    });
+
+    it('prazo que ja passou nao vira objetivo, e o resto do rascunho fica', async () => {
+      const r = await service.responderA(msg('criar objetivo Carro de 6000 até 31/10/2026'));
+      expect(r?.texto).toContain('31/10/2026 já passou. Falta até quando.');
+      // O nome e a meta continuam lá: cobrar a frase toda de novo por causa
+      // do prazo seria castigar quem acertou duas das três.
+      expect(r?.texto).toContain('🏷️ Nome: Carro');
+      expect(r?.texto).toContain('💰 Meta: R$ 6.000,00');
+      expect(objetivosCriados).toEqual([]);
+    });
+
+    /* Dois objetivos com o mesmo nome quebrariam o aplicar: "apliquei 500 no
+     * objetivo viagem" escolhe PELO NOME, e o dinheiro entraria no que a
+     * busca achasse primeiro. */
+    it('nome repetido nao vira objetivo gemeo', async () => {
+      const r = await service.responderA(msg('criar objetivo Viagem de 6000 até dezembro de 2027'));
+      expect(r?.texto).toBe(
+        [
+          '🎯 Você já tem um objetivo chamado Viagem.',
+          '',
+          'Para guardar nele, mande: "apliquei 500 no objetivo Viagem". ' +
+            'Para mudar a meta ou o prazo, é no app, em Objetivos.',
+        ].join('\n'),
+      );
+      // E o "sim" seguinte não cria nada: não ficou rascunho nenhum.
+      await service.responderA(msg('sim'));
+      expect(objetivosCriados).toEqual([]);
+    });
+
+    it('a resposta que nao traz nada diz isso, em vez de repetir igual', async () => {
+      await service.responderA(msg('criar objetivo Carro'));
+      const r = await service.responderA(msg('não sei ainda'));
+      expect(r?.texto).toContain('Não entendi. Falta quanto você quer juntar e até quando.');
+    });
+
+    /* Objetivo não precisa de conta nem de cartão para existir — a conta
+     * entra na hora de aplicar. Quem instalou o app hoje e quer começar a
+     * guardar dinheiro não pode ser mandado embora. */
+    it('funciona para quem ainda nao tem conta nem cartao', async () => {
+      prisma.bankAccount.findMany = jest.fn(async () => []);
+      prisma.creditCard.findMany = jest.fn(async () => []);
+      const r = await service.responderA(msg('criar objetivo Carro de 6000 até dezembro de 2027'));
+      expect(r?.texto).toContain('Criar o objetivo Carro?');
+      expect(r?.texto).not.toMatch(/cadastre uma conta/i);
+    });
+
+    it('a pergunta dos objetivos continua respondendo a lista', async () => {
+      // A leitura do pedido de criar não pode roubar a consulta.
+      const r = await service.responderA(msg('quais objetivos eu tenho'));
+      expect(r?.texto).toContain('🎯 Guardado nos objetivos: R$ 3.900,00');
     });
   });
 
@@ -2220,6 +2436,88 @@ describe('perguntaDeObjetivos', () => {
 
   it('frase com dinheiro nao e pergunta', () => {
     expect(perguntaDeObjetivos('guardei 500 no objetivo da viagem', true)).toBe(false);
+  });
+});
+
+describe('o pedido de criar objetivo', () => {
+  /** 10 de novembro de 2026, como nos testes da conversa. */
+  const HOJE = new Date(2026, 10, 10);
+
+  it('reconhece as formas comuns', () => {
+    for (const f of [
+      'criar objetivo',
+      'quero criar um objetivo',
+      'criar objetivo Carro de 6000 até dezembro',
+      'cadastrar objetivo viagem',
+      'novo objetivo',
+      'quero um objetivo novo',
+    ]) {
+      expect(pedidoDeCriarObjetivo(f)).toBe(true);
+    }
+  });
+
+  it('as perguntas e os movimentos nao caem aqui', () => {
+    for (const f of [
+      'quanto tenho guardado nos meus objetivos hoje',
+      'quais objetivos eu tenho',
+      'apliquei 500 no objetivo viagem',
+      'resgatei 200 do objetivo viagem',
+      // Pergunta que tem a palavra "criar" dentro: quem abre com "quanto"
+      // está consultando.
+      'quanto preciso guardar para criar o objetivo da viagem',
+      // E criar outra coisa não é criar objetivo.
+      'criar uma conta no picpay',
+    ]) {
+      expect(pedidoDeCriarObjetivo(f)).toBe(false);
+    }
+  });
+
+  it('o nome sai como foi escrito, sem o recheio em volta', () => {
+    expect(nomeDoObjetivoDito('criar objetivo Casa de Praia de 200000')).toBe('Casa de Praia');
+    expect(nomeDoObjetivoDito('quero criar um objetivo chamado Viagem da Europa')).toBe(
+      'Viagem da Europa',
+    );
+    expect(nomeDoObjetivoDito('novo objetivo para a Reforma')).toBe('Reforma');
+    // Sem nome dito, nada é inventado.
+    expect(nomeDoObjetivoDito('criar objetivo de 6000')).toBe('');
+    // A resposta solta (sem a palavra "objetivo") é o nome inteiro.
+    expect(nomeDoObjetivoDito('Carro novo')).toBe('Carro novo');
+  });
+
+  it('o prazo entende data, mes, mes com ano e distancia', () => {
+    expect(prazoDoObjetivo('até 31/12/2027', HOJE)?.iso).toBe('2027-12-31');
+    expect(prazoDoObjetivo('até 12/2027', HOJE)?.iso).toBe('2027-12-31');
+    // Mês dito é o FIM do mês: quem diz "até dezembro" tem dezembro inteiro.
+    expect(prazoDoObjetivo('até dezembro', HOJE)?.iso).toBe('2026-12-31');
+    // Mês que já passou neste ano é o do ano que vem — prazo é para a frente.
+    expect(prazoDoObjetivo('até março', HOJE)?.iso).toBe('2027-03-31');
+    expect(prazoDoObjetivo('em 18 meses', HOJE)?.iso).toBe('2028-05-10');
+    expect(prazoDoObjetivo('daqui a 2 anos', HOJE)?.iso).toBe('2028-11-10');
+    expect(prazoDoObjetivo('até o fim do ano', HOJE)?.iso).toBe('2026-12-31');
+    expect(prazoDoObjetivo('Carro novo', HOJE)).toBeNull();
+  });
+
+  it('31 de fevereiro nao existe, e nao vira 3 de marco', () => {
+    // O Date rolaria para março e o prazo sairia três dias depois do que a
+    // pessoa leu na própria mensagem.
+    expect(prazoDoObjetivo('até 31/02/2027', HOJE)).toBeNull();
+  });
+
+  it('o dia do prazo nao e lido como dinheiro', () => {
+    /* O leitor de valor acha números soltos, e "31" em "até 31/12/2027" não é
+     * ano nem dia do mês para ele: a meta nascia de R$ 31,00. */
+    const p = partesDoObjetivo('criar objetivo Carro até 31/12/2027', HOJE);
+    expect(p.valor).toBeUndefined();
+    expect(p.prazo).toBe('2027-12-31');
+    expect(p.nome).toBe('Carro');
+  });
+
+  it('as tres informacoes de uma frase so', () => {
+    expect(partesDoObjetivo('criar objetivo Carro de 6000 até dezembro de 2027', HOJE)).toEqual({
+      nome: 'Carro',
+      valor: 6000,
+      prazo: '2027-12-31',
+    });
   });
 });
 

@@ -260,6 +260,191 @@ export function perguntaDeObjetivos(texto: string, temValor: boolean): boolean {
   return /\bguardad[oa]s?\b|\bguardei\b|\bguardo\b|\bpoupad[oa]s?\b|\bpoupei\b|\breserva\b|\bcofrinho\b/.test(t);
 }
 
+/** Teto do valor, o mesmo do formulário (ver `dto/goal.dto.ts`): não é
+ * limite de produto, é barreira contra dedo escorregado. */
+const TETO_OBJETIVO = 99999999.99;
+
+/**
+ * Os verbos que pedem um objetivo NOVO.
+ *
+ * "Adicionar", "incluir" e "abrir" ficaram de fora de propósito: "adiciona
+ * 500 no objetivo viagem" é aplicação, não cadastro, e um verbo ambíguo aqui
+ * roubaria a frase de quem está guardando dinheiro — ver `OBJETIVO_ENTRA` no
+ * fala.js, que é quem lê aquela outra.
+ */
+const RE_CRIAR_OBJETIVO = /\b(criar|cria|crie|criando|cadastrar|cadastra|cadastre|montar|monta|monte)\b/i;
+
+/** O pedido sem verbo: "novo objetivo", "outro objetivo", "objetivo novo". */
+const RE_OBJETIVO_NOVO = /\b(nov[oa]|outr[oa])\s+objetivo\b|\bobjetivo\s+nov[oa]\b/;
+
+/** Palavra de pergunta na ABERTURA da frase. Quem pergunta não está pedindo
+ * cadastro: "quanto preciso guardar para criar o objetivo da viagem" é
+ * consulta, e cairia aqui por causa do "criar". */
+const RE_PERGUNTANDO = /^\W*(quanto|quanta|qual|quais|como|quando|onde|porque|por que)\b/;
+
+/** Onde o NOME acaba: o dinheiro, o prazo, ou a vírgula que separa um do
+ * outro. Um nome com número dentro ("objetivo iPhone 15") é cortado no
+ * número — e é por isso que o resumo mostra o nome antes do "Criar?", em vez
+ * de criar calado algo que a pessoa não disse.
+ *
+ * O `(?![a-z])` depois de "até" não é enfeite, e `\b` ali estaria errado: a
+ * borda de palavra do JavaScript só conhece [A-Za-z0-9_], então depois do "é"
+ * de "até" ela não existe. Com `\b`, "Carro até 31/12/2027" era cortado no
+ * número e o objetivo nascia chamado "Carro até". */
+const FIM_DO_NOME = /\bat[eé](?![a-z])|R\$|\d|,|;|\bprazo\b|\breais?\b|\bmil\b/i;
+
+/** O mês como marco de prazo dentro da frase, do jeito que a tela o escreve
+ * (com acento) e do jeito que se digita no telefone (sem). */
+const RE_MES_NO_NOME = new RegExp(
+  '\\b(' +
+    (fala.MESES as string[])
+      .concat((fala.MESES as string[]).map((m) => semAcento(m)))
+      .join('|') +
+    ')\\b',
+  'i',
+);
+
+/** Recheio que vem ANTES do nome e não é o nome: "um objetivo CHAMADO
+ * viagem", "objetivo PARA A viagem". */
+const RECHEIO_ANTES =
+  /^(?:\W*\b(?:chamad[oa]|nomead[oa]|nome|de|do|da|dos|das|para|pra|pro|com|o|a|os|as|um|uma|meu|minha|nov[oa]|outr[oa]|que|e|em|no|na)\b)+/i;
+
+/** E o que sobra DEPOIS, quando o corte caiu no meio de uma preposição:
+ * "casa de praia de 200000" corta no número e deixa "casa de praia de". */
+const RECHEIO_DEPOIS = /(?:\s*\b(?:de|do|da|para|pra|com|e|em|no|na|que)\b\W*)+$/i;
+
+/**
+ * A frase PEDE para criar um objetivo?
+ *
+ * Esta é lida antes de todas as outras — antes da pergunta dos objetivos, que
+ * devolveria a lista para quem quer criar, e antes da leitura do lançamento,
+ * que lia "criar objetivo viagem de 6000 até dezembro" como uma DESPESA de
+ * R$ 6.000,00 chamada "Criar objetivo viagem". Era o pior dos dois: a pessoa
+ * pedia um objetivo e recebia um rascunho de gasto.
+ *
+ * A palavra "objetivo" é obrigatória. "Meta" não serve: no app ela é o teto
+ * do mês, no planejamento, e quem diz "criar uma meta de 600 para alimentação"
+ * está falando daquela outra tela — ver `perguntaDeMeta`.
+ */
+export function pedidoDeCriarObjetivo(texto: string): boolean {
+  const t = semAcento(texto);
+  if (!/\bobjetivos?\b/.test(t)) return false;
+  if (RE_PERGUNTANDO.test(t)) return false;
+  return RE_CRIAR_OBJETIVO.test(t) || RE_OBJETIVO_NOVO.test(t);
+}
+
+/**
+ * O nome dito, com os acentos e as maiúsculas de quem escreveu — é ele que
+ * vai ficar no cadastro, e "viagem para a europa" em caixa baixa seria o app
+ * reescrevendo o que a pessoa nomeou.
+ *
+ * Depois da palavra "objetivo" é onde o nome está, quando ela aparece. Sem
+ * ela (a resposta a "qual o nome?"), a frase inteira é o nome.
+ */
+export function nomeDoObjetivoDito(texto: string): string {
+  const cru = /\bobjetivos?\b/i.test(texto)
+    ? texto.replace(/^[\s\S]*?\bobjetivos?\b/i, '')
+    : texto.replace(RE_CRIAR_OBJETIVO, ' ');
+  let nome = cru;
+  for (const marca of [FIM_DO_NOME, RE_MES_NO_NOME]) {
+    const i = nome.search(marca);
+    if (i >= 0) nome = nome.slice(0, i);
+  }
+  return nome.replace(RECHEIO_ANTES, '').replace(RECHEIO_DEPOIS, '').trim();
+}
+
+/**
+ * O PRAZO dito, em 'AAAA-MM-DD'. Devolve também o trecho que o disse, porque
+ * ele precisa sair do texto antes de o dinheiro ser procurado.
+ *
+ * Mês sem ano é o próximo mês com aquele nome, e não "o mais recente" como
+ * nas perguntas (ver `mesDaPergunta`): prazo de objetivo é sempre para a
+ * frente. E mês dito é o FIM do mês — quem diz "até dezembro" tem dezembro
+ * inteiro, não o dia 1º.
+ */
+export function prazoDoObjetivo(
+  texto: string,
+  hoje: Date,
+): { iso: string; trecho: string } | null {
+  const t = semAcento(texto);
+  const fimDoMes = (y: number, m: number) => fala.isoDate(new Date(y, m + 1, 0));
+
+  // 31/12/2027, 31-12-2027, 31/12/27
+  let m = t.match(/\b(0?[1-9]|[12]\d|3[01])[/-](0?[1-9]|1[0-2])(?:[/-](\d{2}|\d{4}))?\b/);
+  if (m) {
+    const ano = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : hoje.getFullYear();
+    const d = new Date(ano, Number(m[2]) - 1, Number(m[1]));
+    /* 31/02 existe como frase e não como dia: o Date rolaria para março, e o
+     * prazo sairia três dias depois do que a pessoa leu na própria mensagem. */
+    if (d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[1])) {
+      return { iso: fala.isoDate(d), trecho: m[0] };
+    }
+    return null;
+  }
+
+  // 12/2027 e 2027-12: o mês inteiro.
+  m = t.match(/\b(0?[1-9]|1[0-2])\s*\/\s*(20\d{2})\b/);
+  if (m) return { iso: fimDoMes(Number(m[2]), Number(m[1]) - 1), trecho: m[0] };
+  m = t.match(/\b(20\d{2})-(0[1-9]|1[0-2])\b/);
+  if (m) return { iso: fimDoMes(Number(m[1]), Number(m[2]) - 1), trecho: m[0] };
+
+  // "em 18 meses", "daqui a 2 anos".
+  m = t.match(/\b(\d{1,3})\s*(mes|meses|ano|anos)\b/);
+  if (m) {
+    const n = Number(m[1]) * (/ano/.test(m[2]) ? 12 : 1);
+    const alvo = new Date(hoje.getFullYear(), hoje.getMonth() + n, 1);
+    const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate();
+    alvo.setDate(Math.min(hoje.getDate(), ultimo));
+    return { iso: fala.isoDate(alvo), trecho: m[0] };
+  }
+
+  if (/\b(fim|final)\s+d[eo]\s+ano\b/.test(t)) {
+    return { iso: fimDoMes(hoje.getFullYear(), 11), trecho: 'ano' };
+  }
+
+  // "dezembro", "dezembro de 2027".
+  for (const palavra of t.split(/[^a-z0-9]+/)) {
+    const mes = fala.mesPorNome(palavra);
+    if (mes < 0) continue;
+    const ano = t.match(/\b(20\d{2})\b/);
+    if (ano) return { iso: fimDoMes(Number(ano[1]), mes), trecho: palavra };
+    // O mês que já passou neste ano é o do ano que vem.
+    const y = hoje.getFullYear() + (mes < hoje.getMonth() ? 1 : 0);
+    return { iso: fimDoMes(y, mes), trecho: palavra };
+  }
+  return null;
+}
+
+/** O que um objetivo precisa, do jeito que a frase trouxer. O que faltar vem
+ * vazio, e quem pergunta é a conversa. */
+export interface ObjetivoNovo {
+  nome?: string;
+  valor?: number;
+  prazo?: string;
+}
+
+export function partesDoObjetivo(texto: string, hoje: Date): ObjetivoNovo {
+  const prazo = prazoDoObjetivo(texto, hoje);
+  /* O prazo SAI do texto antes de o dinheiro ser procurado: em "até
+   * 31/12/2027" o leitor de valor acharia 31 — um número solto que, para ele,
+   * não é ano nem dia do mês —, e a meta nasceria de R$ 31,00. */
+  const semOPrazo = prazo ? semAcento(texto).replace(prazo.trecho, ' ') : semAcento(texto);
+  const valor = fala.valorDaFala(fala.normalizarFala(semOPrazo));
+  const nome = nomeDoObjetivoDito(texto);
+  return {
+    nome: nome || undefined,
+    valor: valor && valor > 0 ? valor : undefined,
+    prazo: prazo ? prazo.iso : undefined,
+  };
+}
+
+/** As três informações na mão. Enquanto falta uma, o rascunho está esperando
+ * uma RESPOSTA, e não um "sim" — e é essa diferença que faz "6000" ser lido
+ * como a meta em vez de virar uma despesa. */
+function objetivoCompleto(n: ObjetivoNovo): boolean {
+  return !!(n.nome && n.valor && n.prazo);
+}
+
 export function perguntaDeMeta(texto: string, temValor: boolean): boolean {
   if (temValor) return false;
   const t = semAcento(texto);
@@ -385,6 +570,11 @@ interface Rascunho {
    * INCOMPLETO: sem os dias do ciclo, o rascunho está esperando a resposta
    * com eles, e não um "sim". */
   cartaoNovo?: { nome: string; fechamento?: number; vencimento?: number; limite?: number };
+  /** O objetivo por nascer. Como o cartão, ele pode ficar aqui INCOMPLETO:
+   * faltando o nome, o valor ou o prazo, o rascunho espera a resposta com a
+   * parte que falta. Diferente de todos os outros, ele vem SEM lançamento
+   * nenhum atrás — criar um objetivo não é lançar nada. */
+  objetivoNovo?: ObjetivoNovo;
 }
 
 @Injectable()
@@ -609,13 +799,35 @@ export class ConversaService {
       return this.lerDiasDoCiclo(userId, rascunho, texto);
     }
 
+    // E pode estar esperando o nome, o valor ou o prazo de um objetivo. Mesma
+    // razão dos dias do cartão: "6000", lido como frase nova, viraria uma
+    // despesa de seis mil reais sem destino nem categoria.
+    if (rascunho?.objetivoNovo && !objetivoCompleto(rascunho.objetivoNovo)) {
+      return this.lerFaltaDoObjetivo(userId, rascunho, texto);
+    }
+
     if (rascunho && SIM.test(texto)) return this.gravar(userId, rascunho);
     if (rascunho && NAO.test(texto)) {
       this.rascunhos.delete(userId);
-      return { texto: 'Ok, não lancei nada.' };
+      // O que se desistiu de fazer, dito pelo nome: "não lancei nada" depois
+      // de desistir de um objetivo manda a pessoa procurar um lançamento que
+      // nunca existiu.
+      return {
+        texto: rascunho.objetivoNovo ? 'Ok, não criei o objetivo.' : 'Ok, não lancei nada.',
+      };
     }
 
     const ctx = await this.contextoDoUsuario(userId);
+
+    /* Criar objetivo vem antes de TUDO, inclusive da trava de "cadastre uma
+     * conta ou um cartão": objetivo não precisa de nenhum dos dois para
+     * existir — a conta entra na hora de aplicar —, e mandar embora quem
+     * acabou de instalar o app e quer começar a guardar dinheiro seria
+     * fechar a porta no único lugar onde ela estava aberta. */
+    if (pedidoDeCriarObjetivo(texto)) {
+      return this.lerPedidoDeObjetivo(userId, texto, ctx);
+    }
+
     if (!ctx.contas.length && !ctx.cartoes.length) {
       return {
         texto:
@@ -848,6 +1060,9 @@ export class ConversaService {
   // ----------------------------------------------------------
   private async gravar(userId: string, rascunho: Rascunho): Promise<Resposta> {
     this.rascunhos.delete(userId);
+    // O objetivo novo não tem lançamento atrás dele: o "sim" aqui cria o
+    // cadastro e acaba.
+    if (rascunho.objetivoNovo) return this.criarObjetivo(userId, rascunho.objetivoNovo);
     const r = rascunho.lancamento;
     if (r.transferencia)
       return this.gravarTransferencia(userId, r, rascunho.criadoEm);
@@ -939,6 +1154,239 @@ export class ConversaService {
     }
 
     return { texto: '✅ Lançado. ' + this.linhaCurta(r) };
+  }
+
+  // ----------------------------------------------------------
+  // objetivo novo, pela conversa
+  // ----------------------------------------------------------
+  /**
+   * "Quero criar um objetivo" — com as três informações na mesma frase ou sem
+   * nenhuma delas.
+   *
+   * Nome, quanto e até quando é o que faz um objetivo. O que a frase trouxer
+   * é lido; o que faltar é PERGUNTADO, e o rascunho espera a resposta — o
+   * mesmo caminho do cartão, que também não nasce de uma frase só.
+   *
+   * Por que criar aqui, em vez de mandar para o app como era até agora: quem
+   * está no WhatsApp quase sempre está longe do app (é por isso que está no
+   * WhatsApp), e "crie no app" é onde a vontade de começar a guardar dinheiro
+   * morre.
+   */
+  private lerPedidoDeObjetivo(userId: string, texto: string, ctx: any): Resposta {
+    return this.objetivoEmAndamento(userId, partesDoObjetivo(texto, ctx.hoje), ctx);
+  }
+
+  /**
+   * A resposta que completa o rascunho: o nome, o valor, o prazo, ou o que
+   * faltava de uma vez.
+   *
+   * O que já está no rascunho MANDA sobre o que a resposta trouxer. Sem isso,
+   * "6000" — respondido quando faltava só o valor — apagaria um nome já dado:
+   * o leitor corta o nome no primeiro número, e nessa frase ele não acharia
+   * nome nenhum.
+   */
+  private async lerFaltaDoObjetivo(
+    userId: string,
+    rascunho: Rascunho,
+    texto: string,
+  ): Promise<Resposta> {
+    if (NAO.test(texto)) {
+      this.rascunhos.delete(userId);
+      return { texto: 'Ok, não criei o objetivo.' };
+    }
+    const ctx = await this.contextoDoUsuario(userId);
+    const lido = partesDoObjetivo(texto, ctx.hoje);
+    const tinha = rascunho.objetivoNovo!;
+    const novo: ObjetivoNovo = {
+      nome: tinha.nome || lido.nome,
+      valor: tinha.valor ?? lido.valor,
+      prazo: tinha.prazo || lido.prazo,
+    };
+    /* O rascunho ANDOU? É isso, e não "a resposta tinha alguma coisa", que
+     * decide se a pergunta volta dizendo "Não entendi". Uma resposta como
+     * "não sei ainda" é lida como nome — nome é texto livre, qualquer palavra
+     * serve —, e com o nome já preenchido ela não muda nada: a pergunta
+     * voltava idêntica, e quem leu achou que a mensagem não tinha chegado. */
+    const andou =
+      novo.nome !== tinha.nome || novo.valor !== tinha.valor || novo.prazo !== tinha.prazo;
+    return this.objetivoEmAndamento(userId, novo, ctx, andou ? undefined : 'Não entendi.');
+  }
+
+  /**
+   * Onde o objetivo novo para em pé: o que já se sabe, o que falta, e o
+   * "Criar?" quando nada mais falta.
+   *
+   * É a mesma decisão nas duas entradas — a primeira frase e a resposta que
+   * completa —, e por isso vive num lugar só. As três recusas (nome repetido,
+   * valor acima do teto, prazo no passado) tiram só a parte recusada e
+   * perguntam de novo: jogar o rascunho inteiro fora por causa de um prazo
+   * errado cobraria a frase toda outra vez.
+   */
+  private objetivoEmAndamento(
+    userId: string,
+    novo: ObjetivoNovo,
+    ctx: any,
+    erro?: string,
+  ): Resposta {
+    let aviso = erro;
+    const nome = novo.nome;
+
+    /* Nome repetido não vira objetivo gêmeo: "apliquei 500 no objetivo
+     * viagem" escolhe o objetivo PELO NOME, e com dois iguais o dinheiro
+     * entraria no que a busca achasse primeiro. */
+    if (nome) {
+      const igual = (ctx.objetivos || []).filter(
+        (o: any) => fala.normalizarFala(o.nome) === fala.normalizarFala(nome),
+      )[0];
+      if (igual) {
+        this.rascunhos.delete(userId);
+        return {
+          texto:
+            '🎯 Você já tem um objetivo chamado ' + igual.nome + '.\n\n' +
+            'Para guardar nele, mande: "apliquei 500 no objetivo ' + igual.nome + '". ' +
+            'Para mudar a meta ou o prazo, é no app, em Objetivos.',
+        };
+      }
+      if (nome.length > 80) {
+        aviso = 'Esse nome é comprido demais — o limite é 80 letras.';
+        novo = { ...novo, nome: undefined };
+      }
+    }
+
+    if (novo.valor && novo.valor > TETO_OBJETIVO) {
+      aviso = 'Esse valor passa do que o app aceita.';
+      novo = { ...novo, valor: undefined };
+    }
+
+    // Prazo no passado não é objetivo: o "por mês" viraria "tudo o que falta,
+    // neste mês", e o objetivo nasceria atrasado.
+    if (novo.prazo && novo.prazo < fala.isoDate(ctx.hoje)) {
+      aviso = this.dataBR(novo.prazo) + ' já passou.';
+      novo = { ...novo, prazo: undefined };
+    }
+
+    this.rascunhos.set(userId, { lancamento: null, criadoEm: Date.now(), objetivoNovo: novo });
+
+    if (!objetivoCompleto(novo)) {
+      return { texto: this.pedidoDoObjetivo(novo, ctx.hoje, aviso) };
+    }
+    return {
+      texto: this.resumoDoObjetivo(novo) + '\n\nCriar o objetivo ' + novo.nome + '?',
+      confirmar: true,
+    };
+  }
+
+  /** As três informações, uma por linha, com — no que ainda falta. O mesmo
+   * desenho do resumo do lançamento: é a mesma pessoa lendo as duas coisas no
+   * mesmo lugar, e um bloco com marca e outro sem fariam o app parecer dois
+   * apps. */
+  private resumoDoObjetivo(novo: ObjetivoNovo): string {
+    return [
+      '🎯 Objetivo novo',
+      '🏷️ Nome: ' + (novo.nome || '—'),
+      '💰 Meta: ' + (novo.valor ? this.brl(novo.valor) : '—'),
+      '📅 Prazo: ' + (novo.prazo ? this.dataBR(novo.prazo) : '—'),
+    ].join('\n');
+  }
+
+  /**
+   * O pedido do que falta, com um exemplo feito SÓ das partes que faltam —
+   * um exemplo completo, quando falta uma coisa só, faz a pessoa repetir o
+   * que ela já disse.
+   *
+   * O ano do exemplo sai de HOJE, e não de uma data escrita aqui: um exemplo
+   * com ano no passado seria um exemplo que o próprio app recusaria.
+   */
+  private pedidoDoObjetivo(novo: ObjetivoNovo, hoje: Date, aviso?: string): string {
+    const falta: string[] = [];
+    const exemplo: string[] = [];
+    if (!novo.nome) {
+      falta.push('o nome');
+      exemplo.push('Viagem');
+    }
+    if (!novo.valor) {
+      falta.push('quanto você quer juntar');
+      exemplo.push('6000');
+    }
+    let linhaDoExemplo = exemplo.join(', ');
+    if (!novo.prazo) {
+      falta.push('até quando');
+      linhaDoExemplo +=
+        (linhaDoExemplo ? ' ' : '') + 'até dezembro de ' + (hoje.getFullYear() + 1);
+    }
+    return [
+      this.resumoDoObjetivo(novo),
+      '',
+      (aviso ? aviso + ' ' : '') + 'Falta ' + this.comE(falta) + '.',
+      '',
+      '👉 Responda numa frase. Exemplo:',
+      '',
+      linhaDoExemplo,
+      '',
+      'Ou responda “não” para desistir.',
+    ].join('\n');
+  }
+
+  /** "o nome, quanto você quer juntar e até quando" — a última vírgula vira
+   * "e", que é como se fala. */
+  private comE(partes: string[]): string {
+    if (partes.length <= 1) return partes.join('');
+    return partes.slice(0, -1).join(', ') + ' e ' + partes[partes.length - 1];
+  }
+
+  /**
+   * O objetivo criado no "sim" — pelo MESMO serviço do formulário, que é quem
+   * confere o prazo contra a data de início e guarda o valor como decimal.
+   *
+   * Começa hoje e com saldo inicial ZERO: "quanto você já tem guardado fora
+   * do app" seria uma quarta pergunta, e ela transformaria a conversa num
+   * formulário. No app esse campo está lá, e a resposta diz onde — o que não
+   * dá é deixar um número que ninguém informou contando como progresso.
+   */
+  private async criarObjetivo(userId: string, novo: ObjetivoNovo): Promise<Resposta> {
+    try {
+      const criado = await this.goals.create({
+        userId,
+        name: novo.nome!,
+        startDate: fala.isoDate(diaDoUsuario()),
+        targetDate: novo.prazo!,
+        targetAmount: novo.valor!,
+      });
+      /* As contas vêm do serviço, e não de uma divisão feita aqui: o "por
+       * mês" é `falta ÷ meses que restam`, o mesmo número que a tela mostra,
+       * recalculado a cada leitura. */
+      const comAsContas: any = await this.goals.findOne(criado.id, userId);
+      const p = comAsContas.progress;
+      const linhas = this.linhasDoObjetivo({
+        id: criado.id,
+        nome: criado.name,
+        meta: Number(criado.targetAmount),
+        guardado: Number(p.saved),
+        falta: Number(p.remaining),
+        pct: Math.round(p.percent * 100),
+        prazo: novo.prazo!,
+        meses: p.monthsLeft,
+        mensal: Number(p.monthlyTarget),
+        atrasado: !p.onTrack,
+        concluido: false,
+        dasContas: Number(comAsContas.appliedFromAccounts),
+      });
+      return {
+        texto: [
+          '✅ Objetivo criado',
+          ...linhas,
+          '',
+          'Para guardar nele, mande: "apliquei 500 no objetivo ' + criado.name + '".',
+          'Já tem dinheiro guardado fora do app? O saldo inicial é no app, em Objetivos.',
+        ].join('\n'),
+      };
+    } catch (e: any) {
+      this.log.error('falha ao criar objetivo pelo WhatsApp: ' + (e?.message || e));
+      return {
+        texto:
+          'Não consegui criar o objetivo agora. Tente de novo em instantes, ou crie no app, em Objetivos.',
+      };
+    }
   }
 
   /**

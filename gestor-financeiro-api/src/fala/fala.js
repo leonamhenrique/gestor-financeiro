@@ -946,4 +946,4 @@ function interpretarFala(frase, ctx) {
     return r;
   }
 
-module.exports = { interpretarFala, valorDaFala, chaveDeLojista, lojistaDoHistorico, regraDoLojista, MIN_LOJISTA, normalizarFala, MESES, mesPorNome, categoriasLancaveis, acharPorNome, faturaSugerida, monthKey, regraParaDigitado, byId };
+module.exports = { interpretarFala, valorDaFala, chaveDeLojista, lojistaDoHistorico, regraDoLojista, MIN_LOJISTA, normalizarFala, MESES, mesPorNome, categoriasLancaveis, acharPorNome, faturaSugerida, monthKey, regraParaDigitado, byId, isoDate };

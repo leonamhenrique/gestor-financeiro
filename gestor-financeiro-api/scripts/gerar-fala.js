@@ -169,6 +169,11 @@ const EXPORTADAS = [
   'monthKey',
   'regraParaDigitado',
   'byId',
+  // A data escrita como a tela a escreve. O objetivo criado por mensagem
+  // começa HOJE, e o dia de hoje é o de quem falou (ver `diaDoUsuario`): com
+  // duas formatações diferentes, a mesma data viraria dois dias nas duas
+  // pontas em todo fuso a leste de Greenwich.
+  'isoDate',
 ];
 
 const CABECALHO = `// ============================================================
