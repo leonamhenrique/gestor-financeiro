@@ -5480,6 +5480,81 @@
     };
   }
 
+  /**
+   * Aplicar num objetivo e resgatar dele também aparecem no extrato, pela
+   * MESMA regra da transferência logo acima — e pelo mesmo motivo, que o
+   * comentário dela já diz: o saldo da conta muda, e esconder faria a pessoa
+   * ver o número mudar sem nenhuma linha explicando.
+   *
+   * É literalmente uma transferência, só que a outra ponta não é uma conta:
+   * aplicar tira R$ 500 do Nubank e põe em "Viagem", e o saldo geral não se
+   * mexe porque o que saiu volta como valor em objetivos. Quem confere o
+   * extrato do banco contra o do app precisa achar essa linha — sem ela,
+   * sobra uma diferença sem explicação.
+   *
+   * **E NÃO é um lançamento**, pela mesma razão que a transferência não é:
+   * guardar dinheiro não é gastar. Como despesa, R$ 500 aplicados estragariam
+   * o resultado do mês, entrariam no ranking de maiores gastos e comeriam a
+   * meta de uma categoria no planejamento. Por isso `valor: 0` — o peso dela
+   * numa lista de dinheiro que entrou e saiu é zero, e o valor de verdade
+   * está na linha, dos dois lados da seta.
+   *
+   * A linha abre a camada de movimentos do objetivo, que é onde se edita e se
+   * remove: `data-objetivo-movimentos` é o mesmo atributo da lista de
+   * Objetivos, e quem o trata é o `acoesDeLista`, que ouve nesta tela também.
+   */
+  /**
+   * Quais movimentos de objetivo o extrato de um mês mostra, cada um com o
+   * objetivo a que pertence.
+   *
+   * Separado do desenho porque a escolha é a parte que erra: o mês é o da
+   * data do movimento (objetivo não tem fatura nem competência — o dinheiro
+   * saiu da conta no dia em que saiu), e a conta OCULTA corta a linha.
+   *
+   * Basta UMA conta oculta aqui, e não duas como na transferência, porque a
+   * outra ponta é o objetivo, que não tem oculto. Dinheiro de conta oculta
+   * não entra em total nenhum — é o que `emObjetivos` faz com `soVisiveis` —,
+   * e uma linha sobre ele seria ruído sobre dinheiro que a pessoa escondeu.
+   */
+  function movimentosDeObjetivoNoMes(mk) {
+    var saida = [];
+    (state.objetivos || []).forEach(function (o) {
+      (o.movimentos || []).forEach(function (m) {
+        if (String(m.data).slice(0, 7) !== mk) return;
+        if (contaEstaOculta(m.contaId)) return;
+        saida.push({ objetivo: o, movimento: m });
+      });
+    });
+    return saida;
+  }
+
+  function linhaMovimentoObjetivoHTML(o, m) {
+    var conta = byId(state.accounts, m.contaId);
+    var nomeConta = conta ? conta.nome : "—";
+    // "Entrou" é no OBJETIVO: depósito sai da conta e entra nele.
+    var entrou = m.tipo === "DEPOSIT";
+    var caminho = entrou ? nomeConta + " → " + o.nome : o.nome + " → " + nomeConta;
+    var titulo = (entrou ? "Aplicação no objetivo " : "Resgate do objetivo ") + o.nome;
+    return {
+      data: m.data, valor: 0,
+      desc: titulo, categoria: "Objetivo", origem: caminho,
+      html: '<div class="row clickable" data-objetivo-movimentos="' + esc(o.id) + '">' +
+        '<span class="cell-data num">' + fmtDia(m.data) + '</span>' +
+        '<span class="row-main"><span class="row-title">' +
+        '<span class="dot" style="background:var(--fg-subtle)"></span>' +
+        '<span class="row-name">' + esc(titulo) + '</span></span>' +
+        '<span class="row-meta">' + fmtDia(m.data) + ' · ' + esc(caminho) +
+        (m.desc ? ' · ' + esc(m.desc) : "") + '</span></span>' +
+        '<span class="cell-cat">Objetivo</span>' +
+        '<span class="cell-org">' + esc(caminho) + '</span>' +
+        '<span class="row-val num">' + money(m.valor) + '</span>' +
+        // Vazia, como na fatura sem botão: a célula é uma coluna do grid no
+        // desktop, e sumir desalinharia a lista inteira.
+        '<span class="row-acoes"></span>' +
+        '</div>'
+    };
+  }
+
   /* ================= ditado: frase → lançamento ================= */
   /** O que ler uma frase exige saber do usuário: as listas onde se procuram
    * nomes, as regras de lojista que o app lembra, e que dia é hoje.
@@ -9540,6 +9615,11 @@
         if (tr.data.slice(0, 7) !== mk) return;
         if (contaEstaOculta(tr.deId) && contaEstaOculta(tr.paraId)) return;
         linhas.push(linhaTransferenciaHTML(tr));
+      });
+      // Aplicar e resgatar entram pela mesma porta, e pela mesma razão: o
+      // saldo da conta muda, e sem linha a mudança fica sem explicação.
+      movimentosDeObjetivoNoMes(mk).forEach(function (x) {
+        linhas.push(linhaMovimentoObjetivoHTML(x.objetivo, x.movimento));
       });
     }
     linhas.sort(comparaLinhas);
