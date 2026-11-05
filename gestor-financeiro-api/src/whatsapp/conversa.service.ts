@@ -314,6 +314,18 @@ const RECHEIO_ANTES =
 const RECHEIO_DEPOIS = /(?:\s*\b(?:de|do|da|para|pra|com|e|em|no|na|que)\b\W*)+$/i;
 
 /**
+ * A pontuação em volta do nome. Quem escreve "criar objetivo. Comprar carro"
+ * está separando a frase, e não batizando um objetivo chamado ". Comprar
+ * carro" — que foi o nome que nasceu no primeiro uso de verdade.
+ *
+ * A lista é escrita à mão, e `\W` seria o atalho errado: para o JavaScript,
+ * "Ó" e "Á" não são letras, e um objetivo chamado "Ótica" ou "Água" perderia
+ * a primeira letra.
+ */
+const PONTUACAO_EM_VOLTA =
+  /^[\s.,;:!?"'()[\]{}<>|*_+=~^—–-]+|[\s.,;:!?"'()[\]{}<>|*_+=~^—–-]+$/g;
+
+/**
  * A frase PEDE para criar um objetivo?
  *
  * Esta é lida antes de todas as outras — antes da pergunta dos objetivos, que
@@ -350,7 +362,18 @@ export function nomeDoObjetivoDito(texto: string): string {
     const i = nome.search(marca);
     if (i >= 0) nome = nome.slice(0, i);
   }
-  return nome.replace(RECHEIO_ANTES, '').replace(RECHEIO_DEPOIS, '').trim();
+  /* Até parar de encolher: pontuação e recheio se alternam ("objetivo: para a
+   * viagem"), e uma passada só de cada deixaria metade para trás. Termina
+   * sempre, porque cada volta só tira caracteres. */
+  let antes = '';
+  while (antes !== nome) {
+    antes = nome;
+    nome = nome
+      .replace(PONTUACAO_EM_VOLTA, '')
+      .replace(RECHEIO_ANTES, '')
+      .replace(RECHEIO_DEPOIS, '');
+  }
+  return nome.trim();
 }
 
 /**

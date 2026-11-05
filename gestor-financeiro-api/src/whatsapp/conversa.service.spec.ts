@@ -1086,6 +1086,19 @@ describe('ConversaService', () => {
       );
     });
 
+    /* A frase que chegou no primeiro uso em produção. O ponto final estava
+     * ali para separar o pedido do nome. */
+    it('o ponto que separa a frase nao vira parte do nome', async () => {
+      const r = await service.responderA(
+        msg('criar objetivo. Comprar Carro de 80 mil até dezembro de 2027'),
+      );
+      expect(r?.texto).toContain('🏷️ Nome: Comprar Carro');
+      expect(r?.texto).toContain('💰 Meta: R$ 80.000,00');
+      expect(r?.texto).toContain('Criar o objetivo Comprar Carro?');
+      await service.responderA(msg('sim'));
+      expect(objetivosCriados[0]).toMatchObject({ name: 'Comprar Carro', targetAmount: 80000 });
+    });
+
     it('le o nome composto, o "mil" e o mes com ano', async () => {
       const r = await service.responderA(
         msg('quero criar um objetivo chamado Casa de Praia, 12 mil até julho de 2027'),
@@ -2482,6 +2495,26 @@ describe('o pedido de criar objetivo', () => {
     expect(nomeDoObjetivoDito('criar objetivo de 6000')).toBe('');
     // A resposta solta (sem a palavra "objetivo") é o nome inteiro.
     expect(nomeDoObjetivoDito('Carro novo')).toBe('Carro novo');
+  });
+
+  /* O primeiro uso de verdade: um ponto final depois de "objetivo", posto
+   * para separar a frase, virou a primeira letra do nome — o objetivo nasceu
+   * chamado ". Comprar Carro", e a resposta ainda ensinava a guardar nele
+   * dizendo "apliquei 500 no objetivo . Comprar Carro". */
+  it('a pontuacao que separa a frase nao entra no nome', () => {
+    expect(nomeDoObjetivoDito('criar objetivo. Comprar Carro de 80 mil')).toBe('Comprar Carro');
+    expect(nomeDoObjetivoDito('criar objetivo: viagem')).toBe('viagem');
+    expect(nomeDoObjetivoDito('criar objetivo - Reforma da casa')).toBe('Reforma da casa');
+    expect(nomeDoObjetivoDito('criar objetivo "Casa de Praia"')).toBe('Casa de Praia');
+    // Pontuação e recheio alternados: "objetivo: para a viagem".
+    expect(nomeDoObjetivoDito('criar objetivo: para a Viagem')).toBe('Viagem');
+  });
+
+  it('a letra acentuada no comeco do nome nao e pontuacao', () => {
+    /* Para o JavaScript, "Ó" e "Á" não são letras (`\W` casa com elas), e o
+     * atalho de limpar a borda com `\W+` comeria a primeira letra. */
+    expect(nomeDoObjetivoDito('criar objetivo Ótica')).toBe('Ótica');
+    expect(nomeDoObjetivoDito('criar objetivo Água do poço')).toBe('Água do poço');
   });
 
   it('o prazo entende data, mes, mes com ano e distancia', () => {
