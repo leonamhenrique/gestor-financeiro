@@ -15016,9 +15016,25 @@
       renderCartoes();
     }
   }
-  document.querySelector(".content").addEventListener("click", acoesDeLista);
-  // A camada fica fora de .content; as linhas dela usam as mesmas ações.
-  document.getElementById("dlg-dia").addEventListener("click", acoesDeLista);
+  /* Onde as ações de lista são ouvidas.
+   *
+   * Toda `<dialog>` mora FORA de `.content` — é assim que o elemento tem de
+   * ser escrito —, então um botão `data-*` desenhado dentro de uma camada não
+   * é alcançado pelo ouvinte do conteúdo. O clique simplesmente não acontece:
+   * nada abre, nada falha, nada aparece no console. Foi o que a lixeira dos
+   * movimentos do objetivo fez desde que nasceu, e antes dela a camada do dia
+   * — que ganhou a linha de baixo quando o mesmo defeito apareceu lá.
+   *
+   * A lista é explícita, e não um ouvinte no `document`, porque as ações aqui
+   * não são idempotentes: com o documento ouvindo junto do `.content`, um
+   * clique numa lista da tela subiria pelos dois e pediria a mesma exclusão
+   * duas vezes.
+   *
+   * **Camada nova com lista de linhas entra AQUI**, ou os botões dela nascem
+   * mortos. */
+  [".content", "#dlg-dia", "#dlg-objetivo-mov-lista"].forEach(function (sel) {
+    document.querySelector(sel).addEventListener("click", acoesDeLista);
+  });
   /* ---- botão flutuante: escolhe o tipo antes de abrir o lançamento ---- */
   var fab = document.getElementById("fab");
   var fabMenu = document.getElementById("fab-menu");
