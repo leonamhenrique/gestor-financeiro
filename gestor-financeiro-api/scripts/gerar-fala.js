@@ -1,7 +1,7 @@
 // ============================================================
 // scripts/gerar-fala.js
 // ============================================================
-// Recorta de `web/index.html` as funções que leem uma frase e escreve
+// Recorta de `web/home.html` as funções que leem uma frase e escreve
 // `src/fala/fala.js`, que o servidor importa.
 //
 // Por que recortar em vez de escrever de novo: a mesma frase precisa virar o
@@ -9,13 +9,13 @@
 // divergem — não no primeiro dia, mas no terceiro ajuste —, e aí a pessoa vê
 // uma resposta no app e outra no telefone para o que ela disse igual.
 //
-// Por que recortar em vez de o app importar um arquivo: o `index.html` é
+// Por que recortar em vez de o app importar um arquivo: o `home.html` é
 // servido sozinho pelo Cloudflare Pages e também aberto solto (sem os
 // arquivos irmãos). Quebrá-lo em dois para o servidor poder importar um deles
 // seria pagar, no app de todo dia, o preço de uma integração.
 //
 // O arquivo gerado É VERSIONADO, e `fala.spec.ts` falha quando ele não bate
-// com o `index.html` de agora. É isso que impede o recorte de envelhecer em
+// com o `home.html` de agora. É isso que impede o recorte de envelhecer em
 // silêncio: quem mexer na leitura da frase vê o teste vermelho e roda
 // `npm run sync:fala`.
 // ============================================================
@@ -179,7 +179,7 @@ const EXPORTADAS = [
 const CABECALHO = `// ============================================================
 // fala.js — GERADO. Não edite aqui.
 // ============================================================
-// Recortado de web/index.html por scripts/gerar-fala.js. Para mudar a leitura
+// Recortado de web/home.html por scripts/gerar-fala.js. Para mudar a leitura
 // de uma frase, mexa no app e rode:
 //
 //     npm run sync:fala

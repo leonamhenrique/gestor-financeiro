@@ -1,7 +1,7 @@
 // ============================================================
 // relatorio.js — GERADO. Não edite aqui.
 // ============================================================
-// Recortado de web/index.html por scripts/gerar-relatorio.js. Para mudar a
+// Recortado de web/home.html por scripts/gerar-relatorio.js. Para mudar a
 // conta do mês, mexa no app e rode:
 //
 //     npm run sync:relatorio

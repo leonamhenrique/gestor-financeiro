@@ -3,7 +3,7 @@
 // ============================================================
 // Duas coisas, e a primeira é a que importa:
 //
-//   1. o `relatorio.js` versionado é o recorte do `web/index.html` DE AGORA.
+//   1. o `relatorio.js` versionado é o recorte do `web/home.html` DE AGORA.
 //      Sem isto, mexer na conta do mês no app deixaria o WhatsApp respondendo
 //      pela conta de semanas atrás — e ninguém descobriria, porque as duas
 //      continuariam dando um número, cada uma o seu;
@@ -79,7 +79,7 @@ const maiores = (
 describe('relatorio.js — a mesma conta da tela, fora dela', () => {
   /* A quebra de linha sai da comparação, e não é detalhe de gosto.
    *
-   * O `index.html` é lido do disco, e no Windows o git entrega o arquivo com
+   * O `home.html` é lido do disco, e no Windows o git entrega o arquivo com
    * CRLF (`core.autocrlf`); o recorte então carrega esses `\r` para dentro do
    * texto gerado, enquanto o arquivo versionado volta do commit com LF. O
    * teste ficava vermelho mostrando 425 linhas "diferentes" que eram iguais

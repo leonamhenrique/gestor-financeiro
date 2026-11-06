@@ -1,7 +1,7 @@
 // ============================================================
 // scripts/gerar-relatorio.js
 // ============================================================
-// Recorta de `web/index.html` a conta do mês — a mesma de "Resultado mês a
+// Recorta de `web/home.html` a conta do mês — a mesma de "Resultado mês a
 // mês" — e escreve `src/relatorio/relatorio.js`, que o servidor importa.
 //
 // É o segundo recorte, pelo mesmo motivo do primeiro (ver gerar-fala.js): a
@@ -15,7 +15,7 @@
 // diferença que ninguém consegue explicar.
 //
 // O arquivo gerado É VERSIONADO, e `relatorio.spec.ts` falha quando ele não
-// bate com o `index.html` de agora. Quem mexer na conta do mês vê o teste
+// bate com o `home.html` de agora. Quem mexer na conta do mês vê o teste
 // vermelho e roda:
 //
 //     npm run sync:relatorio
@@ -165,7 +165,7 @@ const FUNCOES = [
 const CABECALHO = `// ============================================================
 // relatorio.js — GERADO. Não edite aqui.
 // ============================================================
-// Recortado de web/index.html por scripts/gerar-relatorio.js. Para mudar a
+// Recortado de web/home.html por scripts/gerar-relatorio.js. Para mudar a
 // conta do mês, mexa no app e rode:
 //
 //     npm run sync:relatorio

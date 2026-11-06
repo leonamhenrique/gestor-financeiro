@@ -2205,7 +2205,7 @@ blur. O que a separa do conteúdo é uma hairline.
 
 Privacidade e exclusão de conta abrem **sem login**, são linkadas na Play
 Console e precisam existir para quem já desinstalou — então não podem morar
-dentro do `index.html`, que é o app. São arquivos próprios, com um
+dentro do `home.html`, que é o app. São arquivos próprios, com um
 `pagina.css` que repete o mínimo dos mesmos tokens: a pessoa veio do app e
 precisa reconhecer onde está.
 

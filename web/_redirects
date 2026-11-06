@@ -1,0 +1,16 @@
+# Redirecionamentos do Cloudflare Pages.
+#
+# O site passou a ser a raiz e o app foi para /home. Quem tem o endereço
+# antigo na mão — um link mandado por WhatsApp, um favorito, a busca do
+# Google — continua chegando onde chegava.
+/conheca  /  301
+
+# Só esta linha, e é de propósito. O Pages já resolve sozinho, com 308, as
+# duas outras formas de escrever o mesmo endereço (medido no site de pé):
+#
+#   /home.html  ->  /home        (ele tira a extensão)
+#   /home/      ->  /home        (e a barra do fim, com a query junto)
+#
+# A segunda é o que faz o link de redefinir senha continuar funcionando: o
+# servidor monta `APP_URL + "/?token=…"`, e com APP_URL terminando em /home
+# isso vira /home/?token=… — que o próprio Pages endireita.

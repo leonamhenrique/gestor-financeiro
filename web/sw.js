@@ -15,8 +15,13 @@
 // resposta de API em cache mostraria saldo velho como se fosse o de agora.
 // ============================================================
 
-var CACHE = "saldonline-v1";
-var CASCA = ["/", "/index.html", "/config.js", "/manifest.webmanifest",
+// v2 porque a casca do app mudou de endereco: a v1 guarda o APP em "/", que
+// agora e o site. Trocar o nome do cache e o que faz o activate apagar o
+// antigo -- sem isso, quem ja tinha o app instalado continuaria com o app
+// velho guardado no lugar do site, e offline veria o app onde devia ver o
+// site.
+var CACHE = "saldonline-v2";
+var CASCA = ["/home", "/home.html", "/config.js", "/manifest.webmanifest",
   "/icons/icone-192.png", "/icons/icone-512.png", "/icons/icone-maskable-512.png"];
 
 self.addEventListener("install", function (e) {
@@ -50,7 +55,7 @@ self.addEventListener("fetch", function (e) {
         return caches.match(req).then(function (cacheada) {
           // Navegação offline cai na casca do app; ele mostra a tela de entrada
           // e falha ao falar com a API, com a mensagem de sempre.
-          return cacheada || caches.match("/index.html");
+          return cacheada || caches.match("/home.html");
         });
       })
   );

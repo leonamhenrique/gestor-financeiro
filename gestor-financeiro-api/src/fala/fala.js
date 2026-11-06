@@ -1,7 +1,7 @@
 // ============================================================
 // fala.js — GERADO. Não edite aqui.
 // ============================================================
-// Recortado de web/index.html por scripts/gerar-fala.js. Para mudar a leitura
+// Recortado de web/home.html por scripts/gerar-fala.js. Para mudar a leitura
 // de uma frase, mexa no app e rode:
 //
 //     npm run sync:fala

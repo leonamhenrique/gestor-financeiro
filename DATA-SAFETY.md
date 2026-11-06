@@ -106,7 +106,7 @@ Declarar o contrário aqui contradiria um documento público.
 ### Cartão de crédito: a tela pede, o servidor nunca recebe
 
 O app tem uma tela de forma de pagamento com número e CVV
-(`index.html`, `#cp-cvv`). Parece coleta de dado de pagamento. Não é, por dois
+(`home.html`, `#cp-cvv`). Parece coleta de dado de pagamento. Não é, por dois
 motivos somados:
 
 1. **Número e CVV são descartados.** Só bandeira e quatro últimos dígitos
@@ -284,7 +284,7 @@ final e validade ficam gravados em `localStorage`, em texto, no aparelho.
 ### Resolvido: as telas saíram de cena
 
 Assinatura e Planos ficam escondidos enquanto o paywall não cobrar de verdade.
-A chave é `ASSINATURA_VISIVEL`, no `index.html`, e a proteção é dupla: as
+A chave é `ASSINATURA_VISIVEL`, no `home.html`, e a proteção é dupla: as
 entradas do menu saem, e `abrirAssinatura` e `abrirPlanos` recusam abrir mesmo
 se o pedido vier por outro caminho.
 

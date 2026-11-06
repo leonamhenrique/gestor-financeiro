@@ -311,6 +311,50 @@ O Android busca o arquivo em `https://<domínio que o app abre>/.well-known/asse
 
 ---
 
+## Quem mora em cada endereço
+
+Um projeto só no Pages, servindo a pasta `web/`:
+
+| Endereço | Arquivo | O que é |
+| --- | --- | --- |
+| `saldonline.com.br/` | `index.html` | o **site**, que explica e convida |
+| `saldonline.com.br/home` | `home.html` | o **app** |
+| `/privacidade`, `/excluir-conta` | arquivos próprios | páginas públicas da Play |
+| `/conheca` | — | 301 para a raiz (era o site, antes da troca) |
+
+Era o contrário até novembro de 2026: o app na raiz e o site em `/conheca`. A
+raiz é o endereço que se digita, se imprime e se manda por mensagem, e quem
+chega sem conhecer o produto precisa cair no que explica — não numa tela de
+login.
+
+**O Pages serve arquivo sem a extensão**: `/home` é `home.html`, como
+`/conheca` era `conheca.html`. E ele endireita sozinho, com 308 e levando a
+query junto, as duas outras formas de escrever o mesmo endereço — `/home.html`
+e `/home/`. É a segunda que faz o link de redefinir senha continuar
+funcionando sem mexer no servidor: ele monta `APP_URL + "/?token=…"`, o que
+com `APP_URL` terminando em `/home` dá `/home/?token=…`.
+
+### O preço da troca, e ele é um só
+
+O TWA da Play abre a **raiz**. Trocar os endereços sem publicar versão nova
+faz o app instalado abrir o site. Por isso:
+
+1. `twa-manifest.json`: `startUrl` passa a ser `/home`;
+2. `npx @bubblewrap/cli update`, `build`, e sobe para a Play;
+3. até cada pessoa atualizar, o app dela abre o site — e é por isso que o
+   botão **Entrar** do site aponta para `/home`: mesmo a versão velha chega
+   no app com um toque.
+
+O `assetlinks.json` não muda: ele continua em `/.well-known/`, no mesmo
+domínio, e é o domínio que o Android confere — não o caminho.
+
+A origem continua a mesma (`https://saldonline.com.br`), e é isso que faz a
+troca sair barata: a sessão, o tema, a ordem do menu, as preferências e a
+**fila de lançamentos offline** ficam onde estavam, e `CORS_ORIGINS` não muda
+— o navegador manda o host no `Origin`, nunca o caminho.
+
+---
+
 ## O domínio `saldonline.com.br`
 
 Registrado pela Hostinger, mas o registro de um `.com.br` mora sempre no
@@ -370,12 +414,14 @@ No Render, em *Environment* (são `sync: false`, moram no painel):
 | Key | Value |
 | --- | --- |
 | `CORS_ORIGINS` | `https://saldonline.com.br,https://www.saldonline.com.br,https://gestor-financeiro.pages.dev` |
-| `APP_URL` | `https://saldonline.com.br` |
+| `APP_URL` | `https://saldonline.com.br/home` |
 
 O `pages.dev` continua na lista de propósito: enquanto houver versão do app ou
 atalho apontando para lá, tirá-lo quebraria o login dessas pessoas sem aviso —
 o navegador recusa a chamada antes de ela sair. `APP_URL` é só um, porque é o
 endereço escrito no link de redefinição de senha, e esse tem de ser canônico.
+Ele aponta para **`/home`**, que é onde o app mora desde a troca de endereços
+(ver *Quem mora em cada endereço*): a raiz passou a ser o site.
 
 O `assetlinks.json` precisa responder **em todos os domínios que o app abre**,
 porque o Android o verifica por domínio.
@@ -453,8 +499,9 @@ gratuito e adverte sobre terceiros que cobram caro por ele.
 
 ## O app Android (TWA)
 
-O app na Play é um **TWA**: um invólucro que abre `saldonline.com.br` em tela
-cheia. Não há código Android escrito à mão — o projeto é **gerado** pelo
+O app na Play é um **TWA**: um invólucro que abre `saldonline.com.br/home` em
+tela cheia (era a raiz até a troca de endereços — ver *Quem mora em cada
+endereço*). Não há código Android escrito à mão — o projeto é **gerado** pelo
 [Bubblewrap](https://github.com/GoogleChromeLabs/bubblewrap) a partir do
 `manifest.webmanifest` do site.
 

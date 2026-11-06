@@ -2,7 +2,7 @@
   "name": "saldonline",
   "short_name": "saldonline",
   "description": "Contas, cartões, faturas e lançamentos do mês, num app só.",
-  "start_url": "/",
+  "start_url": "/home",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

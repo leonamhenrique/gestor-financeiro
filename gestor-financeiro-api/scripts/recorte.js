@@ -4,7 +4,7 @@
 // O bisturi, compartilhado pelos geradores.
 //
 // `gerar-fala.js` recorta a leitura da frase; `gerar-relatorio.js` recorta a
-// conta do mês. Os dois tiram pedaços do MESMO arquivo (`web/index.html`) pelo
+// conta do mês. Os dois tiram pedaços do MESMO arquivo (`web/home.html`) pelo
 // mesmo método — achar o marcador e equilibrar as chaves — e o método mora
 // aqui para não existir em duas versões que divergem no primeiro ajuste. É a
 // mesma razão que faz o recorte existir: uma regra, um lugar.
@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 
 const RAIZ = path.resolve(__dirname, '..', '..');
-const ORIGEM = path.join(RAIZ, 'web', 'index.html');
+const ORIGEM = path.join(RAIZ, 'web', 'home.html');
 
 /** O script do app, de dentro do HTML. É o último `<script>` do arquivo. */
 function scriptDoApp() {
