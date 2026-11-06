@@ -117,7 +117,7 @@ nav.topo .wrap{display:flex;align-items:center;justify-content:space-between;gap
   .digitando i{animation:pula 1s infinite ease-in-out}
   .digitando i:nth-child(2){animation-delay:.15s} .digitando i:nth-child(3){animation-delay:.3s}
   @keyframes pula{0%,60%,100%{transform:none;opacity:.5}30%{transform:translateY(-4px);opacity:1}}
-  .cal.onda .dia:not(.vazio){animation:pulso .7s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i) * 28ms)}
+  .cal.acesa .dia:not(.vazio){animation:pulso .7s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i) * 28ms)}
   @keyframes pulso{0%{transform:scale(.55);filter:brightness(1.9)}60%{transform:scale(1.06)}100%{transform:none;filter:none}}
   .semana .t i{transition:width 1s cubic-bezier(.2,.8,.2,1)}
   .perg{transition:background-color .4s ease}
@@ -600,7 +600,7 @@ const barras=[...document.querySelectorAll('.semana .t i')];
 const larguras=barras.map(b=>b.style.width);
 function acender(){
   if(reduz) return;
-  cal.classList.remove('onda'); void cal.offsetWidth; cal.classList.add('onda');
+  cal.classList.remove('acesa'); void cal.offsetWidth; cal.classList.add('acesa');
   rolar(total,0);
   barras.forEach(b=>b.style.width='0%');
   requestAnimationFrame(()=>requestAnimationFrame(()=>barras.forEach((b,k)=>b.style.width=larguras[k])));
