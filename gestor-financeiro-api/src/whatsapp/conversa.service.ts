@@ -28,6 +28,13 @@ import { CategoriesService } from '../categories/categories.service';
 import { BankAccountsService } from '../bank-accounts/bank-accounts.service';
 import { CreditCardsService } from '../credit-cards/credit-cards.service';
 import { GoalsService } from '../goals/goals.service';
+import { PeopleService } from '../shared-expenses/people.service';
+import { SharedExpensesService } from '../shared-expenses/shared-expenses.service';
+/* A divisão do resumo é feita pela MESMA função que o servidor usa para
+ * gravar. Recalcular aqui — mesmo com a fórmula certa — daria dois números
+ * para a mesma conta no dia em que o arredondamento mudasse de lado, e quem
+ * confirmou um valor veria outro gravado. */
+import { dividir, type Participante } from '../shared-expenses/shared-expense.utils';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -621,6 +628,10 @@ export class ConversaService {
     // escrita própria: é ele que trava o resgate no guardado e que mexe no
     // saldo da conta dentro da mesma transação.
     private readonly goals: GoalsService,
+    // A despesa dividida nasce pela porta do formulário: é ela que cria o
+    // lançamento e a divisão na mesma transação de banco.
+    private readonly pessoas: PeopleService,
+    private readonly divididas: SharedExpensesService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -909,6 +920,19 @@ export class ConversaService {
     // muda de lugar.
     if (r.objetivo) return this.lerMovimentoDeObjetivo(userId, r, ctx);
 
+    /* Receita não se divide, e a frase foi entendida inteira — o que há é
+     * um impedimento, não uma falta. A frase é a mesma que a API responderia
+     * se a chamada chegasse lá, e sai daqui para a pessoa não descobrir isso
+     * depois de confirmar. */
+    if (r.divisaoEmReceita) {
+      return {
+        texto:
+          '⚠️ Só despesa se divide: receita não é gasto de ninguém.\n\n' +
+          'Se a entrada foi um acerto — alguém te pagando o que devia —, ' +
+          'isso é "recebi" na tela de compartilhadas, no app.',
+      };
+    }
+
     const cartao = this.ofereceCriarCartao(userId, r, ctx);
     if (cartao) return cartao;
 
@@ -925,6 +949,9 @@ export class ConversaService {
       const categorias = r.faltando.includes('categoria')
         ? ' ' + this.ajudaDeCategoria(texto, r.tipo, ctx)
         : '';
+      /* "Faltou pessoa, partes" não diz nada a ninguém. Cada uma destas
+       * duas é uma pergunta diferente, e as duas são da divisão. */
+      const daDivisao = this.ajudaDaDivisao(r, ctx);
       return {
         texto:
           this.resumo(r, ctx) +
@@ -933,15 +960,38 @@ export class ConversaService {
           '.' +
           nomes +
           categorias +
+          daDivisao +
           ' Mande a frase de novo com essa parte, ou lance no app.',
       };
     }
 
+    /* A conta que não fecha é dita ANTES do "sim", com a frase do próprio
+     * serviço de divisão — e sem rascunho: confirmar algo que o servidor vai
+     * recusar é fazer a pessoa esperar por um erro que já se conhecia. */
+    const impossivel = this.linhasDaDivisao(r).erro;
+    if (impossivel) {
+      return { texto: this.resumo(r, ctx) + '\n\n⚠️ ' + impossivel };
+    }
+
     this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
     return {
-      texto: this.resumo(r, ctx) + '\n\nConfirma?',
+      texto: this.resumo(r, ctx) + this.avisoDePessoaNova(r) + '\n\nConfirma?',
       confirmar: true,
     };
+  }
+
+  /** "Vou criar a pessoa Carla" — dito antes do sim, como a conta e a
+   * categoria novas. Criar gente em silêncio encheria a agenda de quem
+   * errou um nome, e ninguém saberia de onde vieram. */
+  private avisoDePessoaNova(r: any): string {
+    const novas: string[] = (r.divisao && r.divisao.novas) || [];
+    if (!novas.length) return '';
+    return (
+      '\n\n' +
+      (novas.length === 1
+        ? 'Você ainda não tem ' + novas[0] + ' na sua lista de pessoas. Crio junto.'
+        : 'Você ainda não tem ' + this.comE(novas) + ' na sua lista de pessoas. Crio junto.')
+    );
   }
 
   /**
@@ -1057,6 +1107,80 @@ export class ConversaService {
   }
 
   // ----------------------------------------------------------
+  // despesa dividida
+  // ----------------------------------------------------------
+  /** Os participantes no formato do rateio. A pessoa que ainda não existe
+   * entra com um id de mentira — `dividir` só o usa como etiqueta e para
+   * recusar nome repetido, e é o mesmo id que o resumo e a gravação usam
+   * para falar da mesma pessoa. */
+  private participantesDoRateio(divisao: any): Participante[] {
+    return (divisao.participantes || []).map((p: any) => ({
+      personId: p.pessoaId || 'nova:' + fala.normalizarFala(p.nome),
+      amount: p.valor ?? undefined,
+      percent: p.percent ?? undefined,
+    }));
+  }
+
+  /**
+   * A divisão, em linhas — e a MINHA parte junto, que é o número que a
+   * pessoa quer ver.
+   *
+   * Quem calcula é `dividir`, a mesma função que o servidor usa para gravar.
+   * Ela também é quem recusa o impossível ("3,00 não dá para dividir entre 5
+   * pessoas", "a soma das partes passou do valor"), e a recusa vem com a
+   * frase pronta — repeti-la aqui seria escrever a segunda versão da mesma
+   * regra.
+   */
+  private linhasDaDivisao(r: any): { linhas: string[]; erro: string | null } {
+    const d = r.divisao;
+    if (!d || !r.valor || !d.participantes.length) return { linhas: [], erro: null };
+    let rateio;
+    try {
+      rateio = dividir(r.valor, d.modo, this.participantesDoRateio(d));
+    } catch (e: any) {
+      return { linhas: [], erro: e?.message || 'Não consegui dividir esse valor.' };
+    }
+    const comoFoiDito =
+      d.modo === 'IGUAL' ? 'em partes iguais' : d.modo === 'VALOR' ? 'por valor' : 'por percentual';
+    const linhas = ['', '👥 Dividida ' + comoFoiDito];
+    rateio.partes.forEach((parte, i) => {
+      const dito = d.participantes[i];
+      linhas.push(
+        '🧑 ' + dito.nome + ': ' + this.brl(parte.amount) +
+        (parte.percent === null ? '' : ' (' + this.pct(Number(parte.percent)) + ')'),
+      );
+    });
+    linhas.push('🙋 Você: ' + this.brl(rateio.minhaParte));
+    return { linhas, erro: null };
+  }
+
+  /** "40%" sem casa decimal quando ela é zero: 40,0000 é como o banco guarda,
+   * não como se fala. */
+  private pct(valor: number): string {
+    return (Number.isInteger(valor) ? String(valor) : valor.toFixed(2).replace('.', ',')) + '%';
+  }
+
+  /** O que falta na DIVISÃO, com as palavras dela. */
+  private ajudaDaDivisao(r: any, ctx: any): string {
+    if (!r.divisao) return '';
+    const partes: string[] = [];
+    if (r.faltando.includes('pessoa')) {
+      const nomes = (ctx.pessoas || []).map((p: any) => p.nome).join(', ');
+      partes.push(
+        ' Diga com quem: "dividido com a Ana".' +
+        (nomes ? ' Suas pessoas: ' + nomes + '.' : ''),
+      );
+    }
+    if (r.faltando.includes('partes')) {
+      partes.push(
+        ' Você disse a parte de uns e não a de outros. Diga a de todos' +
+        ' ("com a Ana 50 e o João 30") ou a de ninguém, que aí divide igual.',
+      );
+    }
+    return partes.join('');
+  }
+
+  // ----------------------------------------------------------
   // o que fazer com quem ainda não conectou
   // ----------------------------------------------------------
   /** Resposta igual para todo número desconhecido, com ou sem conta no app.
@@ -1147,6 +1271,12 @@ export class ConversaService {
       clientKey:
         'wa-' + userId.slice(0, 8) + '-' + Math.round(rascunho.criadoEm / 1000),
     };
+
+    /* Gasto dividido vai por outra porta: é ela que cria o lançamento E a
+     * divisão na mesma transação de banco. Chamar o lançamento aqui e a
+     * divisão depois deixaria, no tropeço do meio, um gasto sem divisão —
+     * e ninguém devendo nada a ninguém. */
+    if (r.divisao) return this.gravarDividida(userId, r, rascunho.criadoEm);
 
     try {
       // Parcelado vira SÉRIE, e não N lançamentos soltos: é o `seriesId` que
@@ -1410,6 +1540,85 @@ export class ConversaService {
           'Não consegui criar o objetivo agora. Tente de novo em instantes, ou crie no app, em Objetivos.',
       };
     }
+  }
+
+  /**
+   * O gasto dividido, gravado depois do "sim".
+   *
+   * As pessoas novas nascem primeiro, e uma a uma: o serviço de divisão
+   * precisa de ids, e nome não é id. Falhando a criação de alguma, nada do
+   * resto acontece — metade da divisão seria uma dívida errada, pior que
+   * nenhuma.
+   *
+   * O parcelamento NÃO entra aqui ainda: uma compra dividida e parcelada
+   * tem série própria (`createSeries`), e o valor muda de significado entre
+   * os dois casos — é o total da compra, não o de cada parcela. Misturar as
+   * duas coisas sem dizer qual é qual cobraria do amigo cinco vezes a conta.
+   */
+  private async gravarDividida(userId: string, r: any, criadoEm: number): Promise<Resposta> {
+    const d = r.divisao;
+    const idPorNome: Record<string, string> = {};
+    try {
+      for (const nome of d.novas as string[]) {
+        const criada = await this.pessoas.create({ userId, name: nome });
+        idPorNome[fala.normalizarFala(nome)] = criada.id;
+      }
+    } catch (e: any) {
+      this.log.warn('não consegui criar a pessoa: ' + (e?.message || e));
+      return {
+        texto:
+          'Não consegui criar ' + (d.novas as string[]).join(', ') +
+          ' na sua lista de pessoas. Crie no app, em Compartilhadas, e mande a frase de novo.',
+      };
+    }
+
+    const participantes: Participante[] = d.participantes.map((p: any) => ({
+      personId: p.pessoaId || idPorNome[fala.normalizarFala(p.nome)],
+      amount: p.valor ?? undefined,
+      percent: p.percent ?? undefined,
+    }));
+
+    try {
+      await this.divididas.create({
+        userId,
+        amount: r.valor,
+        date: r.data,
+        categoryId: r.categoriaId,
+        description: r.desc || undefined,
+        bankAccountId: r.contaId || undefined,
+        creditCardId: r.cartaoId || undefined,
+        invoiceMonth: r.cartaoId && r.faturaMes ? r.faturaMes : undefined,
+        isConfirmed: r.confirmada,
+        mode: d.modo,
+        participants: participantes,
+        clientKey: 'wa-div-' + userId.slice(0, 8) + '-' + Math.round(criadoEm / 1000),
+      });
+    } catch (e: any) {
+      this.log.error('falha ao dividir pelo WhatsApp: ' + (e?.message || e));
+      // A recusa do serviço vem com a frase pronta e o número dentro ("a
+      // soma das partes passou do valor da despesa"). Repassá-la é melhor
+      // do que um "não consegui" que não diz o que corrigir.
+      const motivo = e?.response?.message || e?.message;
+      return {
+        texto: motivo
+          ? '⚠️ ' + motivo
+          : 'Não consegui lançar a despesa dividida agora. Tente de novo em instantes, ou lance no app.',
+      };
+    }
+
+    try {
+      await this.talvezAprenderLojista(userId, r.desc, r.categoriaId);
+    } catch (e: any) {
+      this.log.warn('não consegui aprender o lojista: ' + (e?.message || e));
+    }
+
+    const rateio = dividir(r.valor, d.modo, participantes);
+    const nomes = d.participantes.map((p: any) => p.nome).join(', ');
+    return {
+      texto:
+        '✅ Lançado e dividido. ' + this.linhaCurta(r) + '\n' +
+        '👥 ' + nomes + ' · sua parte: ' + this.brl(rateio.minhaParte),
+    };
   }
 
   /**
@@ -2206,7 +2415,7 @@ export class ConversaService {
    * conta, cartão e categoria; o banco fala `bankAccount`, `creditCard` e
    * `category`. */
   async contextoDoUsuario(userId: string) {
-    const [contas, cartoes, categorias, regras, viradas, objetivos] = await Promise.all([
+    const [contas, cartoes, categorias, regras, viradas, objetivos, pessoas] = await Promise.all([
       this.prisma.bankAccount.findMany({ where: { userId } }),
       this.prisma.creditCard.findMany({ where: { userId }, include: { cycles: { orderBy: { validFrom: 'asc' } } } }),
       this.prisma.category.findMany({
@@ -2223,6 +2432,13 @@ export class ConversaService {
       this.prisma.goal.findMany({
         where: { userId },
         select: { id: true, name: true, accountId: true, completedAt: true },
+      }),
+      /* As pessoas com quem se divide gasto. Só as ATIVAS: dividir um gasto
+       * novo com quem foi arquivada é reabrir uma conta encerrada — a mesma
+       * regra do formulário, que usa `cpAtivas()`. */
+      this.prisma.person.findMany({
+        where: { userId, isActive: true },
+        select: { id: true, name: true },
       }),
     ]);
 
@@ -2284,6 +2500,9 @@ export class ConversaService {
         contaId: o.accountId,
         concluidoEm: o.completedAt ? dia(o.completedAt) : null,
       })),
+      /* `nome`, e não `name`: a leitura procura pessoa pelo mesmo campo com
+       * que procura conta, cartão e categoria. */
+      pessoas: pessoas.map((p) => ({ id: p.id, nome: p.name })),
       // O dia é o de quem falou, não o do servidor — ver `diaDoUsuario`.
       hoje: diaDoUsuario(),
     };
@@ -2340,6 +2559,10 @@ export class ConversaService {
     linhas.push(
       r.confirmada ? '✅ Situação: confirmado' : '🕒 Situação: previsto',
     );
+    /* A divisão entra no MESMO resumo, e não num recado à parte: é um gasto
+     * só, e quem confere o valor precisa ver, na mesma tela, quanto dele
+     * sobra para si. */
+    linhas.push(...this.linhasDaDivisao(r).linhas);
     return linhas.join('\n');
   }
 

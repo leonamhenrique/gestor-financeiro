@@ -39,6 +39,8 @@ import type {
 import type { BankAccountsService } from '../bank-accounts/bank-accounts.service';
 import type { CreditCardsService } from '../credit-cards/credit-cards.service';
 import type { GoalsService } from '../goals/goals.service';
+import type { PeopleService } from '../shared-expenses/people.service';
+import type { SharedExpensesService } from '../shared-expenses/shared-expenses.service';
 import type { CategoriesService } from '../categories/categories.service';
 import type { Cupom, CupomService } from './cupom.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
@@ -78,6 +80,13 @@ describe('ConversaService', () => {
   let movidos: any[];
   /** E os objetivos que ele foi mandado criar, como o pedido chegou. */
   let objetivosCriados: any[];
+  /** As pessoas com quem se divide gasto, como o banco as devolve. */
+  let pessoasDoBanco: any[];
+  let servicoDePessoas: any;
+  let pessoasCriadas: any[];
+  let servicoDeDivididas: any;
+  /** Os gastos divididos que o serviço foi mandado criar. */
+  let divididas: any[];
   /** Os objetivos como o banco os devolve para o contexto. */
   let objetivosDoBanco: any[];
   let cartoesCriados: any[];
@@ -171,6 +180,9 @@ describe('ConversaService', () => {
       // Os objetivos do dono da mensagem: e por eles que "apliquei 500 na
       // viagem" vira um id.
       goal: { findMany: jest.fn(async () => objetivosDoBanco) },
+      // As pessoas com quem se divide: é por elas que "dividido com a Ana"
+      // vira um id em vez de um nome solto.
+      person: { findMany: jest.fn(async () => pessoasDoBanco) },
       categoryRule: {
         findMany: jest.fn(async () => regrasDoBanco),
         upsert: jest.fn(async (args: any) => {
@@ -399,6 +411,29 @@ describe('ConversaService', () => {
       }),
     };
 
+    /* A pessoa e o gasto dividido passam pelos MESMOS serviços do
+     * formulário. O mock registra o que foi pedido; o rateio de verdade está
+     * provado em shared-expense.utils.spec, não aqui. */
+    pessoasDoBanco = [
+      { id: 'p1', name: 'Ana' },
+      { id: 'p2', name: 'João' },
+    ];
+    pessoasCriadas = [];
+    servicoDePessoas = {
+      create: jest.fn(async ({ userId, name }: any) => {
+        const nova = { id: 'pe-' + pessoasCriadas.length, userId, name };
+        pessoasCriadas.push(nova);
+        return nova;
+      }),
+    };
+    divididas = [];
+    servicoDeDivididas = {
+      create: jest.fn(async (entrada: any) => {
+        divididas.push(entrada);
+        return { id: 'sd-nova' };
+      }),
+    };
+
     service = new ConversaService(
       prisma,
       transactions,
@@ -411,6 +446,8 @@ describe('ConversaService', () => {
       servicoDeContas as BankAccountsService,
       servicoDeCartoes as CreditCardsService,
       servicoDeObjetivos as GoalsService,
+      servicoDePessoas as PeopleService,
+      servicoDeDivididas as SharedExpensesService,
     );
   });
 
@@ -1212,6 +1249,145 @@ describe('ConversaService', () => {
       // A leitura do pedido de criar não pode roubar a consulta.
       const r = await service.responderA(msg('quais objetivos eu tenho'));
       expect(r?.texto).toContain('🎯 Guardado nos objetivos: R$ 3.900,00');
+    });
+  });
+
+  describe('despesa dividida pela mensagem', () => {
+    /* Relógio preso: a data entra no resumo, na confirmação e na chave de
+     * repetição. */
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    const FRASE =
+      'gastei 200 no mercado pelo debito da conta Nubank categoria alimentacao dividido com a Ana';
+
+    it('o resumo mostra a divisao junto do gasto, e nada nasce antes do sim', async () => {
+      const r = await service.responderA(msg(FRASE));
+      expect(r?.texto).toBe(
+        [
+          '📉 Despesa',
+          '💵 Valor: R$ 200,00',
+          '📝 Descrição: Mercado',
+          '🏦 Conta: Nubank',
+          '🏷️ Categoria: Alimentação',
+          '📅 Data: 10/11/2026',
+          '✅ Situação: confirmado',
+          '',
+          // A divisão fica no MESMO resumo: é um gasto só, e quem confere o
+          // valor precisa ver quanto dele sobra para si.
+          '👥 Dividida em partes iguais',
+          '🧑 Ana: R$ 100,00',
+          '🙋 Você: R$ 100,00',
+          '',
+          'Confirma?',
+        ].join('\n'),
+      );
+      expect(r?.confirmar).toBe(true);
+      expect(divididas).toEqual([]);
+    });
+
+    it('o sim grava pela porta da divisao, e nao pela do lancamento comum', async () => {
+      await service.responderA(msg(FRASE));
+      const r = await service.responderA(msg('sim'));
+      expect(divididas).toHaveLength(1);
+      expect(divididas[0]).toMatchObject({
+        userId: 'user-1',
+        amount: 200,
+        date: '2026-11-10',
+        categoryId: 'c1',
+        description: 'Mercado',
+        bankAccountId: 'a1',
+        isConfirmed: true,
+        mode: 'IGUAL',
+        participants: [{ personId: 'p1' }],
+      });
+      expect(divididas[0].clientKey).toMatch(/^wa-div-/);
+      /* E o lançamento NÃO saiu por fora: o gasto e a divisão nascem na
+       * mesma transação de banco, lá dentro. Dois caminhos deixariam, no
+       * tropeço do meio, um gasto sem divisão. */
+      expect(criados).toEqual([]);
+      expect(r?.texto).toBe(
+        [
+          '✅ Lançado e dividido. Despesa de R$ 200,00 — Mercado em 10/11/2026.',
+          '👥 Ana · sua parte: R$ 100,00',
+        ].join('\n'),
+      );
+    });
+
+    it('a pessoa que nao existe e avisada antes, e criada no sim', async () => {
+      const aviso = await service.responderA(msg(FRASE.replace('a Ana', 'a Carla')));
+      expect(aviso?.texto).toContain('Você ainda não tem Carla na sua lista de pessoas. Crio junto.');
+      expect(pessoasCriadas).toEqual([]);
+
+      await service.responderA(msg('sim'));
+      expect(pessoasCriadas).toEqual([{ id: 'pe-0', userId: 'user-1', name: 'Carla' }]);
+      // E a divisão usa o id de quem acabou de nascer.
+      expect(divididas[0].participants).toEqual([{ personId: 'pe-0' }]);
+    });
+
+    it('a parte dita em dinheiro e a minha sao as duas mostradas', async () => {
+      const r = await service.responderA(msg(FRASE + ' 50'));
+      expect(r?.texto).toContain('👥 Dividida por valor');
+      expect(r?.texto).toContain('🧑 Ana: R$ 50,00');
+      // A minha parte nunca é informada: é o que sobra.
+      expect(r?.texto).toContain('🙋 Você: R$ 150,00');
+      await service.responderA(msg('sim'));
+      expect(divididas[0]).toMatchObject({ mode: 'VALOR', participants: [{ personId: 'p1', amount: 50 }] });
+    });
+
+    it('o percentual vira dinheiro no resumo, com o percentual ao lado', async () => {
+      const r = await service.responderA(msg(FRASE + ' 40%'));
+      expect(r?.texto).toContain('👥 Dividida por percentual');
+      expect(r?.texto).toContain('🧑 Ana: R$ 80,00 (40%)');
+      expect(r?.texto).toContain('🙋 Você: R$ 120,00');
+      await service.responderA(msg('sim'));
+      expect(divididas[0]).toMatchObject({
+        mode: 'PERCENTUAL',
+        participants: [{ personId: 'p1', percent: 40 }],
+      });
+    });
+
+    /* A conta que não fecha é dita ANTES do "sim", e com a frase do próprio
+     * serviço de divisão — confirmar algo que o servidor vai recusar é fazer
+     * a pessoa esperar por um erro que já se conhecia. */
+    it('divisao impossivel nao chega a virar rascunho', async () => {
+      const r = await service.responderA(msg(FRASE + ' 150 e o Joao 100'));
+      expect(r?.texto).toContain('⚠️ A soma das partes passou do valor da despesa.');
+      expect(r?.confirmar).toBeUndefined();
+      // E o "sim" seguinte não grava nada: não ficou rascunho.
+      await service.responderA(msg('sim'));
+      expect(divididas).toEqual([]);
+    });
+
+    it('dividir sem dizer com quem pergunta, e lista as pessoas', async () => {
+      const r = await service.responderA(msg(FRASE.replace('a Ana', '')));
+      expect(r?.texto).toContain('Faltou pessoa.');
+      expect(r?.texto).toContain('Diga com quem: "dividido com a Ana".');
+      expect(r?.texto).toContain('Suas pessoas: Ana, João.');
+      expect(divididas).toEqual([]);
+    });
+
+    it('a parte de uns e nao de outros e dita como tal', async () => {
+      const r = await service.responderA(msg(FRASE + ' 50 e o Joao'));
+      expect(r?.texto).toContain('Você disse a parte de uns e não a de outros.');
+      expect(divididas).toEqual([]);
+    });
+
+    it('receita nao se divide, e a recusa diz onde isso se faz', async () => {
+      const r = await service.responderA(msg('recebi 200 de freelance na conta Nubank dividido com a Ana'));
+      expect(r?.texto).toContain('Só despesa se divide: receita não é gasto de ninguém.');
+      expect(divididas).toEqual([]);
+      expect(criados).toEqual([]);
+    });
+
+    it('sem dividir, o lancamento comum continua pelo caminho de sempre', async () => {
+      await service.responderA(msg('gastei 200 no mercado pelo debito da conta Nubank categoria alimentacao'));
+      await service.responderA(msg('sim'));
+      expect(divididas).toEqual([]);
+      expect(criados).toHaveLength(1);
     });
   });
 

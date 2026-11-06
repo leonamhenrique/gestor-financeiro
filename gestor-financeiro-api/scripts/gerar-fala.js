@@ -38,6 +38,8 @@ const CONSTANTES_BLOCO = [
   ['[', 'var PREPOSICAO_DE_LUGAR = '],
   ['[', 'var ANUNCIA_CARTAO = '],
   ['[', 'var PALAVRAS_DE_ESTRUTURA = '],
+  // Onde a parte de dividir acaba e a frase volta a falar do gasto.
+  ['[', 'var FIM_DA_DIVISAO = '],
 ];
 
 /** As de uma linha só. */
@@ -54,6 +56,9 @@ const CONSTANTES_LINHA = [
   'var OBJETIVO_ENTRA = ',
   'var OBJETIVO_SAI = ',
   'var DIZ_OBJETIVO = ',
+  // O verbo de dividir. Sozinho o 'com' nao serve: em portugues ele quer
+  // dizer duas coisas, e 'paguei com o cartao' nao divide nada com ninguem.
+  'var DIVIDE = ',
   'var RE_PARCELA = ',
   'var RE_PARCELA_DE = ',
   'var RE_PARCELA_EM = ',
@@ -132,6 +137,11 @@ const FUNCOES = [
   'objetivoDaFalaCitado',
   'movimentoDeObjetivoNaFala',
   'objetivoDaFala',
+  // A despesa dividida: quem divide, quanto cada um, e a frase sem esse
+  // pedaco -- que e o que segue para a leitura normal do lancamento.
+  'pessoaDaDivisao',
+  'parteDaDivisao',
+  'divisaoDaFala',
   'interpretarFala',
 ];
 

@@ -96,6 +96,16 @@ var ANUNCIA_CARTAO = ["cartao", "cartoes"];
 
 var PALAVRAS_DE_ESTRUTURA = ["conta", "contas", "banco", "para", "dinheiro", "valor", "saldo", "corrente"];
 
+var FIM_DA_DIVISAO = [
+    "cartao", "cartoes", "credito", "debito", "pix", "dinheiro", "especie",
+    "boleto", "ted", "doc", "conta", "contas", "banco", "bancos", "corrente",
+    "poupanca", "fatura", "faturas",
+    "categoria", "categorias", "descricao",
+    "parcela", "parcelas", "parcelado", "parcelada", "vezes",
+    "hoje", "ontem", "anteontem", "amanha", "dia", "dias", "semana", "semanas",
+    "mes", "meses", "ano", "anos"
+  ];
+
 var MOEDA = "\\d{1,3}(?:\\.\\d{3})+(?:,\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?";
 
 var TERMOS_CONTA = /debito|em conta|na conta|da conta|conta corrente|poupanca|dinheiro|especie|\bpix\b|transferencia|\bted\b|\bdoc\b|boleto|carteira/;
@@ -115,6 +125,8 @@ var OBJETIVO_ENTRA = /\bapliquei\b|\baplicar\b|\baplica[çc][ãa]o\b|\baplicacao
 var OBJETIVO_SAI = /\bresgatei\b|\bresgatar\b|\bresgate\b|\btirei\b|\btirar\b|\bretirei\b|\bretirar\b|\bsaquei\b|\bsacar\b/;
 
 var DIZ_OBJETIVO = /\bobjetivos?\b/;
+
+var DIVIDE = /\bdividid[oa]s?\b|\bdividi\b|\bdividir\b|\bdivide\b|\bdividindo\b|\brachei\b|\brachar\b|\brachad[oa]s?\b|\brachando\b/;
 
 var RE_PARCELA = /^(.*?)\s*-\s*Parcela\s+(\d+)\/(\d+)$/i;
 
@@ -790,6 +802,114 @@ function objetivoDaFala(texto, frase, r, ctx, achado) {
     return r;
   }
 
+function pessoaDaDivisao(nome, ctx) {
+    var alvo = normalizarFala(nome);
+    var lista = (ctx && ctx.pessoas) || [];
+    var exata = null;
+    lista.forEach(function (p) { if (!exata && normalizarFala(p.nome) === alvo) exata = p; });
+    return exata || acharPorNome(lista, alvo) || null;
+  }
+
+function parteDaDivisao(palavras) {
+    var percent = null, valor = null;
+    var sobrou = [];
+    /* O texto vem da palavra CRUA, e não da `chave`: `semPontuacao` tira o
+     * sinal das pontas, e "40%" chega aqui como "40" — o percentual virava
+     * valor, e a parte da pessoa passava de 40% para R$ 40,00. */
+    var textoDoPedaco = palavras.map(function (x) { return normalizarFala(x.bruta); }).join(" ");
+    var mPct = textoDoPedaco.match(/(\d+(?:[.,]\d+)?)\s*(?:%|por cento)/);
+    if (mPct) percent = numeroBR(mPct[1]);
+    palavras.forEach(function (x) {
+      // Qualquer palavra com dígito é número desta parte, não nome: "50",
+      // "50%", "R$50". Nome de gente não tem dígito.
+      if (/\d/.test(x.chave) || x.chave === "%" || x.chave === "r$") return;
+      sobrou.push(x);
+    });
+    if (percent === null) {
+      var semPct = textoDoPedaco.replace(/\s*(?:%|por cento)/g, " ");
+      valor = valorDaFala(semPct);
+    }
+    var corte = cortarLigacoes(sobrou);
+    return { nome: nomeDoTrecho(corte), valor: valor || null, percent: percent };
+  }
+
+function divisaoDaFala(frase, texto, ctx) {
+    ctx = ctx || contextoDaFala();
+    if (!DIVIDE.test(texto)) return null;
+
+    var brutas = String(frase || "").split(/\s+/).filter(Boolean);
+    var palavras = brutas.map(function (b) {
+      return { bruta: b, palavra: semPontuacao(b), chave: normalizarFala(semPontuacao(b)),
+               virgula: /[,;]$/.test(b) };
+    });
+
+    var v = -1;
+    for (var i = 0; i < palavras.length; i++) {
+      if (DIVIDE.test(palavras[i].chave)) { v = i; break; }
+    }
+    if (v < 0) return null;
+
+    // Onde a lista de gente começa: no "com" que vem depois do verbo. Sem
+    // ele não há com quem dividir — e é aí que a conversa pergunta.
+    var inicio = -1, fim = palavras.length;
+    for (var j = v + 1; j < palavras.length; j++) {
+      if (FIM_DA_DIVISAO.indexOf(palavras[j].chave) >= 0 || mesPorNome(palavras[j].chave) >= 0 ||
+          DIAS_SEMANA[palavras[j].chave] !== undefined) { fim = j; break; }
+      if (inicio < 0 && palavras[j].chave === "com") inicio = j + 1;
+    }
+    /* Sem "com", isto não é divisão nenhuma: "comprei 20 DIVIDIDO EM 3
+     * parcelas" é parcelamento, e a palavra é a mesma. Devolver "faltou
+     * pessoa" aqui tirava o "dividido em 3 parcelas" da frase e a compra
+     * perdia as parcelas -- medido pelo teste da fala, que já cobria essa
+     * frase antes de esta leitura existir. */
+    if (inicio < 0) return null;
+    // Com "com" e sem ninguém depois, a pergunta é legítima: "dividido com"
+    // quem? Aí a frase É de divisão, e falta a pessoa.
+    if (inicio >= fim) {
+      return { modo: "IGUAL", participantes: [], novas: [], faltando: ["pessoa"],
+               resto: brutas.slice(0, v).concat(brutas.slice(fim)).join(" ") };
+    }
+
+    // A lista parte em "e" e em vírgula: "a Ana, o João e a Maria".
+    var pedacos = [], atual = [];
+    for (var k = inicio; k < fim; k++) {
+      var p = palavras[k];
+      if (p.chave === "e") { if (atual.length) { pedacos.push(atual); atual = []; } continue; }
+      atual.push(p);
+      if (p.virgula && atual.length) { pedacos.push(atual); atual = []; }
+    }
+    if (atual.length) pedacos.push(atual);
+
+    var participantes = [], novas = [], faltando = [];
+    pedacos.forEach(function (pedaco) {
+      var parte = parteDaDivisao(pedaco);
+      if (!parte.nome) return;
+      var pessoa = pessoaDaDivisao(parte.nome, ctx);
+      participantes.push({
+        pessoaId: pessoa ? pessoa.id : null,
+        nome: pessoa ? pessoa.nome : parte.nome,
+        valor: parte.valor, percent: parte.percent
+      });
+      if (!pessoa) novas.push(parte.nome);
+    });
+
+    if (!participantes.length) faltando.push("pessoa");
+
+    var comPct = participantes.filter(function (p) { return p.percent !== null; }).length;
+    var comValor = participantes.filter(function (p) { return p.valor !== null; }).length;
+    var modo = comPct ? "PERCENTUAL" : (comValor ? "VALOR" : "IGUAL");
+    // Dito pela metade: parte da gente com número, parte sem.
+    if ((comPct && comPct !== participantes.length) ||
+        (!comPct && comValor && comValor !== participantes.length)) {
+      faltando.push("partes");
+    }
+
+    return {
+      modo: modo, participantes: participantes, novas: novas, faltando: faltando,
+      resto: brutas.slice(0, v).concat(brutas.slice(fim)).join(" ")
+    };
+  }
+
 function interpretarFala(frase, ctx) {
     ctx = ctx || contextoDaFala();
     var texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
@@ -803,6 +923,18 @@ function interpretarFala(frase, ctx) {
     // `movimentoDeObjetivoNaFala`.
     var noObjetivo = movimentoDeObjetivoNaFala(texto, ctx);
     if (noObjetivo) return objetivoDaFala(texto, frase, r, ctx, noObjetivo);
+
+    /* A DIVISÃO sai da frase antes de tudo o mais, e o resto segue para a
+     * leitura de sempre. Deixá-la na frase faria "Ana" disputar com
+     * "mercado" o lugar da descrição — e às vezes ganhar, porque quem ganha
+     * é o pedaço maior. Lida e removida, nada mais no app precisa saber que
+     * ela existe: destino, categoria, data e parcelas são lidos como sempre. */
+    var divisao = divisaoDaFala(frase, texto, ctx);
+    if (divisao) {
+      frase = divisao.resto;
+      texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
+      r.frase = divisao.resto;
+    }
 
     // Transferência é outro tipo de lançamento, e sai por outro caminho: não
     // tem categoria, não tem cartão, e o que importa é a ORDEM das contas.
@@ -942,6 +1074,22 @@ function interpretarFala(frase, ctx) {
     // Data no futuro manda mais que o verbo: dinheiro que ainda vai sair é
     // previsto, mesmo numa frase como "pago no pix amanhã".
     if (r.data > isoDate(hoje)) r.confirmada = false;
+
+    /* A divisão vai junto do lançamento, e não no lugar dele: o gasto
+     * dividido É um gasto — mesmo valor, mesma conta, mesma categoria,
+     * mesma fatura. O que a divisão acrescenta é quem deve quanto.
+     *
+     * Receita não se divide, e a recusa fica aqui em vez de a leitura
+     * jogar a divisão fora: "recebi 200 dividido com a Ana" foi entendida
+     * inteira, e quem mostra decide a palavra. É a mesma escolha do
+     * objetivo concluído. */
+    if (divisao) {
+      r.divisao = divisao;
+      if (r.tipo !== "EXPENSE") r.divisaoEmReceita = true;
+      divisao.faltando.forEach(function (f) {
+        if (r.faltando.indexOf(f) < 0) r.faltando.push(f);
+      });
+    }
 
     return r;
   }

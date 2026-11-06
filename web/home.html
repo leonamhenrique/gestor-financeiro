@@ -5603,6 +5603,13 @@
       // Os objetivos entram porque a frase pode mover dinheiro para dentro de
       // um ("apliquei 500 na viagem"), e o nome dito só vira id com a lista.
       objetivos: state.objetivos || [],
+      /* As pessoas com quem se divide gasto. `cpPessoas` guarda o que a API
+       * devolve, e lá o campo é `name` — aqui a leitura procura `nome`, como
+       * em conta, cartão e categoria. Só as ativas: dividir um gasto novo
+       * com quem foi arquivada é reabrir uma conta encerrada. */
+      pessoas: (typeof cpPessoas !== "undefined" ? cpPessoas : [])
+        .filter(function (p) { return p.isActive !== false; })
+        .map(function (p) { return { id: p.id, nome: p.name }; }),
       hoje: dataDeHoje()
     };
   }
@@ -6332,6 +6339,165 @@
   /** A frase disse "transferência". Daqui em diante a leitura é outra: duas
    * contas na ordem em que foram ditas, valor, data e situação. Sem categoria
    * — transferência não tem, e cobrá-la aqui seria pedir o que não existe. */
+  /* ---------- despesa dividida ----------
+   * "Gastei 200 no mercado pelo débito dividido com a Ana."
+   *
+   * O VERBO DE DIVIDIR é obrigatório, e isso não é zelo: "com" em português
+   * quer dizer duas coisas — "paguei COM o cartão" e "gastei COM gasolina" —
+   * e aceitar "com" sozinho faria metade das frases virar divisão, criando
+   * gente chamada "Gasolina" na agenda de quem divide. É o mesmo cuidado do
+   * objetivo, onde o verbo sozinho também não basta.
+   *
+   * "Metade" ficou de fora: "paguei a metade do aluguel" fala do valor, não
+   * de dividir com ninguém. Quem divide diz dividir.
+   */
+  var DIVIDE = /\bdividid[oa]s?\b|\bdividi\b|\bdividir\b|\bdivide\b|\bdividindo\b|\brachei\b|\brachar\b|\brachad[oa]s?\b|\brachando\b/;
+
+  /** Onde a parte de dividir ACABA e a frase volta a falar do gasto.
+   *
+   * É uma lista própria, e não o `COMANDO_DA_FALA`: lá estão "reais" e
+   * "valor", que no meio desta parte são a PARTE de alguém ("com a Ana 50
+   * reais e o João 30"). Parar neles cortaria a lista no primeiro nome. */
+  var FIM_DA_DIVISAO = [
+    "cartao", "cartoes", "credito", "debito", "pix", "dinheiro", "especie",
+    "boleto", "ted", "doc", "conta", "contas", "banco", "bancos", "corrente",
+    "poupanca", "fatura", "faturas",
+    "categoria", "categorias", "descricao",
+    "parcela", "parcelas", "parcelado", "parcelada", "vezes",
+    "hoje", "ontem", "anteontem", "amanha", "dia", "dias", "semana", "semanas",
+    "mes", "meses", "ano", "anos"
+  ];
+
+  /** A pessoa que o nome dito aponta, entre as que existem. Primeiro o nome
+   * inteiro; depois a busca por pedaço, a mesma de conta e cartão — é ela que
+   * faz "a Ana Paula" achar "Ana Paula" e "a Ana" achar "Ana". */
+  function pessoaDaDivisao(nome, ctx) {
+    var alvo = normalizarFala(nome);
+    var lista = (ctx && ctx.pessoas) || [];
+    var exata = null;
+    lista.forEach(function (p) { if (!exata && normalizarFala(p.nome) === alvo) exata = p; });
+    return exata || acharPorNome(lista, alvo) || null;
+  }
+
+  /** O pedaço "a Ana 50" vira { nome: "Ana", valor: 50 }; "o João 40%" vira
+   * { nome: "João", percent: 40 }.
+   *
+   * O número é lido ANTES do nome e sai do texto: sem isso, "Ana 50" viraria
+   * uma pessoa chamada "Ana 50". */
+  function parteDaDivisao(palavras) {
+    var percent = null, valor = null;
+    var sobrou = [];
+    /* O texto vem da palavra CRUA, e não da `chave`: `semPontuacao` tira o
+     * sinal das pontas, e "40%" chega aqui como "40" — o percentual virava
+     * valor, e a parte da pessoa passava de 40% para R$ 40,00. */
+    var textoDoPedaco = palavras.map(function (x) { return normalizarFala(x.bruta); }).join(" ");
+    var mPct = textoDoPedaco.match(/(\d+(?:[.,]\d+)?)\s*(?:%|por cento)/);
+    if (mPct) percent = numeroBR(mPct[1]);
+    palavras.forEach(function (x) {
+      // Qualquer palavra com dígito é número desta parte, não nome: "50",
+      // "50%", "R$50". Nome de gente não tem dígito.
+      if (/\d/.test(x.chave) || x.chave === "%" || x.chave === "r$") return;
+      sobrou.push(x);
+    });
+    if (percent === null) {
+      var semPct = textoDoPedaco.replace(/\s*(?:%|por cento)/g, " ");
+      valor = valorDaFala(semPct);
+    }
+    var corte = cortarLigacoes(sobrou);
+    return { nome: nomeDoTrecho(corte), valor: valor || null, percent: percent };
+  }
+
+  /**
+   * A divisão que a frase declara, ou `null`.
+   *
+   * Devolve também o `resto`: a frase SEM a parte de dividir. É ele que segue
+   * para a leitura normal, e é isso que faz o destino, a categoria, a data e
+   * a descrição continuarem sendo lidos como sempre — sem que "Ana" dispute
+   * com "mercado" o lugar de descrição.
+   *
+   * O MODO sai de como as partes foram ditas, e não de uma escolha: todo
+   * mundo com percentual é PERCENTUAL, todo mundo com valor é VALOR, ninguém
+   * com número é IGUAL. Metade com número e metade sem é pedido incompleto —
+   * "a Ana 50 e o João" não diz quanto o João deve, e inventar a parte dele
+   * seria cobrar de alguém um número que ninguém falou.
+   */
+  function divisaoDaFala(frase, texto, ctx) {
+    ctx = ctx || contextoDaFala();
+    if (!DIVIDE.test(texto)) return null;
+
+    var brutas = String(frase || "").split(/\s+/).filter(Boolean);
+    var palavras = brutas.map(function (b) {
+      return { bruta: b, palavra: semPontuacao(b), chave: normalizarFala(semPontuacao(b)),
+               virgula: /[,;]$/.test(b) };
+    });
+
+    var v = -1;
+    for (var i = 0; i < palavras.length; i++) {
+      if (DIVIDE.test(palavras[i].chave)) { v = i; break; }
+    }
+    if (v < 0) return null;
+
+    // Onde a lista de gente começa: no "com" que vem depois do verbo. Sem
+    // ele não há com quem dividir — e é aí que a conversa pergunta.
+    var inicio = -1, fim = palavras.length;
+    for (var j = v + 1; j < palavras.length; j++) {
+      if (FIM_DA_DIVISAO.indexOf(palavras[j].chave) >= 0 || mesPorNome(palavras[j].chave) >= 0 ||
+          DIAS_SEMANA[palavras[j].chave] !== undefined) { fim = j; break; }
+      if (inicio < 0 && palavras[j].chave === "com") inicio = j + 1;
+    }
+    /* Sem "com", isto não é divisão nenhuma: "comprei 20 DIVIDIDO EM 3
+     * parcelas" é parcelamento, e a palavra é a mesma. Devolver "faltou
+     * pessoa" aqui tirava o "dividido em 3 parcelas" da frase e a compra
+     * perdia as parcelas -- medido pelo teste da fala, que já cobria essa
+     * frase antes de esta leitura existir. */
+    if (inicio < 0) return null;
+    // Com "com" e sem ninguém depois, a pergunta é legítima: "dividido com"
+    // quem? Aí a frase É de divisão, e falta a pessoa.
+    if (inicio >= fim) {
+      return { modo: "IGUAL", participantes: [], novas: [], faltando: ["pessoa"],
+               resto: brutas.slice(0, v).concat(brutas.slice(fim)).join(" ") };
+    }
+
+    // A lista parte em "e" e em vírgula: "a Ana, o João e a Maria".
+    var pedacos = [], atual = [];
+    for (var k = inicio; k < fim; k++) {
+      var p = palavras[k];
+      if (p.chave === "e") { if (atual.length) { pedacos.push(atual); atual = []; } continue; }
+      atual.push(p);
+      if (p.virgula && atual.length) { pedacos.push(atual); atual = []; }
+    }
+    if (atual.length) pedacos.push(atual);
+
+    var participantes = [], novas = [], faltando = [];
+    pedacos.forEach(function (pedaco) {
+      var parte = parteDaDivisao(pedaco);
+      if (!parte.nome) return;
+      var pessoa = pessoaDaDivisao(parte.nome, ctx);
+      participantes.push({
+        pessoaId: pessoa ? pessoa.id : null,
+        nome: pessoa ? pessoa.nome : parte.nome,
+        valor: parte.valor, percent: parte.percent
+      });
+      if (!pessoa) novas.push(parte.nome);
+    });
+
+    if (!participantes.length) faltando.push("pessoa");
+
+    var comPct = participantes.filter(function (p) { return p.percent !== null; }).length;
+    var comValor = participantes.filter(function (p) { return p.valor !== null; }).length;
+    var modo = comPct ? "PERCENTUAL" : (comValor ? "VALOR" : "IGUAL");
+    // Dito pela metade: parte da gente com número, parte sem.
+    if ((comPct && comPct !== participantes.length) ||
+        (!comPct && comValor && comValor !== participantes.length)) {
+      faltando.push("partes");
+    }
+
+    return {
+      modo: modo, participantes: participantes, novas: novas, faltando: faltando,
+      resto: brutas.slice(0, v).concat(brutas.slice(fim)).join(" ")
+    };
+  }
+
   function transferenciaDaFala(texto, frase, r, ctx) {
     ctx = ctx || contextoDaFala();
     r.transferencia = true;
@@ -6376,6 +6542,18 @@
     // `movimentoDeObjetivoNaFala`.
     var noObjetivo = movimentoDeObjetivoNaFala(texto, ctx);
     if (noObjetivo) return objetivoDaFala(texto, frase, r, ctx, noObjetivo);
+
+    /* A DIVISÃO sai da frase antes de tudo o mais, e o resto segue para a
+     * leitura de sempre. Deixá-la na frase faria "Ana" disputar com
+     * "mercado" o lugar da descrição — e às vezes ganhar, porque quem ganha
+     * é o pedaço maior. Lida e removida, nada mais no app precisa saber que
+     * ela existe: destino, categoria, data e parcelas são lidos como sempre. */
+    var divisao = divisaoDaFala(frase, texto, ctx);
+    if (divisao) {
+      frase = divisao.resto;
+      texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
+      r.frase = divisao.resto;
+    }
 
     // Transferência é outro tipo de lançamento, e sai por outro caminho: não
     // tem categoria, não tem cartão, e o que importa é a ORDEM das contas.
@@ -6516,6 +6694,22 @@
     // previsto, mesmo numa frase como "pago no pix amanhã".
     if (r.data > isoDate(hoje)) r.confirmada = false;
 
+    /* A divisão vai junto do lançamento, e não no lugar dele: o gasto
+     * dividido É um gasto — mesmo valor, mesma conta, mesma categoria,
+     * mesma fatura. O que a divisão acrescenta é quem deve quanto.
+     *
+     * Receita não se divide, e a recusa fica aqui em vez de a leitura
+     * jogar a divisão fora: "recebi 200 dividido com a Ana" foi entendida
+     * inteira, e quem mostra decide a palavra. É a mesma escolha do
+     * objetivo concluído. */
+    if (divisao) {
+      r.divisao = divisao;
+      if (r.tipo !== "EXPENSE") r.divisaoEmReceita = true;
+      divisao.faltando.forEach(function (f) {
+        if (r.faltando.indexOf(f) < 0) r.faltando.push(f);
+      });
+    }
+
     return r;
   }
 
@@ -6614,6 +6808,44 @@
     }
     linhas.push({ rotulo: "Data", valor: fmtDataBR(r.data), ok: true });
     linhas.push({ rotulo: "Situação", valor: r.confirmada ? "Confirmado" : "Previsto", ok: true });
+    linhasDaDivisaoNaFala(r).forEach(function (l) { linhas.push(l); });
+    return linhas;
+  }
+
+  /** A divisão dentro do resumo do ditado: quem fica com quanto, e quanto
+   * sobra para mim — que é o número que a pessoa quer ver.
+   *
+   * Receita dividida aparece como IMPEDIMENTO, e não como falta: a frase foi
+   * entendida inteira, e o que há é uma regra ("só despesa se divide"). */
+  function linhasDaDivisaoNaFala(r) {
+    var d = r.divisao;
+    if (!d) return [];
+    if (r.divisaoEmReceita) {
+      return [{ rotulo: "Dividir", valor: "receita não se divide", ok: false }];
+    }
+    if (!d.participantes.length) {
+      return [{ rotulo: "Dividir com", valor: "não identifiquei quem", ok: false }];
+    }
+    var comoFoiDito = d.modo === "IGUAL" ? "em partes iguais"
+      : d.modo === "VALOR" ? "por valor" : "por percentual";
+    var linhas = [{ rotulo: "Dividida", valor: comoFoiDito, ok: true }];
+    var rateio = r.valor ? cpRatearVarios(r.valor, d.modo, d.participantes) : null;
+    d.participantes.forEach(function (p, i) {
+      linhas.push({
+        rotulo: p.nome,
+        valor: rateio ? brl(rateio.partes[i]) + (p.percent !== null ? " (" + p.percent + "%)" : "")
+          : "parte não calculada",
+        // Pessoa que ainda não existe: a tela diz antes, porque criar gente
+        // em silêncio encheria a agenda de quem errou um nome.
+        meta: p.pessoaId ? "" : "será criada",
+        ok: !!rateio
+      });
+    });
+    linhas.push({
+      rotulo: "Sua parte",
+      valor: rateio ? brl(rateio.minha) : "não fecha nesse valor",
+      ok: !!rateio
+    });
     return linhas;
   }
 
@@ -12637,7 +12869,12 @@
       !(falaAtual.transferencia && falaAtual.deId && falaAtual.deId === falaAtual.paraId) &&
       // Entendido e impedido: aplicar em objetivo concluído não é "faltando",
       // mas também não pode ser lançado.
-      !falaAtual.objetivoConcluido;
+      !falaAtual.objetivoConcluido &&
+      // Receita não se divide, e uma divisão que não fecha no valor dito o
+      // servidor recusaria — as duas são entendidas e impedidas.
+      !falaAtual.divisaoEmReceita &&
+      !(falaAtual.divisao && falaAtual.valor &&
+        !cpRatearVarios(falaAtual.valor, falaAtual.divisao.modo, falaAtual.divisao.participantes));
     document.getElementById("voz-lancar").disabled = !completo;
     document.getElementById("voz-revisar").disabled = false;
     document.getElementById("voz-erro").textContent = completo ? "" : recadoDoQueFaltou(falaAtual);
@@ -12684,6 +12921,22 @@
       }
       if (!r.deId) return "Não achei a conta de origem. A primeira conta dita é a que paga.";
       return "Faltou " + r.faltando.join(", ") + ". Complete no formulário ou diga de novo.";
+    }
+    if (r.divisaoEmReceita) {
+      return "Só despesa se divide: receita não é gasto de ninguém. Se alguém te pagou o que devia, isso é um acerto, na tela de Compartilhadas.";
+    }
+    if (r.divisao) {
+      if (r.faltando.indexOf("pessoa") >= 0) {
+        var nomesDiv = cpAtivas().map(function (p) { return p.name; }).join(", ");
+        return "Não entendi com quem dividir. Diga o nome depois de \"dividido com\"." +
+          (nomesDiv ? " Suas pessoas: " + nomesDiv + "." : "");
+      }
+      if (r.faltando.indexOf("partes") >= 0) {
+        return "Você disse a parte de uns e não a de outros. Diga a de todos (\"com a Ana 50 e o João 30\") ou a de ninguém, que aí divide igual.";
+      }
+      if (r.valor && !cpRatearVarios(r.valor, r.divisao.modo, r.divisao.participantes)) {
+        return "Essa divisão não fecha em " + brl(r.valor) + ". Confira as partes.";
+      }
     }
     var semDestino = !state.accounts.some(function (a) { return a.isActive; }) && !state.cards.length;
     var semCategoria = !categoriasLancaveis(r.tipo).length;
@@ -12925,6 +13178,27 @@
     if (!falaAtual) return;
     fechar("dlg-voz");
     if (falaAtual.transferencia) { abrirTransferencia({ daFala: falaAtual }); return; }
+    /* A tela de dividir trabalha com UMA pessoa por vez; a frase aceita
+     * várias. Com mais de uma não há formulário que represente o que foi
+     * dito — e abrir com a primeira, calado, jogaria as outras fora. */
+    if (falaAtual.divisao && !falaAtual.divisaoEmReceita) {
+      var pp = falaAtual.divisao.participantes;
+      if (pp.length > 1) {
+        avisar("A tela divide com uma pessoa por vez",
+          "Sua frase dividiu com " + pp.length + " pessoas. Toque em Lançar para gravar do jeito que " +
+          "você falou, ou divida uma de cada vez no formulário.");
+        return;
+      }
+      if (pp.length === 1 && !pp[0].pessoaId) {
+        avisar("Essa pessoa ainda não existe",
+          pp[0].nome + " não está na sua lista. Toque em Lançar, que eu crio junto, " +
+          "ou cadastre primeiro em Compartilhadas.");
+        return;
+      }
+      abrirDialogoCompartilhada(pp.length ? pp[0].pessoaId : null);
+      preencherDivididaDaFala(falaAtual);
+      return;
+    }
     // Sem objetivo achado não há formulário para abrir: ele é por objetivo.
     if (falaAtual.objetivo) {
       if (falaAtual.objetivoId) abrirMovObjetivo(falaAtual.objetivoId, falaAtual.movimento, falaAtual);
@@ -12940,6 +13214,8 @@
     var r = falaAtual;
     if (r.transferencia) { await lancarTransferenciaDaFala(r); return; }
     if (r.objetivo) { await lancarObjetivoDaFala(r); return; }
+    // Gasto dividido vai pela rota da divisão, que cria o lançamento junto.
+    if (r.divisao) { await lancarDivididaDaFala(r); return; }
     if (MODO_API) {
       var corpoVoz = {
         type: r.tipo, amount: r.valor, categoryId: r.categoriaId,
@@ -13783,6 +14059,65 @@
     o.movimentos.push(mov);
     aplicarEfeitoDoMovimento(mov, 1);
     persist(); renderAll(); fechar("dlg-voz");
+  }
+
+  /**
+   * A despesa dividida ditada: o gasto e a divisão nascem juntos, pela MESMA
+   * rota que o formulário de dividir usa.
+   *
+   * Por que não lançar por aqui e dividir depois: são duas escritas, e o
+   * tropeço do meio deixaria um gasto sem divisão — ninguém devendo nada a
+   * ninguém, e sem nada na tela dizendo que faltou metade.
+   *
+   * Dividir EXIGE servidor: é lá que a conta entre as duas pessoas é somada,
+   * e a fila offline não guarda este pedido. A frase é entendida igual no
+   * modo demonstração; o que não dá é gravar.
+   */
+  async function lancarDivididaDaFala(r) {
+    if (!cpTemServidor()) {
+      avisar("Precisa do servidor",
+        "Dividir gasto exige estar conectado: é lá que a conta entre vocês é somada.");
+      return;
+    }
+    var d = r.divisao;
+    var ok = await comServidor("dividir o gasto", async function () {
+      /* As pessoas novas nascem primeiro, uma a uma: a divisão precisa de
+       * ids, e nome não é id. Falhando alguma, o `comServidor` mostra o erro
+       * e nada mais acontece — metade da divisão seria dívida errada. */
+      var participantes = [];
+      for (var i = 0; i < d.participantes.length; i++) {
+        var p = d.participantes[i];
+        var id = p.pessoaId;
+        if (!id) {
+          var nova = await api("/shared/people", { name: p.nome });
+          id = nova.id;
+        }
+        participantes.push({
+          personId: id,
+          amount: d.modo === "VALOR" ? p.valor : undefined,
+          percent: d.modo === "PERCENTUAL" ? p.percent : undefined
+        });
+      }
+      var corpo = {
+        description: r.desc || undefined,
+        amount: r.valor,
+        date: r.data,
+        mode: d.modo,
+        participants: participantes,
+        categoryId: r.categoriaId,
+        isConfirmed: r.confirmada
+      };
+      if (r.contaId) corpo.bankAccountId = r.contaId; else corpo.creditCardId = r.cartaoId;
+      if (r.cartaoId && r.faturaMes) corpo.invoiceMonth = r.faturaMes;
+      await api("/shared/expenses", corpo);
+      // A lista de pessoas e o resumo da dívida mudaram: sem recarregar, a
+      // tela de Compartilhadas mostraria o de antes.
+      await cpCarregar().catch(function () {});
+    });
+    if (!ok) return;
+    // Depois do sucesso, como no lançamento comum.
+    talvezAprenderDoLancamento(r.desc, r.categoriaId);
+    fechar("dlg-voz");
   }
 
   /** Confirmar e desfazer pela linha, sem abrir a edição. No servidor é o
@@ -16268,15 +16603,39 @@
    * vale. Repetir a regra é feio, mas uma prévia que diz 33,33 e grava 33,34
    * é pior — o usuário vê o app se contradizer na mesma tela.
    * Quem fica com o resto sou eu, nunca o outro. */
-  function cpRatear(total, modo, parte) {
+  /**
+   * O rateio como a TELA o mostra, para uma pessoa ou para várias.
+   *
+   * Quem manda de verdade é o `dividir` do servidor — é ele que grava. Aqui
+   * é prévia, e por isso as contas são as mesmas, linha por linha: no igual,
+   * `floor(T / (eles + eu))` com o resto ficando comigo; no percentual, o
+   * arredondamento é da PARTE de cada um, não do total.
+   *
+   * A minha parte nunca é um número informado: é o que sobra. É o mesmo
+   * princípio do saldo do extrato, onde a movimentação do mês é a diferença
+   * entre dois saldos e não uma terceira conta que pode não fechar.
+   */
+  function cpRatearVarios(total, modo, partes) {
     var T = cpCent(total);
-    if (!(T > 0)) return null;
-    var dele;
-    if (modo === "IGUAL") dele = Math.floor(T / 2);
-    else if (modo === "VALOR") dele = cpCent(parte);
-    else dele = Math.round((T * Number(parte || 0)) / 100);
-    if (!(dele > 0) || dele > T) return null;
-    return { dele: dele / 100, minha: (T - dele) / 100 };
+    if (!(T > 0) || !partes || !partes.length) return null;
+    var centavos = partes.map(function (p) {
+      if (modo === "IGUAL") return Math.floor(T / (partes.length + 1));
+      if (modo === "VALOR") return cpCent(p.valor);
+      return Math.round((T * Number(p.percent || 0)) / 100);
+    });
+    var soma = 0;
+    centavos.forEach(function (c) { soma += c; });
+    if (centavos.some(function (c) { return !(c > 0); }) || soma > T) return null;
+    return {
+      partes: centavos.map(function (c) { return c / 100; }),
+      minha: (T - soma) / 100
+    };
+  }
+
+  /** Uma pessoa só: o que o formulário usa. */
+  function cpRatear(total, modo, parte) {
+    var r = cpRatearVarios(total, modo, [{ valor: parte, percent: parte }]);
+    return r ? { dele: r.partes[0], minha: r.minha } : null;
   }
 
   // ---------- carga ----------
@@ -16693,6 +17052,31 @@
     }
 
     abrirDialogoCompartilhada(null, despesa);
+  }
+
+  /** O formulário de dividir, já com o que a frase disse. Roda DEPOIS de
+   * `abrirDialogoCompartilhada`, que é quem monta as listas — preencher
+   * antes seria escrever num campo que a montagem logo apagaria. */
+  function preencherDivididaDaFala(r) {
+    var d = r.divisao;
+    var p = d.participantes[0];
+    document.getElementById("cpd-desc").value = r.desc || "";
+    if (r.valor) document.getElementById("cpd-valor").value = r.valor;
+    if (r.data && calCompartilhada) calCompartilhada.definir(r.data, true);
+    cpdModo = d.modo;
+    document.querySelectorAll("#cpd-modos .pill").forEach(function (b) {
+      b.classList.toggle("on", b.dataset.modo === cpdModo);
+    });
+    document.getElementById("cpd-parte").value =
+      d.modo === "VALOR" ? (p.valor || "") : d.modo === "PERCENTUAL" ? (p.percent || "") : "";
+    if (r.categoriaId) {
+      document.getElementById("cpd-categoria").value = r.categoriaId;
+      // Escolhida pela frase: a sugestão por lojista não deve sobrescrever.
+      cpdCategoriaEscolhidaAMao = true;
+    }
+    var onde = r.cartaoId ? "cartao:" + r.cartaoId : r.contaId ? "conta:" + r.contaId : "";
+    if (onde) document.getElementById("cpd-pago-com").value = onde;
+    cpdDesenhar();
   }
 
   function abrirDialogoCompartilhada(pessoaId, despesa) {
