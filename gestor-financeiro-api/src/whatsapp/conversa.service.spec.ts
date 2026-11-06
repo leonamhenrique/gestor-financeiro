@@ -1441,6 +1441,103 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('repeticao fixa pela mensagem', () => {
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    const ALUGUEL =
+      'paguei 2500 de aluguel todo mes por 12 meses pelo debito da conta Nubank categoria alimentacao';
+
+    it('o resumo diz quantas vezes, quanto cada vez e o total', async () => {
+      const r = await service.responderA(msg(ALUGUEL));
+      expect(r?.texto).toContain(
+        '🔁 Repete: 12x todo mês · R$ 2.500,00 cada vez · total R$ 30.000,00',
+      );
+      // "Todo mes" saiu da frase: sem isso a descricao virava "Aluguel todo".
+      expect(r?.texto).toContain('📝 Descrição: Aluguel');
+      expect(r?.confirmar).toBe(true);
+    });
+
+    it('o sim cria SERIE fixa, com o valor de cada vez', async () => {
+      await service.responderA(msg(ALUGUEL));
+      const r = await service.responderA(msg('sim'));
+      expect(series).toHaveLength(1);
+      expect(series[0].repeat).toEqual({ kind: 'FIXED', frequency: 'MONTHLY', count: 12 });
+      /* FIXA repete o valor INTEIRO: 2.500 todo mês. É o contrário da
+       * parcelada, onde o valor do pedido é o da compra e o serviço reparte. */
+      expect(series[0].input).toMatchObject({ amount: 2500, type: 'EXPENSE' });
+      expect(criados).toEqual([]);
+      expect(r?.texto).toBe(
+        '✅ Lançado. 12x de R$ 2.500,00 — Aluguel, todo mês, a partir de 10/11/2026. Total R$ 30.000,00.',
+      );
+    });
+
+    /* O numero de vezes e obrigatorio: "todo mes" nao diz ate quando, e
+     * assumir doze por conta propria criaria um ano de lancamentos que
+     * ninguem pediu. */
+    it('sem o numero de vezes, pergunta com um exemplo da mesma frequencia', async () => {
+      const r = await service.responderA(
+        msg('paguei 2500 de aluguel todo mes pelo debito da conta Nubank categoria alimentacao'),
+      );
+      expect(r?.texto).toContain('Faltou por quantas vezes.');
+      expect(r?.texto).toContain('Diga por quantas vezes: "por 12 meses".');
+      expect(series).toEqual([]);
+      expect(criados).toEqual([]);
+    });
+
+    it('ano e outra frequencia, e o exemplo acompanha', async () => {
+      const r = await service.responderA(
+        msg('paguei 800 de seguro todo ano pelo debito da conta Nubank categoria alimentacao'),
+      );
+      expect(r?.texto).toContain('Diga por quantas vezes: "por 3 anos".');
+    });
+
+    it('o aluguel rachado repete E divide', async () => {
+      await service.responderA(msg(ALUGUEL + ' dividido com a Ana'));
+      const r = await service.responderA(msg('sim'));
+      expect(serieDividida).toHaveLength(1);
+      expect(serieDividida[0].repeticao).toEqual({
+        kind: 'FIXED',
+        frequency: 'MONTHLY',
+        count: 12,
+      });
+      expect(serieDividida[0].entrada).toMatchObject({ amount: 2500, mode: 'IGUAL' });
+      expect(r?.texto).toContain('👥 Ana · sua parte: R$ 1.250,00 cada vez');
+    });
+
+    it('a divisao repetida diz a parte de cada vez e a do total', async () => {
+      const r = await service.responderA(msg(ALUGUEL + ' dividido com a Ana'));
+      expect(r?.texto).toContain('👥 Dividida em partes iguais, toda vez');
+      expect(r?.texto).toContain('🧑 Ana: R$ 1.250,00 cada vez · R$ 15.000,00 no total');
+      expect(r?.texto).toContain('🙋 Você: R$ 1.250,00 cada vez');
+    });
+
+    /* Parcelar e repetir sao duas repeticoes diferentes na mesma frase: uma
+     * reparte o valor, a outra o repete inteiro. Escolher uma em silencio
+     * seria gravar o que a pessoa nao disse. */
+    it('parcelar e repetir na mesma frase e recusado, com a diferenca dita', async () => {
+      const r = await service.responderA(
+        msg('comprei 3000 em 3x todo mes por 12 meses no cartao Nubank Roxinho categoria alimentacao'),
+      );
+      expect(r?.texto).toContain('"3x" e "todo mês" são duas repetições diferentes');
+      expect(r?.texto).toContain('Parcelado reparte o valor');
+      expect(series).toEqual([]);
+      expect(criados).toEqual([]);
+    });
+
+    it('frase sem repeticao continua lancamento solto', async () => {
+      await service.responderA(
+        msg('gastei 40 no mercado pelo debito da conta Nubank categoria alimentacao'),
+      );
+      await service.responderA(msg('sim'));
+      expect(series).toEqual([]);
+      expect(criados).toHaveLength(1);
+    });
+  });
+
   describe('a pergunta dos objetivos', () => {
     it('responde o guardado, cada objetivo e de onde o dinheiro veio', async () => {
       const r = await service.responderA(

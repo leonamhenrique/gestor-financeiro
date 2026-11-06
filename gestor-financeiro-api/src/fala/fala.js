@@ -106,6 +106,13 @@ var FIM_DA_DIVISAO = [
     "mes", "meses", "ano", "anos"
   ];
 
+var REPETE_FREQ = [
+    [/\bquinzenal(?:mente)?\b|\ba cada (?:15|quinze) dias\b/, "BIWEEKLY"],
+    [/\btrimestral(?:mente)?\b|\ba cada (?:3|tres) meses\b/, "QUARTERLY"],
+    [/\banual(?:mente)?\b|\btodo ano\b|\btodos os anos\b|\ba cada ano\b/, "YEARLY"],
+    [/\bmensal(?:mente)?\b|\btodo mes\b|\btodos os meses\b|\ba cada mes\b/, "MONTHLY"]
+  ];
+
 var MOEDA = "\\d{1,3}(?:\\.\\d{3})+(?:,\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?";
 
 var TERMOS_CONTA = /debito|em conta|na conta|da conta|conta corrente|poupanca|dinheiro|especie|\bpix\b|transferencia|\bted\b|\bdoc\b|boleto|carteira/;
@@ -127,6 +134,10 @@ var OBJETIVO_SAI = /\bresgatei\b|\bresgatar\b|\bresgate\b|\btirei\b|\btirar\b|\b
 var DIZ_OBJETIVO = /\bobjetivos?\b/;
 
 var DIVIDE = /\bdividid[oa]s?\b|\bdividi\b|\bdividir\b|\bdivide\b|\bdividindo\b|\brachei\b|\brachar\b|\brachad[oa]s?\b|\brachando\b/;
+
+var RE_REPETE_TEXTO = /\b(?:quinzenal(?:mente)?|trimestral(?:mente)?|anual(?:mente)?|mensal(?:mente)?|todos?\s+os?\s+(?:m[eê]s(?:es)?|anos?)|todo\s+(?:m[eê]s|ano)|a\s+cada\s+(?:15|quinze)\s+dias|a\s+cada\s+(?:3|tr[eê]s)\s+meses|a\s+cada\s+(?:m[eê]s|ano))\b/gi;
+
+var RE_QUANTAS_VEZES = /\b(?:por|durante|pelos|pelas)\s+(\d{1,2}|um|uma|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|dezoito|vinte|trinta)\s*(?:m[eê]s(?:es)?|vezes|anos?|ocorr[eê]ncias?|quinzenas?|trimestres?)\b/i;
 
 var RE_PARCELA = /^(.*?)\s*-\s*Parcela\s+(\d+)\/(\d+)$/i;
 
@@ -910,6 +921,24 @@ function divisaoDaFala(frase, texto, ctx) {
     };
   }
 
+function repeticaoDaFala(frase, texto) {
+    var freq = null;
+    REPETE_FREQ.forEach(function (par) {
+      if (!freq && par[0].test(texto)) freq = par[1];
+    });
+    if (!freq) return null;
+    var m = String(frase || "").match(RE_QUANTAS_VEZES);
+    var quantas = m ? quantidadeDita(normalizarFala(m[1])) : 0;
+    // 2 a 60 é o que o servidor aceita; fora disso é como não ter dito.
+    if (!(quantas >= 2 && quantas <= 60)) quantas = 0;
+    var resto = String(frase || "")
+      .replace(RE_REPETE_TEXTO, " ")
+      .replace(RE_QUANTAS_VEZES, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return { freq: freq, quantas: quantas, resto: resto };
+  }
+
 function interpretarFala(frase, ctx) {
     ctx = ctx || contextoDaFala();
     var texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
@@ -934,6 +963,15 @@ function interpretarFala(frase, ctx) {
       frase = divisao.resto;
       texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
       r.frase = divisao.resto;
+    }
+
+    /* A repetição FIXA sai da frase pelo mesmo motivo da divisão: "todo mês"
+     * ficava na descrição, e o aluguel nascia chamado "Aluguel todo". */
+    var repeticao = repeticaoDaFala(frase, texto);
+    if (repeticao) {
+      frase = repeticao.resto;
+      texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
+      r.frase = repeticao.resto;
     }
 
     // Transferência é outro tipo de lançamento, e sai por outro caminho: não
@@ -1089,6 +1127,17 @@ function interpretarFala(frase, ctx) {
       divisao.faltando.forEach(function (f) {
         if (r.faltando.indexOf(f) < 0) r.faltando.push(f);
       });
+    }
+
+    if (repeticao) {
+      r.repeticao = repeticao;
+      // O número é obrigatório, e a falta dele tem nome próprio: "faltou
+      // repetição" não diria o que responder.
+      if (!repeticao.quantas) r.faltando.push("por quantas vezes");
+      /* Parcelar e repetir são duas repetições diferentes na mesma frase:
+       * "3x" reparte um valor, "todo mês" repete o valor inteiro. Entendidas
+       * as duas, o que há é contradição — e quem mostra decide a palavra. */
+      if (r.parcelas >= 2) r.repeticaoEParcela = true;
     }
 
     return r;

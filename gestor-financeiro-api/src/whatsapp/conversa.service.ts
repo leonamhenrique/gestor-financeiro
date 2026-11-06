@@ -931,6 +931,20 @@ export class ConversaService {
      * um impedimento, não uma falta. A frase é a mesma que a API responderia
      * se a chamada chegasse lá, e sai daqui para a pessoa não descobrir isso
      * depois de confirmar. */
+    /* Parcelar e repetir são duas repetições diferentes na mesma frase: uma
+     * reparte o valor, a outra o repete inteiro. As duas foram entendidas, e
+     * escolher uma em silêncio seria gravar o que a pessoa não disse. */
+    if (r.repeticaoEParcela) {
+      return {
+        texto:
+          '⚠️ "' + r.parcelas + 'x" e "' + this.comQueFrequencia(r.repeticao.freq) +
+          '" são duas repetições diferentes na mesma frase.\n\n' +
+          'Parcelado reparte o valor (3.000 em 3x são três de 1.000); ' +
+          'fixo repete o valor inteiro (2.500 todo mês são 2.500 todo mês). ' +
+          'Mande de novo com uma das duas.',
+      };
+    }
+
     if (r.divisaoEmReceita) {
       return {
         texto:
@@ -959,6 +973,11 @@ export class ConversaService {
       /* "Faltou pessoa, partes" não diz nada a ninguém. Cada uma destas
        * duas é uma pergunta diferente, e as duas são da divisão. */
       const daDivisao = this.ajudaDaDivisao(r, ctx);
+      /* "Faltou por quantas vezes" precisa dizer o que responder: "todo mês"
+       * não diz até quando, e o app não inventa um prazo. */
+      const daRepeticao = r.faltando.includes('por quantas vezes')
+        ? ' Diga por quantas vezes: "' + this.exemploDeRepeticao(r.repeticao.freq) + '".'
+        : '';
       return {
         texto:
           this.resumo(r, ctx) +
@@ -968,6 +987,7 @@ export class ConversaService {
           nomes +
           categorias +
           daDivisao +
+          daRepeticao +
           ' Mande a frase de novo com essa parte, ou lance no app.',
       };
     }
@@ -1175,17 +1195,50 @@ export class ConversaService {
     }
     const comoFoiDito =
       d.modo === 'IGUAL' ? 'em partes iguais' : d.modo === 'VALOR' ? 'por valor' : 'por percentual';
-    const linhas = ['', '👥 Dividida ' + comoFoiDito + (parcelas ? ', parcela a parcela' : '')];
+    /* Repetida, a divisão é a MESMA toda vez (fixa repete o valor inteiro),
+     * então o total de cada um é a parte vezes o número de vezes — sem
+     * centavo para distribuir, ao contrário da parcelada. */
+    const vezes = r.repeticao && r.repeticao.quantas ? r.repeticao.quantas : 0;
+    const aCada = parcelas ? ' por parcela' : vezes ? ' cada vez' : '';
+    const linhas = [
+      '',
+      '👥 Dividida ' + comoFoiDito +
+        (parcelas ? ', parcela a parcela' : vezes ? ', toda vez' : ''),
+    ];
     partes.forEach((parte, i) => {
       const dito = d.participantes[i];
+      const noTotal = parcelas
+        ? Number(totais[i].amount)
+        : vezes
+          ? Math.round(Number(parte.amount) * vezes * 100) / 100
+          : null;
       linhas.push(
-        '🧑 ' + dito.nome + ': ' + this.brl(parte.amount) + (parcelas ? ' por parcela' : '') +
+        '🧑 ' + dito.nome + ': ' + this.brl(parte.amount) + aCada +
         (parte.percent === null ? '' : ' (' + this.pct(Number(parte.percent)) + ')') +
-        (parcelas ? ' · ' + this.brl(Number(totais[i].amount)) + ' no total' : ''),
+        (noTotal === null ? '' : ' · ' + this.brl(noTotal) + ' no total'),
       );
     });
-    linhas.push('🙋 Você: ' + this.brl(minha) + (parcelas ? ' por parcela' : ''));
+    linhas.push('🙋 Você: ' + this.brl(minha) + aCada);
     return { linhas, erro: null };
+  }
+
+  /** A frequência como se fala dela. Num lugar só: ela aparece no resumo,
+   * na pergunta do que falta e na recusa da contradição. */
+  private comQueFrequencia(freq: string): string {
+    return freq === 'BIWEEKLY' ? 'a cada 15 dias'
+      : freq === 'QUARTERLY' ? 'a cada 3 meses'
+      : freq === 'YEARLY' ? 'todo ano'
+      : 'todo mês';
+  }
+
+  /** O exemplo que vai junto da pergunta, na mesma frequência que a pessoa
+   * disse — pedir "por 12 meses" a quem falou em ano seria pedir outra
+   * coisa. */
+  private exemploDeRepeticao(freq: string): string {
+    return freq === 'YEARLY' ? 'por 3 anos'
+      : freq === 'QUARTERLY' ? 'por 4 vezes'
+      : freq === 'BIWEEKLY' ? 'por 6 vezes'
+      : 'por 12 meses';
   }
 
   /** "40%" sem casa decimal quando ela é zero: 40,0000 é como o banco guarda,
@@ -1321,6 +1374,15 @@ export class ConversaService {
           kind: 'INSTALLMENT',
           frequency: 'MONTHLY',
           count: r.parcelas,
+        });
+      } else if (r.repeticao && r.repeticao.quantas) {
+        /* FIXA repete o valor INTEIRO a cada vez — um aluguel de 2.500 é
+         * 2.500 todo mês. É a diferença para a parcelada, que reparte: lá o
+         * valor do pedido é o da compra, aqui é o de cada ocorrência. */
+        await this.transactions.createSeries(pedido, {
+          kind: 'FIXED',
+          frequency: r.repeticao.freq,
+          count: r.repeticao.quantas,
         });
       } else {
         await this.transactions.create(pedido);
@@ -1644,6 +1706,14 @@ export class ConversaService {
           kind: 'INSTALLMENT',
           frequency: 'MONTHLY',
           count: parcelas,
+        });
+      } else if (r.repeticao && r.repeticao.quantas) {
+        // O aluguel rachado: cada mês é um gasto, e cada um com a sua
+        // divisão — quitar o de novembro não quita o de dezembro.
+        await this.divididas.createSeries(pedido, {
+          kind: 'FIXED',
+          frequency: r.repeticao.freq,
+          count: r.repeticao.quantas,
         });
       } else {
         await this.divididas.create(pedido);
@@ -2617,6 +2687,15 @@ export class ConversaService {
     linhas.push(
       r.confirmada ? '✅ Situação: confirmado' : '🕒 Situação: previsto',
     );
+    /* A repetição vem antes da divisão: ela muda o que a divisão significa
+     * ("R$ 1.250,00 por mês" em vez de "R$ 1.250,00"). */
+    if (r.repeticao && r.repeticao.quantas) {
+      linhas.push(
+        '🔁 Repete: ' + r.repeticao.quantas + 'x ' + this.comQueFrequencia(r.repeticao.freq) +
+        ' · ' + this.brl(r.valor) + ' cada vez · total ' +
+        this.brl(Math.round(r.valor * r.repeticao.quantas * 100) / 100),
+      );
+    }
     /* A divisão entra no MESMO resumo, e não num recado à parte: é um gasto
      * só, e quem confere o valor precisa ver, na mesma tela, quanto dele
      * sobra para si. */
@@ -2982,6 +3061,21 @@ export class ConversaService {
   }
 
   private linhaCurta(r: any): string {
+    if (r.repeticao && r.repeticao.quantas) {
+      return (
+        r.repeticao.quantas +
+        'x de ' +
+        this.brl(r.valor) +
+        (r.desc ? ' — ' + r.desc : '') +
+        ', ' +
+        this.comQueFrequencia(r.repeticao.freq) +
+        ', a partir de ' +
+        this.dataBR(r.data) +
+        '. Total ' +
+        this.brl(Math.round(r.valor * r.repeticao.quantas * 100) / 100) +
+        '.'
+      );
+    }
     if (r.parcelas) {
       return (
         r.parcelas +

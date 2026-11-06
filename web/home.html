@@ -6498,6 +6498,54 @@
     };
   }
 
+  /* ---------- repetição fixa ----------
+   * "Aluguel 2500 todo mês por 12 meses."
+   *
+   * Fixa não é parcelada, e a diferença muda o dinheiro: um aluguel de 2.500
+   * é 2.500 TODO mês; uma compra de 3.000 em 3x é 1.000 por vez. Por isso
+   * uma repete o valor inteiro e a outra o reparte.
+   *
+   * O QUANTAS VEZES é obrigatório. "Todo mês" não diz até quando, e o app
+   * precisa de um número (2 a 60) para criar as ocorrências — assumir doze
+   * por conta própria seria inventar um ano de lançamentos que ninguém
+   * pediu. Sem o número, a leitura devolve a repetição com `faltando`, e
+   * quem mostra pergunta.
+   */
+  var REPETE_FREQ = [
+    [/\bquinzenal(?:mente)?\b|\ba cada (?:15|quinze) dias\b/, "BIWEEKLY"],
+    [/\btrimestral(?:mente)?\b|\ba cada (?:3|tres) meses\b/, "QUARTERLY"],
+    [/\banual(?:mente)?\b|\btodo ano\b|\btodos os anos\b|\ba cada ano\b/, "YEARLY"],
+    [/\bmensal(?:mente)?\b|\btodo mes\b|\btodos os meses\b|\ba cada mes\b/, "MONTHLY"]
+  ];
+
+  /** O mesmo, como ele aparece na frase ORIGINAL — com acento e caixa — para
+   * sair dela antes de o resto ser lido. Sem isto "todo mês" vira descrição,
+   * e o aluguel nasce chamado "Aluguel todo". */
+  var RE_REPETE_TEXTO = /\b(?:quinzenal(?:mente)?|trimestral(?:mente)?|anual(?:mente)?|mensal(?:mente)?|todos?\s+os?\s+(?:m[eê]s(?:es)?|anos?)|todo\s+(?:m[eê]s|ano)|a\s+cada\s+(?:15|quinze)\s+dias|a\s+cada\s+(?:3|tr[eê]s)\s+meses|a\s+cada\s+(?:m[eê]s|ano))\b/gi;
+
+  /** Quantas vezes, e ele tem de vir NOMEADO por "por" ou "durante": "12
+   * vezes" sozinho é a gramática do parcelamento ("em 12 vezes"), e as duas
+   * no mesmo lugar fariam uma compra parcelada virar assinatura. */
+  var RE_QUANTAS_VEZES = /\b(?:por|durante|pelos|pelas)\s+(\d{1,2}|um|uma|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|dezoito|vinte|trinta)\s*(?:m[eê]s(?:es)?|vezes|anos?|ocorr[eê]ncias?|quinzenas?|trimestres?)\b/i;
+
+  function repeticaoDaFala(frase, texto) {
+    var freq = null;
+    REPETE_FREQ.forEach(function (par) {
+      if (!freq && par[0].test(texto)) freq = par[1];
+    });
+    if (!freq) return null;
+    var m = String(frase || "").match(RE_QUANTAS_VEZES);
+    var quantas = m ? quantidadeDita(normalizarFala(m[1])) : 0;
+    // 2 a 60 é o que o servidor aceita; fora disso é como não ter dito.
+    if (!(quantas >= 2 && quantas <= 60)) quantas = 0;
+    var resto = String(frase || "")
+      .replace(RE_REPETE_TEXTO, " ")
+      .replace(RE_QUANTAS_VEZES, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return { freq: freq, quantas: quantas, resto: resto };
+  }
+
   function transferenciaDaFala(texto, frase, r, ctx) {
     ctx = ctx || contextoDaFala();
     r.transferencia = true;
@@ -6553,6 +6601,15 @@
       frase = divisao.resto;
       texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
       r.frase = divisao.resto;
+    }
+
+    /* A repetição FIXA sai da frase pelo mesmo motivo da divisão: "todo mês"
+     * ficava na descrição, e o aluguel nascia chamado "Aluguel todo". */
+    var repeticao = repeticaoDaFala(frase, texto);
+    if (repeticao) {
+      frase = repeticao.resto;
+      texto = normalizarFala(frase).replace(/\s+/g, " ").trim();
+      r.frase = repeticao.resto;
     }
 
     // Transferência é outro tipo de lançamento, e sai por outro caminho: não
@@ -6710,6 +6767,17 @@
       });
     }
 
+    if (repeticao) {
+      r.repeticao = repeticao;
+      // O número é obrigatório, e a falta dele tem nome próprio: "faltou
+      // repetição" não diria o que responder.
+      if (!repeticao.quantas) r.faltando.push("por quantas vezes");
+      /* Parcelar e repetir são duas repetições diferentes na mesma frase:
+       * "3x" reparte um valor, "todo mês" repete o valor inteiro. Entendidas
+       * as duas, o que há é contradição — e quem mostra decide a palavra. */
+      if (r.parcelas >= 2) r.repeticaoEParcela = true;
+    }
+
     return r;
   }
 
@@ -6808,6 +6876,19 @@
     }
     linhas.push({ rotulo: "Data", valor: fmtDataBR(r.data), ok: true });
     linhas.push({ rotulo: "Situação", valor: r.confirmada ? "Confirmado" : "Previsto", ok: true });
+    if (r.repeticao) {
+      linhas.push({
+        rotulo: "Repete",
+        valor: r.repeticao.quantas
+          ? r.repeticao.quantas + "x " + comQueFrequencia(r.repeticao.freq)
+          : comQueFrequencia(r.repeticao.freq) + " — faltou por quantas vezes",
+        meta: r.repeticao.quantas && r.valor
+          ? brl(r.valor) + " cada vez · total " +
+            brl(Math.round(r.valor * r.repeticao.quantas * 100) / 100)
+          : "",
+        ok: !!r.repeticao.quantas
+      });
+    }
     linhasDaDivisaoNaFala(r).forEach(function (l) { linhas.push(l); });
     return linhas;
   }
@@ -6833,10 +6914,14 @@
      * dividir, e a mesma conta que o servidor faz ao gravar. Dividir a
      * parcela daria o número certo por acaso no caso redondo. */
     var qtd = r.parcelas >= 2 ? r.parcelas : 0;
+    /* Repetida FIXA, a divisão é a mesma toda vez — o valor inteiro se
+     * repete —, então a parte de cada um vezes o número de vezes dá o total,
+     * sem centavo para distribuir (ao contrário da parcelada). */
+    var vezes = r.repeticao && r.repeticao.quantas ? r.repeticao.quantas : 0;
     var total = qtd ? r.valorTotal : r.valor;
     var linhas = [{
       rotulo: "Dividida",
-      valor: comoFoiDito + (qtd ? ", parcela a parcela" : ""),
+      valor: comoFoiDito + (qtd ? ", parcela a parcela" : vezes ? ", toda vez" : ""),
       ok: true
     }];
     var rateio = total ? cpRatearVarios(total, d.modo, d.participantes) : null;
@@ -6845,15 +6930,18 @@
     });
     d.participantes.forEach(function (p, i) {
       var valorDele = !rateio ? null : qtd ? daParcela[i] : rateio.partes[i];
+      var noTotal = !rateio ? null
+        : qtd ? rateio.partes[i]
+        : vezes ? Math.round(rateio.partes[i] * vezes * 100) / 100 : null;
       linhas.push({
         rotulo: p.nome,
         valor: !rateio ? "parte não calculada"
-          : brl(valorDele) + (qtd ? " por parcela" : "") +
+          : brl(valorDele) + (qtd ? " por parcela" : vezes ? " cada vez" : "") +
             (p.percent !== null ? " (" + p.percent + "%)" : ""),
-        // O total vem do rateio, e não da parcela vezes N: o centavo que
-        // sobra fica só na primeira.
+        // Parcelada, o total vem do rateio e não da parcela vezes N: o
+        // centavo que sobra fica só na primeira.
         meta: (p.pessoaId ? "" : "será criada") +
-          (rateio && qtd ? (p.pessoaId ? "" : " · ") + brl(rateio.partes[i]) + " no total" : ""),
+          (noTotal === null ? "" : (p.pessoaId ? "" : " · ") + brl(noTotal) + " no total"),
         ok: !!rateio
       });
     });
@@ -6863,7 +6951,8 @@
     linhas.push({
       rotulo: "Sua parte",
       valor: !rateio ? "não fecha nesse valor"
-        : brl(Math.round(minhaDaVez * 100) / 100) + (qtd ? " por parcela" : ""),
+        : brl(Math.round(minhaDaVez * 100) / 100) +
+          (qtd ? " por parcela" : vezes ? " cada vez" : ""),
       ok: !!rateio
     });
     return linhas;
@@ -7213,6 +7302,20 @@
     return { pagamentoId: p.id, mesKey: p.referenceMonth, valor: Number(p.amount), data: soData(p.paidAt), contaId: p.bankAccountId };
   }
   var FREQ_API = { QUINZENAL: "BIWEEKLY", MENSAL: "MONTHLY", TRIMESTRAL: "QUARTERLY", ANUAL: "YEARLY" };
+  /** O caminho de volta, para a frase ditada virar série no modo local. */
+  var FREQ_DA_FALA = { BIWEEKLY: "QUINZENAL", MONTHLY: "MENSAL", QUARTERLY: "TRIMESTRAL", YEARLY: "ANUAL" };
+  /** A frequência como se fala dela — no resumo do ditado e nos recados. */
+  function comQueFrequencia(freq) {
+    return freq === "BIWEEKLY" ? "a cada 15 dias"
+      : freq === "QUARTERLY" ? "a cada 3 meses"
+      : freq === "YEARLY" ? "todo ano" : "todo mês";
+  }
+  /** O exemplo do que responder, na MESMA frequência que foi dita. */
+  function exemploDeRepeticao(freq) {
+    return freq === "YEARLY" ? "por 3 anos"
+      : freq === "QUARTERLY" ? "por 4 vezes"
+      : freq === "BIWEEKLY" ? "por 6 vezes" : "por 12 meses";
+  }
   var ESCOPO_API = { SOMENTE: "ONLY", PROXIMOS: "FOLLOWING", TODOS: "ALL" };
 
   /** Como chamarApi, mas erro vira exceção com a mensagem que a API escreveu —
@@ -12893,6 +12996,8 @@
       // Receita não se divide, e uma divisão que não fecha no valor dito o
       // servidor recusaria — as duas são entendidas e impedidas.
       !falaAtual.divisaoEmReceita &&
+      // Parcelar e repetir são duas repetições diferentes na mesma frase.
+      !falaAtual.repeticaoEParcela &&
       !(falaAtual.divisao && falaAtual.valor &&
         !cpRatearVarios(falaAtual.valor, falaAtual.divisao.modo, falaAtual.divisao.participantes));
     document.getElementById("voz-lancar").disabled = !completo;
@@ -12941,6 +13046,15 @@
       }
       if (!r.deId) return "Não achei a conta de origem. A primeira conta dita é a que paga.";
       return "Faltou " + r.faltando.join(", ") + ". Complete no formulário ou diga de novo.";
+    }
+    if (r.repeticaoEParcela) {
+      return "\"" + r.parcelas + "x\" e \"" + comQueFrequencia(r.repeticao.freq) +
+        "\" são duas repetições diferentes na mesma frase. Parcelado reparte o valor; " +
+        "fixo repete o valor inteiro. Diga uma das duas.";
+    }
+    if (r.repeticao && !r.repeticao.quantas) {
+      return "\"" + comQueFrequencia(r.repeticao.freq) + "\" não diz até quando. " +
+        "Diga por quantas vezes: \"" + exemploDeRepeticao(r.repeticao.freq) + "\".";
     }
     if (r.divisaoEmReceita) {
       return "Só despesa se divide: receita não é gasto de ninguém. Se alguém te pagou o que devia, isso é um acerto, na tela de Compartilhadas.";
@@ -13248,6 +13362,12 @@
       // de parcelas fosse lido e depois esquecido.
       if (r.parcelas >= 2) {
         corpoVoz.repeat = { kind: "INSTALLMENT", frequency: "MONTHLY", count: r.parcelas };
+      } else if (r.repeticao && r.repeticao.quantas) {
+        /* FIXA repete o valor INTEIRO a cada vez — 2.500 de aluguel são
+         * 2.500 todo mês. A parcelada reparte; esta não. */
+        corpoVoz.repeat = {
+          kind: "FIXED", frequency: r.repeticao.freq, count: r.repeticao.quantas
+        };
       }
       var resVoz = await lancarComFila(corpoVoz, "lançar");
       if (!resVoz.ok) return;
@@ -13262,12 +13382,15 @@
       }
       return;
     }
-    if (r.parcelas >= 2) {
+    if (r.parcelas >= 2 || (r.repeticao && r.repeticao.quantas)) {
+      var fixa = !r.parcelas;
       criarSerieLocal({
         tipo: r.tipo, valor: r.valor, categoriaId: r.categoriaId, desc: r.desc, data: r.data,
         contaId: r.contaId, cartaoId: r.cartaoId, confirmada: r.confirmada,
         override: r.cartaoId ? r.faturaMes : null,
-        tipoRep: "PARCELADA", freq: "MENSAL", qtd: r.parcelas
+        tipoRep: fixa ? "FIXA" : "PARCELADA",
+        freq: fixa ? (FREQ_DA_FALA[r.repeticao.freq] || "MENSAL") : "MENSAL",
+        qtd: fixa ? r.repeticao.quantas : r.parcelas
       });
     } else {
       var nova = {
@@ -14133,6 +14256,12 @@
         isConfirmed: r.confirmada
       };
       if (qtdP) corpo.repeat = { kind: "INSTALLMENT", frequency: "MONTHLY", count: qtdP };
+      else if (r.repeticao && r.repeticao.quantas) {
+        // O aluguel rachado: cada mês é um gasto, com a sua própria divisão.
+        corpo.repeat = {
+          kind: "FIXED", frequency: r.repeticao.freq, count: r.repeticao.quantas
+        };
+      }
       if (r.contaId) corpo.bankAccountId = r.contaId; else corpo.creditCardId = r.cartaoId;
       if (r.cartaoId && r.faturaMes) corpo.invoiceMonth = r.faturaMes;
       await api("/shared/expenses", corpo);
@@ -17090,11 +17219,15 @@
     // O campo é "valor total": parcelada, é o da compra inteira.
     var totalDito = r.parcelas >= 2 ? r.valorTotal : r.valor;
     if (totalDito) document.getElementById("cpd-valor").value = totalDito;
-    if (r.parcelas >= 2) {
+    if (r.parcelas >= 2 || (r.repeticao && r.repeticao.quantas)) {
+      var ehFixa = !r.parcelas;
       document.getElementById("cpd-repetir").checked = true;
       montarOpcoes("cpd-rep-tipo", [{ id: "FIXA", nome: "Fixa" }, { id: "PARCELADA", nome: "Parcelada" }],
-        "PARCELADA", cpdRepetirHelp);
-      document.getElementById("cpd-rep-qtd").value = r.parcelas;
+        ehFixa ? "FIXA" : "PARCELADA", cpdRepetirHelp);
+      document.getElementById("cpd-rep-qtd").value = ehFixa ? r.repeticao.quantas : r.parcelas;
+      if (ehFixa) {
+        document.getElementById("cpd-rep-freq").value = FREQ_DA_FALA[r.repeticao.freq] || "MENSAL";
+      }
     }
     if (r.data && calCompartilhada) calCompartilhada.definir(r.data, true);
     cpdModo = d.modo;

@@ -40,6 +40,8 @@ const CONSTANTES_BLOCO = [
   ['[', 'var PALAVRAS_DE_ESTRUTURA = '],
   // Onde a parte de dividir acaba e a frase volta a falar do gasto.
   ['[', 'var FIM_DA_DIVISAO = '],
+  // As frequências de uma repetição fixa, e o que cada uma vale na API.
+  ['[', 'var REPETE_FREQ = '],
 ];
 
 /** As de uma linha só. */
@@ -59,6 +61,9 @@ const CONSTANTES_LINHA = [
   // O verbo de dividir. Sozinho o 'com' nao serve: em portugues ele quer
   // dizer duas coisas, e 'paguei com o cartao' nao divide nada com ninguem.
   'var DIVIDE = ',
+  // "Todo mês" e "por 12 meses", do jeito que aparecem na frase escrita.
+  'var RE_REPETE_TEXTO = ',
+  'var RE_QUANTAS_VEZES = ',
   'var RE_PARCELA = ',
   'var RE_PARCELA_DE = ',
   'var RE_PARCELA_EM = ',
@@ -142,6 +147,8 @@ const FUNCOES = [
   'pessoaDaDivisao',
   'parteDaDivisao',
   'divisaoDaFala',
+  // A repetição fixa: o aluguel que é o mesmo todo mês, e por quantos.
+  'repeticaoDaFala',
   'interpretarFala',
 ];
 
