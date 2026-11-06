@@ -30,6 +30,7 @@ import { CreditCardsService } from '../credit-cards/credit-cards.service';
 import { GoalsService } from '../goals/goals.service';
 import { PeopleService } from '../shared-expenses/people.service';
 import { SharedExpensesService } from '../shared-expenses/shared-expenses.service';
+import { SharedSummaryService } from '../shared-expenses/shared-summary.service';
 /* A divisão do resumo é feita pela MESMA função que o servidor usa para
  * gravar. Recalcular aqui — mesmo com a fórmula certa — daria dois números
  * para a mesma conta no dia em que o arredondamento mudasse de lado, e quem
@@ -267,6 +268,34 @@ export function perguntaDeMaiores(texto: string, temValor: boolean): 'EXPENSE' |
  * conta no app ("conta poupança"), e "quanto tenho na poupança" é pergunta
  * de saldo.
  */
+/**
+ * A frase pergunta pela DÍVIDA de alguém — "quanto a Ana me deve?".
+ *
+ * Ela é lida antes da pergunta de saldo, e isso conserta um engano medido:
+ * "qual o saldo com a Ana" casava com `perguntaDeSaldo` e respondia o saldo
+ * das CONTAS. Número certo para a pergunta errada, que é o defeito que mais
+ * parece acerto.
+ *
+ * Fica depois da fatura de propósito: "quanto devo da fatura do Nubank" é
+ * pergunta de fatura, e a palavra "devo" aparece nas duas.
+ */
+export function perguntaDeDivida(
+  texto: string,
+  temValor: boolean,
+  nomeouPessoa = false,
+): boolean {
+  if (temValor) return false;
+  const t = semAcento(texto);
+  if (/\bdev[eo]\b|\bdevem\b|\bdevendo\b|\bdevia\b|\bdividas?\b|\bquites?\b/.test(t)) return true;
+  // "Minhas compartilhadas de novembro", "o que rachei este mês".
+  if (/\bcompartilhad[ao]s?\b|\brachei\b|\brachamos\b/.test(t)) return true;
+  /* E o caso que motivou esta pergunta existir: "qual o SALDO COM A ANA"
+   * não tem nenhuma palavra de dívida, casa com `perguntaDeSaldo` e
+   * respondia o saldo das contas. Nomear uma pessoa muda a pergunta — saldo
+   * com alguém é a conta entre vocês dois, não o dinheiro no banco. */
+  return nomeouPessoa && perguntaDeSaldo(texto, temValor);
+}
+
 export function perguntaDeObjetivos(texto: string, temValor: boolean): boolean {
   if (temValor) return false;
   const t = semAcento(texto);
@@ -639,6 +668,9 @@ export class ConversaService {
     // lançamento e a divisão na mesma transação de banco.
     private readonly pessoas: PeopleService,
     private readonly divididas: SharedExpensesService,
+    // Quem soma a conta entre duas pessoas. A mesma do topo da tela de
+    // Compartilhadas — a dívida não se recalcula aqui.
+    private readonly contaEntreNos: SharedSummaryService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -887,6 +919,15 @@ export class ConversaService {
     // deixá-la perguntar primeiro resolve o encontro sem tirar nada da outra.
     if (perguntaDeFatura(texto, temValor)) {
       return { texto: await this.responderFaturas(userId, texto, ctx) };
+    }
+    /* A DÍVIDA vem antes do saldo: "qual o saldo com a Ana" respondia o
+     * saldo das contas — ver `perguntaDeDivida`. */
+    /* O texto vai NORMALIZADO para a busca: `acharPorNome` compara com o
+     * nome sem acento e em minúscula, e "a Ana" com maiúscula não casava —
+     * a pergunta voltava para o saldo das contas. */
+    const nomeouPessoa = !!fala.acharPorNome(ctx.pessoas || [], fala.normalizarFala(texto));
+    if (perguntaDeDivida(texto, temValor, nomeouPessoa)) {
+      return { texto: await this.responderDivida(userId, texto, ctx) };
     }
     // Os OBJETIVOS vêm na frente das outras consultas: "quanto tenho
     // guardado" caía no saldo, e "minha meta da viagem" cairia no
@@ -2091,6 +2132,127 @@ export class ConversaService {
     linhas.push('');
     linhas.push(this.notaDoRegime(r.regime, preferido));
     return linhas.join('\n');
+  }
+
+  // ----------------------------------------------------------
+  // a conta entre duas pessoas
+  // ----------------------------------------------------------
+  /**
+   * "Quanto a Ana me deve esse mês?"
+   *
+   * **Dívida não é mensal, e a resposta diz isso na primeira linha.** Ela é
+   * acumulada: a Ana pode dever de outubro, e um acerto de dezembro abate
+   * tudo. Responder só o mês diria "R$ 0,00" para quem tem R$ 800,00 em
+   * aberto — certo sobre o mês e mentira sobre a dívida.
+   *
+   * Então o total em aberto vem primeiro, e o mês perguntado vem logo
+   * abaixo, como detalhe: é ele que explica de onde o número veio.
+   *
+   * Sem nome na frase, é a lista de todo mundo com conta aberta — o topo da
+   * tela de Compartilhadas.
+   */
+  private async responderDivida(userId: string, texto: string, ctx: any): Promise<string> {
+    const resumo = await this.contaEntreNos.resumo(userId);
+    if (!resumo.pessoas.length) {
+      return (
+        '👥 Você ainda não tem ninguém na lista de pessoas.\n\n' +
+        'Para dividir um gasto, mande: "gastei 200 no mercado dividido com a Ana".'
+      );
+    }
+
+    const quem = fala.acharPorNome(ctx.pessoas || [], fala.normalizarFala(texto));
+    if (!quem) return this.dividaDeTodos(resumo);
+
+    const linha = resumo.pessoas.filter((p: any) => p.personId === quem.id)[0];
+    const saldo = linha ? Number(linha.saldo) : 0;
+    const mes = mesDaPergunta(texto, diaDoUsuario());
+    const preferido = await this.relatorio.regime(userId);
+    const extrato = await this.contaEntreNos.extratoDaPessoa(
+      userId,
+      quem.id,
+      mes,
+      (regimeDaPergunta(texto) ?? preferido) as any,
+    );
+
+    const linhas = [this.comoEstaACconta(quem.nome, saldo), ''];
+
+    linhas.push('📅 ' + this.rotuloMes(mes));
+    const gastos = extrato.lancamentos.length;
+    if (gastos) {
+      const parteDela =
+        Math.round((Number(extrato.totalDoMes) - Number(extrato.minhaParteNoMes)) * 100) / 100;
+      linhas.push(
+        '📉 ' + (gastos === 1 ? '1 gasto dividido' : gastos + ' gastos divididos') +
+        ': ' + this.brl(Number(extrato.totalDoMes)) + ' no total · a parte de ' +
+        quem.nome + ', ' + this.brl(parteDela),
+      );
+    } else {
+      linhas.push('📉 Nenhum gasto dividido com ' + quem.nome + ' neste mês.');
+    }
+    if (extrato.acertos.length) {
+      linhas.push(
+        '🤝 ' + (extrato.acertos.length === 1 ? '1 acerto' : extrato.acertos.length + ' acertos') +
+        ' neste mês.',
+      );
+    }
+    /* O saldo que vinha de antes é o que explica a diferença entre a
+     * primeira linha e o mês. Sem ele, quem vê "R$ 1.250,00 em aberto" e
+     * "R$ 0,00 no mês" não tem como ligar os dois números. */
+    if (Number(extrato.saldoAnterior) !== 0) {
+      linhas.push(
+        '📊 Antes deste mês ' +
+        (Number(extrato.saldoAnterior) > 0 ? quem.nome + ' já devia ' : 'você já devia ') +
+        this.brl(Math.abs(Number(extrato.saldoAnterior))) + '.',
+      );
+    }
+
+    /* Acerto AGENDADO não mexe na dívida de hoje — o dinheiro não andou —,
+     * mas já existe como lançamento previsto. Dizer os dois números evita
+     * que a pessoa cobre de novo o que já está marcado para ser pago. */
+    const emAberto = linha ? Number(linha.saldoEmAberto) : 0;
+    if (emAberto !== saldo) {
+      linhas.push('');
+      linhas.push(
+        '🕒 Com os acertos já agendados, sobra ' +
+        (emAberto === 0
+          ? 'zero.'
+          : (emAberto > 0 ? quem.nome + ' devendo ' : 'você devendo ') +
+            this.brl(Math.abs(emAberto)) + '.'),
+      );
+    }
+
+    return linhas.join('\n');
+  }
+
+  /** Quem te deve e a quem você deve, numa linha cada — o topo da tela de
+   * Compartilhadas. Só quem tem conta aberta: listar quem está quite seria
+   * encher a resposta de zeros. */
+  private dividaDeTodos(resumo: any): string {
+    const abertas = resumo.pessoas.filter((p: any) => Number(p.saldo) !== 0);
+    if (!abertas.length) {
+      return '👥 Ninguém te deve nada, e você não deve a ninguém. Está tudo quite.';
+    }
+    const linhas = ['👥 Como está a conta com cada um', ''];
+    abertas.forEach((p: any) => {
+      const saldo = Number(p.saldo);
+      linhas.push(
+        '🧑 ' + p.name + ': ' +
+        (saldo > 0 ? 'te deve ' + this.brl(saldo) : 'você deve ' + this.brl(-saldo)),
+      );
+    });
+    linhas.push('');
+    if (Number(resumo.aReceber)) linhas.push('📈 A receber: ' + this.brl(Number(resumo.aReceber)));
+    if (Number(resumo.aPagar)) linhas.push('📉 A pagar: ' + this.brl(Number(resumo.aPagar)));
+    return linhas.join('\n');
+  }
+
+  /** A primeira linha, que é a resposta da pergunta. O sinal decide a frase:
+   * positivo é ela devendo, negativo sou eu. */
+  private comoEstaACconta(nome: string, saldo: number): string {
+    if (saldo === 0) return '👥 Você e ' + nome + ' estão quites.';
+    return saldo > 0
+      ? '👥 ' + nome + ' te deve ' + this.brl(saldo) + '.'
+      : '👥 Você deve ' + this.brl(-saldo) + ' para ' + nome + '.';
   }
 
   /**

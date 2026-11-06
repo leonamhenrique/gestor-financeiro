@@ -41,6 +41,7 @@ import type { CreditCardsService } from '../credit-cards/credit-cards.service';
 import type { GoalsService } from '../goals/goals.service';
 import type { PeopleService } from '../shared-expenses/people.service';
 import type { SharedExpensesService } from '../shared-expenses/shared-expenses.service';
+import type { SharedSummaryService } from '../shared-expenses/shared-summary.service';
 import type { CategoriesService } from '../categories/categories.service';
 import type { Cupom, CupomService } from './cupom.service';
 import { assinaturaConfere, mensagensDoPayload, responder, semNumeros } from './meta';
@@ -89,6 +90,11 @@ describe('ConversaService', () => {
   let divididas: any[];
   /** E as SÉRIES de gasto dividido: dividir e parcelar na mesma frase. */
   let serieDividida: any[];
+  /* A conta entre as duas pessoas, como o serviço a devolve. O saldo
+   * POSITIVO é ela devendo; o negativo sou eu. */
+  let contaEntreNos: any;
+  let resumoDasDivisoes: any;
+  let extratoDaPessoa: any;
   /** Os objetivos como o banco os devolve para o contexto. */
   let objetivosDoBanco: any[];
   let cartoesCriados: any[];
@@ -430,6 +436,26 @@ describe('ConversaService', () => {
     };
     divididas = [];
     serieDividida = [];
+    resumoDasDivisoes = {
+      pessoas: [
+        { personId: 'p1', name: 'Ana', saldo: 1250, saldoEmAberto: 1250, lancamentos: 1, acertos: 0 },
+        { personId: 'p2', name: 'João', saldo: -120, saldoEmAberto: -120, lancamentos: 1, acertos: 0 },
+      ],
+      liquido: 1130, aReceber: 1250, aPagar: 120,
+      aReceberEmAberto: 1250, aPagarEmAberto: 120,
+    };
+    extratoDaPessoa = {
+      person: { id: 'p1', name: 'Ana', pixKey: null },
+      mes: '2026-11', por: 'fatura',
+      saldoAnterior: 0, movimentoDoMes: 1250, saldoFinal: 1250,
+      totalDoMes: 2500, minhaParteNoMes: 1250,
+      lancamentos: [{ id: 'sd1', total: 2500, minhaParte: 1250 }],
+      acertos: [],
+    };
+    contaEntreNos = {
+      resumo: jest.fn(async () => resumoDasDivisoes),
+      extratoDaPessoa: jest.fn(async () => extratoDaPessoa),
+    };
     servicoDeDivididas = {
       create: jest.fn(async (entrada: any) => {
         divididas.push(entrada);
@@ -455,6 +481,7 @@ describe('ConversaService', () => {
       servicoDeObjetivos as GoalsService,
       servicoDePessoas as PeopleService,
       servicoDeDivididas as SharedExpensesService,
+      contaEntreNos as SharedSummaryService,
     );
   });
 
@@ -1535,6 +1562,103 @@ describe('ConversaService', () => {
       await service.responderA(msg('sim'));
       expect(series).toEqual([]);
       expect(criados).toHaveLength(1);
+    });
+  });
+
+  describe('a pergunta da divida', () => {
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+      jest.setSystemTime(new Date('2026-11-10T15:00:00Z'));
+    });
+    afterEach(() => jest.useRealTimers());
+
+    /* Dívida é ACUMULADA, e a primeira linha diz isso. Responder só o mês
+     * diria "R$ 0,00" para quem tem R$ 800,00 em aberto — certo sobre o mês
+     * e mentira sobre a dívida. */
+    it('responde o total em aberto primeiro, e o mes como detalhe', async () => {
+      const r = await service.responderA(msg('quanto a ana me deve esse mes'));
+      expect(r?.texto).toBe(
+        [
+          '👥 Ana te deve R$ 1.250,00.',
+          '',
+          '📅 Novembro 2026',
+          '📉 1 gasto dividido: R$ 2.500,00 no total · a parte de Ana, R$ 1.250,00',
+        ].join('\n'),
+      );
+      expect(contaEntreNos.extratoDaPessoa).toHaveBeenCalledWith('user-1', 'p1', '2026-11', 'fatura');
+    });
+
+    /* O engano que fez esta pergunta existir: "qual o saldo com a Ana" não
+     * tem nenhuma palavra de dívida, casava com a pergunta de saldo e
+     * respondia o dinheiro no banco. */
+    it('"saldo com a Ana" e a conta entre voces, e nao o saldo das contas', async () => {
+      const r = await service.responderA(msg('qual o saldo com a Ana'));
+      expect(r?.texto).toContain('👥 Ana te deve R$ 1.250,00.');
+      expect(r?.texto).not.toContain('Saldo de hoje');
+    });
+
+    it('sem nome, lista todo mundo com conta aberta', async () => {
+      const r = await service.responderA(msg('quem me deve'));
+      expect(r?.texto).toBe(
+        [
+          '👥 Como está a conta com cada um',
+          '',
+          '🧑 Ana: te deve R$ 1.250,00',
+          '🧑 João: você deve R$ 120,00',
+          '',
+          '📈 A receber: R$ 1.250,00',
+          '📉 A pagar: R$ 120,00',
+        ].join('\n'),
+      );
+    });
+
+    it('a direcao sai do sinal, e o nome nunca vira pronome', async () => {
+      // Nome não diz gênero: "a parte dela" para o João estaria errado.
+      const r = await service.responderA(msg('quanto eu devo para o Joao'));
+      expect(r?.texto).toContain('👥 Você deve R$ 120,00 para João.');
+      expect(r?.texto).toContain('a parte de João');
+    });
+
+    it('quem esta quite ouve isso, e nao um zero', async () => {
+      resumoDasDivisoes.pessoas = resumoDasDivisoes.pessoas.map((p: any) => ({ ...p, saldo: 0 }));
+      const r = await service.responderA(msg('quem me deve'));
+      expect(r?.texto).toContain('Ninguém te deve nada, e você não deve a ninguém.');
+    });
+
+    /* O saldo que vinha de antes é o que liga a primeira linha ao mês: sem
+     * ele, "R$ 1.250,00 em aberto" e "R$ 0,00 no mês" ficam sem explicação. */
+    it('o saldo anterior e dito, porque e ele que explica a diferenca', async () => {
+      extratoDaPessoa.saldoAnterior = 300;
+      const r = await service.responderA(msg('quanto a ana me deve em outubro'));
+      expect(r?.texto).toContain('📊 Antes deste mês Ana já devia R$ 300,00.');
+    });
+
+    /* Acerto AGENDADO não mexe na dívida de hoje — o dinheiro não andou —,
+     * mas já é um lançamento previsto. Sem os dois números, a pessoa cobra
+     * de novo o que já está marcado para ser pago. */
+    it('acerto agendado aparece como o que ainda sobra', async () => {
+      resumoDasDivisoes.pessoas[0].saldoEmAberto = 250;
+      const r = await service.responderA(msg('quanto a ana me deve'));
+      expect(r?.texto).toContain('🕒 Com os acertos já agendados, sobra Ana devendo R$ 250,00.');
+    });
+
+    it('sem ninguem cadastrado, ensina a dividir', async () => {
+      resumoDasDivisoes.pessoas = [];
+      const r = await service.responderA(msg('quem me deve'));
+      expect(r?.texto).toContain('ainda não tem ninguém na lista de pessoas');
+      expect(r?.texto).toContain('dividido com a Ana');
+    });
+
+    it('"quanto devo da fatura" continua sendo pergunta de fatura', async () => {
+      // A palavra "devo" aparece nas duas, e a fatura é lida antes.
+      const r = await service.responderA(msg('quanto devo da fatura do Nubank Roxinho'));
+      expect(r?.texto).toContain('Fatura');
+      expect(r?.texto).not.toContain('Como está a conta');
+    });
+
+    it('o saldo das contas continua respondendo quando ninguem e nomeado', async () => {
+      const r = await service.responderA(msg('qual meu saldo'));
+      expect(r?.texto).toContain('💰 Saldo de hoje');
     });
   });
 

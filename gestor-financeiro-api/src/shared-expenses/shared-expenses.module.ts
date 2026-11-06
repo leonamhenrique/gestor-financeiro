@@ -17,6 +17,6 @@ import { PublicSharedController } from './public-shared.controller';
   providers: [PeopleService, SharedExpensesService, SettlementsService, SharedSummaryService, ShareLinksService],
   // Exportados para o WhatsApp: "gastei 200 no mercado dividido com a Ana"
   // cria a pessoa e a divisão pelas MESMAS portas do formulário.
-  exports: [PeopleService, SharedExpensesService],
+  exports: [PeopleService, SharedExpensesService, SharedSummaryService],
 })
 export class SharedExpensesModule {}
