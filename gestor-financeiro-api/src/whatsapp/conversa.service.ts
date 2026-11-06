@@ -34,7 +34,14 @@ import { SharedExpensesService } from '../shared-expenses/shared-expenses.servic
  * gravar. Recalcular aqui — mesmo com a fórmula certa — daria dois números
  * para a mesma conta no dia em que o arredondamento mudasse de lado, e quem
  * confirmou um valor veria outro gravado. */
-import { dividir, type Participante } from '../shared-expenses/shared-expense.utils';
+import {
+  dividir,
+  emCentavos,
+  emReais,
+  parcelarRateio,
+  repartirEmParcelas,
+  type Participante,
+} from '../shared-expenses/shared-expense.utils';
 import { WhatsappService } from './whatsapp.service';
 import { MensagemRecebida } from './meta';
 import { AudioService } from './audio.service';
@@ -1134,23 +1141,50 @@ export class ConversaService {
   private linhasDaDivisao(r: any): { linhas: string[]; erro: string | null } {
     const d = r.divisao;
     if (!d || !r.valor || !d.participantes.length) return { linhas: [], erro: null };
-    let rateio;
+    /* Parcelada, o valor que se divide é o da COMPRA, e não o da parcela —
+     * a mesma regra do formulário. Dividir a parcela daria a conta certa por
+     * acaso no caso redondo e errada no resto. */
+    const parcelas = r.parcelas >= 2 ? r.parcelas : 0;
+    const total = parcelas ? r.valorTotal : r.valor;
+    let partes;
+    let totais: typeof partes;
+    let minha: number;
     try {
-      rateio = dividir(r.valor, d.modo, this.participantesDoRateio(d));
+      const rateio = dividir(total, d.modo, this.participantesDoRateio(d));
+      if (parcelas) {
+        /* O que cada um deve POR PARCELA sai das mesmas funções que vão
+         * gravar. Fazer essa conta à mão aqui — dividir a parte por N —
+         * erraria o centavo que elas distribuem na primeira parcela, e o
+         * resumo mostraria um número que o extrato não teria. */
+        const valores = repartirEmParcelas(emCentavos(total), parcelas);
+        const daPrimeira = parcelarRateio(rateio.partes, valores)[0];
+        const dosOutros = daPrimeira.reduce((soma, p) => soma + emCentavos(p.amount), 0);
+        partes = daPrimeira;
+        /* O total de cada um vem do rateio, e NÃO da primeira parcela vezes
+         * N: o centavo que sobra fica só na primeira, e multiplicar daria
+         * R$ 10,02 onde a dívida é R$ 10,00. */
+        totais = rateio.partes;
+        minha = emReais(valores[0] - dosOutros);
+      } else {
+        partes = rateio.partes;
+        totais = rateio.partes;
+        minha = rateio.minhaParte;
+      }
     } catch (e: any) {
       return { linhas: [], erro: e?.message || 'Não consegui dividir esse valor.' };
     }
     const comoFoiDito =
       d.modo === 'IGUAL' ? 'em partes iguais' : d.modo === 'VALOR' ? 'por valor' : 'por percentual';
-    const linhas = ['', '👥 Dividida ' + comoFoiDito];
-    rateio.partes.forEach((parte, i) => {
+    const linhas = ['', '👥 Dividida ' + comoFoiDito + (parcelas ? ', parcela a parcela' : '')];
+    partes.forEach((parte, i) => {
       const dito = d.participantes[i];
       linhas.push(
-        '🧑 ' + dito.nome + ': ' + this.brl(parte.amount) +
-        (parte.percent === null ? '' : ' (' + this.pct(Number(parte.percent)) + ')'),
+        '🧑 ' + dito.nome + ': ' + this.brl(parte.amount) + (parcelas ? ' por parcela' : '') +
+        (parte.percent === null ? '' : ' (' + this.pct(Number(parte.percent)) + ')') +
+        (parcelas ? ' · ' + this.brl(Number(totais[i].amount)) + ' no total' : ''),
       );
     });
-    linhas.push('🙋 Você: ' + this.brl(rateio.minhaParte));
+    linhas.push('🙋 Você: ' + this.brl(minha) + (parcelas ? ' por parcela' : ''));
     return { linhas, erro: null };
   }
 
@@ -1578,21 +1612,42 @@ export class ConversaService {
       percent: p.percent ?? undefined,
     }));
 
+    /* Parcelada: o valor do pedido é o da COMPRA INTEIRA, e quem reparte é o
+     * serviço. Mandar o valor da parcela criaria uma série de 3x3.000 — o
+     * triplo do que a pessoa gastou. */
+    const parcelas = r.parcelas >= 2 ? r.parcelas : 0;
+    const pedido = {
+      userId,
+      amount: parcelas ? r.valorTotal : r.valor,
+      date: r.data,
+      categoryId: r.categoriaId,
+      description: r.desc || undefined,
+      bankAccountId: r.contaId || undefined,
+      creditCardId: r.cartaoId || undefined,
+      invoiceMonth: r.cartaoId && r.faturaMes ? r.faturaMes : undefined,
+      isConfirmed: r.confirmada,
+      mode: d.modo,
+      participants: participantes,
+      clientKey: 'wa-div-' + userId.slice(0, 8) + '-' + Math.round(criadoEm / 1000),
+    };
+
     try {
-      await this.divididas.create({
-        userId,
-        amount: r.valor,
-        date: r.data,
-        categoryId: r.categoriaId,
-        description: r.desc || undefined,
-        bankAccountId: r.contaId || undefined,
-        creditCardId: r.cartaoId || undefined,
-        invoiceMonth: r.cartaoId && r.faturaMes ? r.faturaMes : undefined,
-        isConfirmed: r.confirmada,
-        mode: d.modo,
-        participants: participantes,
-        clientKey: 'wa-div-' + userId.slice(0, 8) + '-' + Math.round(criadoEm / 1000),
-      });
+      /* Parcelado vira SÉRIE, como no lançamento comum — e aqui ela importa
+       * ainda mais: cada parcela ganha a SUA divisão, porque cada uma é uma
+       * dívida do mês dela. Uma divisão só, presa à primeira, diria que o
+       * amigo deve a compra inteira já no primeiro mês.
+       *
+       * Sem isto, a resposta prometia "3x de R$ 1.000,00, total R$ 3.000,00"
+       * e gravava UM gasto de R$ 1.000,00 — medido. */
+      if (parcelas) {
+        await this.divididas.createSeries(pedido, {
+          kind: 'INSTALLMENT',
+          frequency: 'MONTHLY',
+          count: parcelas,
+        });
+      } else {
+        await this.divididas.create(pedido);
+      }
     } catch (e: any) {
       this.log.error('falha ao dividir pelo WhatsApp: ' + (e?.message || e));
       // A recusa do serviço vem com a frase pronta e o número dentro ("a
@@ -1612,12 +1667,15 @@ export class ConversaService {
       this.log.warn('não consegui aprender o lojista: ' + (e?.message || e));
     }
 
-    const rateio = dividir(r.valor, d.modo, participantes);
+    /* A mesma conta do resumo, para a confirmação não dizer outro número do
+     * que a pessoa acabou de ler e aprovar. */
+    const mostrado = this.linhasDaDivisao(r);
     const nomes = d.participantes.map((p: any) => p.nome).join(', ');
+    const minha = mostrado.linhas[mostrado.linhas.length - 1] || '';
     return {
       texto:
         '✅ Lançado e dividido. ' + this.linhaCurta(r) + '\n' +
-        '👥 ' + nomes + ' · sua parte: ' + this.brl(rateio.minhaParte),
+        '👥 ' + nomes + ' · sua parte: ' + minha.replace('🙋 Você: ', ''),
     };
   }
 

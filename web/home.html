@@ -6828,22 +6828,42 @@
     }
     var comoFoiDito = d.modo === "IGUAL" ? "em partes iguais"
       : d.modo === "VALOR" ? "por valor" : "por percentual";
-    var linhas = [{ rotulo: "Dividida", valor: comoFoiDito, ok: true }];
-    var rateio = r.valor ? cpRatearVarios(r.valor, d.modo, d.participantes) : null;
+    /* Parcelada, o que se divide é a COMPRA INTEIRA, e o que cada um paga
+     * POR PARCELA é a parte dele repartida — a mesma regra do formulário de
+     * dividir, e a mesma conta que o servidor faz ao gravar. Dividir a
+     * parcela daria o número certo por acaso no caso redondo. */
+    var qtd = r.parcelas >= 2 ? r.parcelas : 0;
+    var total = qtd ? r.valorTotal : r.valor;
+    var linhas = [{
+      rotulo: "Dividida",
+      valor: comoFoiDito + (qtd ? ", parcela a parcela" : ""),
+      ok: true
+    }];
+    var rateio = total ? cpRatearVarios(total, d.modo, d.participantes) : null;
+    var daParcela = !rateio || !qtd ? null : rateio.partes.map(function (v) {
+      return cpdPrimeiraParcela(v, qtd);
+    });
     d.participantes.forEach(function (p, i) {
+      var valorDele = !rateio ? null : qtd ? daParcela[i] : rateio.partes[i];
       linhas.push({
         rotulo: p.nome,
-        valor: rateio ? brl(rateio.partes[i]) + (p.percent !== null ? " (" + p.percent + "%)" : "")
-          : "parte não calculada",
-        // Pessoa que ainda não existe: a tela diz antes, porque criar gente
-        // em silêncio encheria a agenda de quem errou um nome.
-        meta: p.pessoaId ? "" : "será criada",
+        valor: !rateio ? "parte não calculada"
+          : brl(valorDele) + (qtd ? " por parcela" : "") +
+            (p.percent !== null ? " (" + p.percent + "%)" : ""),
+        // O total vem do rateio, e não da parcela vezes N: o centavo que
+        // sobra fica só na primeira.
+        meta: (p.pessoaId ? "" : "será criada") +
+          (rateio && qtd ? (p.pessoaId ? "" : " · ") + brl(rateio.partes[i]) + " no total" : ""),
         ok: !!rateio
       });
     });
+    var minhaDaVez = !rateio ? null
+      : qtd ? cpdPrimeiraParcela(total, qtd) - daParcela.reduce(function (a, b) { return a + b; }, 0)
+      : rateio.minha;
     linhas.push({
       rotulo: "Sua parte",
-      valor: rateio ? brl(rateio.minha) : "não fecha nesse valor",
+      valor: !rateio ? "não fecha nesse valor"
+        : brl(Math.round(minhaDaVez * 100) / 100) + (qtd ? " por parcela" : ""),
       ok: !!rateio
     });
     return linhas;
@@ -14098,15 +14118,21 @@
           percent: d.modo === "PERCENTUAL" ? p.percent : undefined
         });
       }
+      /* Parcelada: o valor que vai é o da COMPRA, e quem reparte é o
+       * servidor — mandar o da parcela criaria uma série de 3 x 3.000. E
+       * cada parcela ganha a SUA divisão: uma só, presa à primeira, diria
+       * que o amigo deve a compra inteira já no primeiro mês. */
+      var qtdP = r.parcelas >= 2 ? r.parcelas : 0;
       var corpo = {
         description: r.desc || undefined,
-        amount: r.valor,
+        amount: qtdP ? r.valorTotal : r.valor,
         date: r.data,
         mode: d.modo,
         participants: participantes,
         categoryId: r.categoriaId,
         isConfirmed: r.confirmada
       };
+      if (qtdP) corpo.repeat = { kind: "INSTALLMENT", frequency: "MONTHLY", count: qtdP };
       if (r.contaId) corpo.bankAccountId = r.contaId; else corpo.creditCardId = r.cartaoId;
       if (r.cartaoId && r.faturaMes) corpo.invoiceMonth = r.faturaMes;
       await api("/shared/expenses", corpo);
@@ -17061,7 +17087,15 @@
     var d = r.divisao;
     var p = d.participantes[0];
     document.getElementById("cpd-desc").value = r.desc || "";
-    if (r.valor) document.getElementById("cpd-valor").value = r.valor;
+    // O campo é "valor total": parcelada, é o da compra inteira.
+    var totalDito = r.parcelas >= 2 ? r.valorTotal : r.valor;
+    if (totalDito) document.getElementById("cpd-valor").value = totalDito;
+    if (r.parcelas >= 2) {
+      document.getElementById("cpd-repetir").checked = true;
+      montarOpcoes("cpd-rep-tipo", [{ id: "FIXA", nome: "Fixa" }, { id: "PARCELADA", nome: "Parcelada" }],
+        "PARCELADA", cpdRepetirHelp);
+      document.getElementById("cpd-rep-qtd").value = r.parcelas;
+    }
     if (r.data && calCompartilhada) calCompartilhada.definir(r.data, true);
     cpdModo = d.modo;
     document.querySelectorAll("#cpd-modos .pill").forEach(function (b) {

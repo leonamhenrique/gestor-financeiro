@@ -87,6 +87,8 @@ describe('ConversaService', () => {
   let servicoDeDivididas: any;
   /** Os gastos divididos que o serviço foi mandado criar. */
   let divididas: any[];
+  /** E as SÉRIES de gasto dividido: dividir e parcelar na mesma frase. */
+  let serieDividida: any[];
   /** Os objetivos como o banco os devolve para o contexto. */
   let objetivosDoBanco: any[];
   let cartoesCriados: any[];
@@ -427,10 +429,15 @@ describe('ConversaService', () => {
       }),
     };
     divididas = [];
+    serieDividida = [];
     servicoDeDivididas = {
       create: jest.fn(async (entrada: any) => {
         divididas.push(entrada);
         return { id: 'sd-nova' };
+      }),
+      createSeries: jest.fn(async (entrada: any, repeticao: any) => {
+        serieDividida.push({ entrada, repeticao });
+        return { id: 'sd-serie' };
       }),
     };
 
@@ -1381,6 +1388,49 @@ describe('ConversaService', () => {
       expect(r?.texto).toContain('Só despesa se divide: receita não é gasto de ninguém.');
       expect(divididas).toEqual([]);
       expect(criados).toEqual([]);
+    });
+
+    /* Dividir e parcelar na mesma frase. A primeira versão disto respondia
+     * "3x de R$ 1.000,00, total R$ 3.000,00" e gravava UM gasto de R$
+     * 1.000,00 — a resposta prometia o que não existia. */
+    it('parcelada e dividida vira SERIE, com o valor da compra inteira', async () => {
+      await service.responderA(
+        msg('comprei 3000 em 3x no cartao Nubank Roxinho categoria alimentacao dividido com a Ana'),
+      );
+      const r = await service.responderA(msg('sim'));
+      expect(serieDividida).toHaveLength(1);
+      expect(serieDividida[0].repeticao).toEqual({
+        kind: 'INSTALLMENT',
+        frequency: 'MONTHLY',
+        count: 3,
+      });
+      /* O valor é o da COMPRA, e não o da parcela: quem reparte é o serviço.
+       * Mandar 1.000 aqui criaria uma série de 3 x 3.000. */
+      expect(serieDividida[0].entrada).toMatchObject({ amount: 3000, mode: 'IGUAL' });
+      // E não passou pela porta do gasto avulso.
+      expect(divididas).toEqual([]);
+      expect(r?.texto).toContain('👥 Ana · sua parte: R$ 500,00 por parcela');
+    });
+
+    it('o resumo da parcelada diz a parte de cada parcela E a do total', async () => {
+      const r = await service.responderA(
+        msg('comprei 3000 em 3x no cartao Nubank Roxinho categoria alimentacao dividido com a Ana'),
+      );
+      expect(r?.texto).toContain('👥 Dividida em partes iguais, parcela a parcela');
+      expect(r?.texto).toContain('🧑 Ana: R$ 500,00 por parcela · R$ 1.500,00 no total');
+      expect(r?.texto).toContain('🙋 Você: R$ 500,00 por parcela');
+    });
+
+    /* O centavo da divisão torta não some: 20 em 3x dá parcelas de 6,67, e
+     * metade de 6,67 não existe. Quem reparte são as mesmas funções que
+     * gravam, então o resumo mostra o que o extrato vai ter. */
+    it('a parcela que nao divide certo mostra o numero que sera gravado', async () => {
+      const r = await service.responderA(
+        msg('comprei 20 em 3x no cartao Nubank Roxinho categoria alimentacao dividido com a Ana'),
+      );
+      // O centavo que sobra fica na PRIMEIRA parcela, e com ela.
+      expect(r?.texto).toContain('🧑 Ana: R$ 3,34 por parcela · R$ 10,00 no total');
+      expect(r?.texto).toContain('🙋 Você: R$ 3,33 por parcela');
     });
 
     it('sem dividir, o lancamento comum continua pelo caminho de sempre', async () => {
