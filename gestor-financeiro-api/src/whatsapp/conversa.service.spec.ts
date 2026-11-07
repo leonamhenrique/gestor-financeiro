@@ -1662,6 +1662,104 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('cartao novo quando falta mais de uma coisa', () => {
+    /* A frase que veio do uso real: "Despesa 83,99 com Roney Lava Jato, no
+     * cartão ITI". Faltam DUAS coisas — o destino (o ITI não existe) e a
+     * categoria —, e a oferta de criar o cartão exigia ser a única falta.
+     * A pessoa recebia a lista dos cartões que tem, sem o que acabou de
+     * nomear, e nenhum caminho para criá-lo. */
+    const FRASE = 'Despesa 83,99 com Roney Lava Jato, no cartao ITI';
+
+    it('oferece criar o cartao mesmo faltando a categoria', async () => {
+      const r = await service.responderA(msg(FRASE));
+      expect(r?.texto).toContain('💳 Cartão ITI');
+      expect(r?.texto).toContain('Não encontrei esse cartão cadastrado.');
+      expect(r?.texto).toContain('📅 Dia do fechamento da fatura');
+      expect(cartoesCriados).toEqual([]);
+    });
+
+    /* Depois dos dias ainda falta a categoria, e a pergunta continua AQUI.
+     * Mandar a pessoa repetir a frase perderia o cartão descrito e pediria
+     * os dois dias outra vez — um beco. */
+    it('depois dos dias, pergunta a categoria em vez de dar beco', async () => {
+      await service.responderA(msg(FRASE, 'c1'));
+      const r = await service.responderA(msg('1 e 10, limite 2000', 'c2'));
+      expect(r?.texto).toContain('💳 Cartão: ITI');
+      expect(r?.texto).toContain('Falta a categoria.');
+      expect(r?.texto).toContain('Suas categorias de despesa: Alimentação, Compras.');
+      expect(r?.confirmar).toBeUndefined();
+    });
+
+    it('a categoria respondida fecha o pedido, e o sim cria os dois', async () => {
+      await service.responderA(msg(FRASE, 'd1'));
+      await service.responderA(msg('1 e 10, limite 2000', 'd2'));
+      const pergunta = await service.responderA(msg('alimentacao', 'd3'));
+      expect(pergunta?.texto).toContain(
+        'Criar o cartão ITI (fecha dia 1, vence dia 10, limite R$ 2.000,00) e lançar?',
+      );
+      expect(pergunta?.confirmar).toBe(true);
+
+      const r = await service.responderA(msg('sim', 'd4'));
+      expect(cartoesCriados).toEqual([
+        { id: 'k-novo', name: 'ITI', limitAmount: 2000, closingDay: 1, dueDay: 10 },
+      ]);
+      expect(criados).toHaveLength(1);
+      expect(criados[0]).toMatchObject({ amount: 83.99, categoryId: 'c1', creditCardId: 'k-novo' });
+      expect(r?.texto).toContain('✅ Lançado.');
+    });
+
+    /* Na resposta da categoria, a frase INTEIRA é o nome — não há como
+     * confundi-la com outra parte. Então o nome que não existe vira oferta
+     * de criar, como no lançamento comum. */
+    it('categoria que nao existe e oferecida junto, e nasce no sim', async () => {
+      await service.responderA(msg(FRASE, 'e1'));
+      await service.responderA(msg('1 e 10', 'e2'));
+      const pergunta = await service.responderA(msg('Lava Jato', 'e3'));
+      expect(pergunta?.texto).toContain('e a categoria Lava Jato e lançar?');
+
+      await service.responderA(msg('sim', 'e4'));
+      expect(criadas).toEqual([
+        { id: 'cat-nova', name: 'Lava Jato', type: 'EXPENSE', parentId: null },
+      ]);
+      expect(criados[0]).toMatchObject({ categoryId: 'cat-nova', creditCardId: 'k-novo' });
+    });
+
+    it('o nao desiste de tudo, e nada nasce', async () => {
+      await service.responderA(msg(FRASE, 'f1'));
+      await service.responderA(msg('1 e 10', 'f2'));
+      const r = await service.responderA(msg('não', 'f3'));
+      expect(r?.texto).toBe('Ok, não lancei nada.');
+      expect(cartoesCriados).toEqual([]);
+      expect(criados).toEqual([]);
+    });
+
+    /* O limite era lido pelo leitor de frase, que DESCARTA quatro dígitos
+     * entre 1900 e 2100 achando que são ano: "limite 2000" virava zero, e o
+     * cartão nascia sem limite nenhum, calado. */
+    it('limite de quatro digitos nao e lido como ano', async () => {
+      await service.responderA(msg(FRASE, 'g1'));
+      await service.responderA(msg('1 e 10, limite 2000', 'g2'));
+      const r = await service.responderA(msg('alimentacao', 'g3'));
+      expect(r?.texto).toContain('limite R$ 2.000,00');
+    });
+
+    it('e "limite de 5 mil" sao cinco mil, nao cinco', async () => {
+      await service.responderA(msg(FRASE, 'h1'));
+      await service.responderA(msg('1 e 10, limite de 5 mil', 'h2'));
+      const r = await service.responderA(msg('alimentacao', 'h3'));
+      expect(r?.texto).toContain('limite R$ 5.000,00');
+    });
+
+    it('cartao que EXISTE continua sendo reconhecido, com a categoria faltando', async () => {
+      const r = await service.responderA(msg('Despesa 83,99 com Roney, no cartao Nubank Roxinho'));
+      // Nada de pedir dias de um cartão que já existe: ele entra no resumo,
+      // e o que falta é só a categoria.
+      expect(r?.texto).toContain('💳 Cartão: Nubank Roxinho');
+      expect(r?.texto).toContain('Faltou categoria.');
+      expect(r?.texto).not.toContain('Dia do fechamento');
+    });
+  });
+
   describe('a pergunta dos objetivos', () => {
     it('responde o guardado, cada objetivo e de onde o dinheiro veio', async () => {
       const r = await service.responderA(

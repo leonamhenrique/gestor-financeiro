@@ -102,7 +102,7 @@ const NAO = /^(n[ãa]o|n|cancela(r)?|deixa|esquece|negativo)$/i;
  * entender "5.000,00" como cinco mil em vez de cinco. A palavra "limite" é
  * obrigatória: sem ela, "1, 10 e 20" seria um cartão de limite vinte ou um
  * vencimento no dia 20. */
-const RE_LIMITE = /limite\s*(?:de\s*)?((?:r\$\s*)?[\d.,]+)/i;
+const RE_LIMITE = /limite\s*(?:de\s*)?((?:r\$\s*)?[\d.,]+)(\s*mil\b)?/i;
 
 /**
  * O que a conversa responde.
@@ -636,6 +636,14 @@ interface Rascunho {
    * INCOMPLETO: sem os dias do ciclo, o rascunho está esperando a resposta
    * com eles, e não um "sim". */
   cartaoNovo?: { nome: string; fechamento?: number; vencimento?: number; limite?: number };
+  /** O rascunho está esperando a CATEGORIA, e não um "sim".
+   *
+   * Acontece quando a frase nomeou um cartão que não existe e também não
+   * disse a categoria: depois dos dois dias do ciclo, ainda falta uma coisa.
+   * Perguntar aqui é o que impede o beco — mandar a frase de novo não
+   * adiantaria, porque o cartão continuaria sem existir e os dias seriam
+   * pedidos outra vez. */
+  esperandoCategoria?: boolean;
   /** O objetivo por nascer. Como o cartão, ele pode ficar aqui INCOMPLETO:
    * faltando o nome, o valor ou o prazo, o rascunho espera a resposta com a
    * parte que falta. Diferente de todos os outros, ele vem SEM lançamento
@@ -870,6 +878,13 @@ export class ConversaService {
     // o leitor de lançamento entenderia como valor, e responderia bobagem.
     if (rascunho?.cartaoNovo && !rascunho.cartaoNovo.fechamento) {
       return this.lerDiasDoCiclo(userId, rascunho, texto);
+    }
+
+    // E pode estar esperando a categoria que faltou. "Transporte", lido como
+    // frase nova, não é lançamento nenhum — e o cartão recém-descrito se
+    // perderia junto.
+    if (rascunho?.esperandoCategoria) {
+      return this.lerCategoriaQueFaltou(userId, rascunho, texto);
     }
 
     // E pode estar esperando o nome, o valor ou o prazo de um objetivo. Mesma
@@ -2913,13 +2928,24 @@ export class ConversaService {
    */
   private ofereceCriarCartao(userId: string, r: any, ctx: any): Resposta | null {
     if (!r.cartaoDito) return null;
-    if (r.faltando.length !== 1 || !r.faltando.includes('destino')) return null;
+    /* Basta o DESTINO estar faltando — não precisa ser a única falta.
+     *
+     * Exigir que fosse deixava "despesa 83,99 com Roney Lava Jato no cartão
+     * ITI" sem a oferta, porque ali faltam duas coisas (destino e
+     * categoria), e a pessoa recebia a lista dos cartões que tem com o ITI
+     * ausente dela — sem nenhum caminho para criar o que ela acabou de
+     * nomear. Medido com a frase de verdade. */
+    if (!r.faltando.includes('destino')) return null;
 
     const existente = fala.acharPorNome(ctx.cartoes, fala.normalizarFala(r.cartaoDito));
     if (existente) {
       r.cartaoId = existente.id;
-      r.faltando = [];
+      // Só o destino sai da lista: o que mais faltava continua faltando.
+      r.faltando = r.faltando.filter((f: string) => f !== 'destino');
       r.faturaMes = fala.monthKey(fala.faturaSugerida(r.data, existente));
+      // Faltando outra coisa, quem responde é o caminho de sempre — com o
+      // cartão já reconhecido dentro do resumo.
+      if (r.faltando.length) return null;
       this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
       return { texto: this.resumo(r, ctx) + '\n\nConfirma?', confirmar: true };
     }
@@ -2979,7 +3005,18 @@ export class ConversaService {
   private limiteDaResposta(texto: string): number | undefined {
     const m = RE_LIMITE.exec(fala.normalizarFala(texto));
     if (!m) return undefined;
-    const valor = fala.valorDaFala(m[1]);
+    /* O número vem do `numeroBR`, e não do leitor de frase. Dois defeitos
+     * medidos com "1 e 10, limite 2000":
+     *
+     *   - o leitor DESCARTA quatro dígitos entre 1900 e 2100 como ano — e
+     *     limite de R$ 2.000,00 virava zero, calado;
+     *   - ele também não via o "mil", que fica fora do grupo capturado:
+     *     "limite de 5 mil" dava R$ 5,00.
+     *
+     * Aqui o número já veio isolado pela própria expressão, então não há
+     * ano nem dia do mês para desconfiar. O "mil" entrou no padrão. */
+    const n = fala.numeroBR(m[1].replace(/r\$\s*/, ''));
+    const valor = n === null ? null : m[2] ? n * 1000 : n;
     return valor && valor > 0 ? valor : undefined;
   }
 
@@ -3035,20 +3072,32 @@ export class ConversaService {
   ): Resposta {
     const futuro = { id: 'novo', nome, fechamento: dias.fechamento, vencimento: dias.vencimento, ciclos: [] };
     r.cartaoId = 'novo';
-    r.faltando = [];
+    // Só o destino sai: a categoria, se faltava, continua faltando.
+    r.faltando = r.faltando.filter((f: string) => f !== 'destino');
     r.faturaMes = fala.monthKey(fala.faturaSugerida(r.data, futuro));
 
     const comOCartao = { ...ctx, cartoes: [...ctx.cartoes, futuro] };
-    this.rascunhos.set(userId, {
-      lancamento: r,
-      criadoEm: Date.now(),
-      cartaoNovo: {
-        nome,
-        fechamento: dias.fechamento,
-        vencimento: dias.vencimento,
-        limite: dias.limite ?? 0,
-      },
-    });
+    const cartaoNovo = {
+      nome,
+      fechamento: dias.fechamento,
+      vencimento: dias.vencimento,
+      limite: dias.limite ?? 0,
+    };
+
+    /* Ainda falta a categoria: a pergunta continua aqui, com o rascunho
+     * inteiro guardado. Mandar a pessoa repetir a frase seria perder o
+     * cartão descrito e pedir os dois dias outra vez. */
+    if (r.faltando.includes('categoria')) {
+      this.rascunhos.set(userId, {
+        lancamento: r,
+        criadoEm: Date.now(),
+        cartaoNovo,
+        esperandoCategoria: true,
+      });
+      return { texto: this.resumo(r, comOCartao) + '\n\n' + this.pedidoDaCategoria(r, ctx) };
+    }
+
+    this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now(), cartaoNovo });
     return {
       texto:
         this.resumo(r, comOCartao) +
@@ -3057,6 +3106,91 @@ export class ConversaService {
         ', limite ' + this.brl(dias.limite ?? 0) + ') e lançar?',
       confirmar: true,
     };
+  }
+
+  /** O pedido da categoria que faltou, com as que existem na mão. */
+  private pedidoDaCategoria(r: any, ctx: any): string {
+    const quais = r.tipo === 'INCOME' ? 'receita' : 'despesa';
+    const lista = fala
+      .categoriasLancaveis(r.tipo, ctx.categorias)
+      .map((c: any) => c.nome)
+      .join(', ');
+    return (
+      'Falta a categoria.\n\n' +
+      '👉 Responda só com ela. Suas categorias de ' + quais + ': ' + lista + '.\n\n' +
+      'Se for uma nova, diga o nome e eu crio junto. Ou responda "não" para desistir.'
+    );
+  }
+
+  /**
+   * A resposta com a categoria que faltava.
+   *
+   * O nome que não bate com nenhuma existente é tratado como categoria NOVA
+   * — aqui a resposta inteira é o nome, e não há como confundi-la com outra
+   * parte da frase. É a mesma oferta do lançamento comum, onde o nome só
+   * conta quando vem depois da palavra "categoria".
+   */
+  private async lerCategoriaQueFaltou(
+    userId: string,
+    rascunho: Rascunho,
+    texto: string,
+  ): Promise<Resposta> {
+    if (NAO.test(texto)) {
+      this.rascunhos.delete(userId);
+      return { texto: 'Ok, não lancei nada.' };
+    }
+    const ctx = await this.contextoDoUsuario(userId);
+    const r = rascunho.lancamento;
+    const comOCartao = rascunho.cartaoNovo
+      ? {
+          ...ctx,
+          cartoes: [
+            ...ctx.cartoes,
+            {
+              id: 'novo',
+              nome: rascunho.cartaoNovo.nome,
+              fechamento: rascunho.cartaoNovo.fechamento,
+              vencimento: rascunho.cartaoNovo.vencimento,
+              ciclos: [],
+            },
+          ],
+        }
+      : ctx;
+
+    const nome = texto.trim().slice(0, 60);
+    const existente = fala.acharPorNome(
+      fala.categoriasLancaveis(r.tipo, ctx.categorias),
+      fala.normalizarFala(nome),
+    );
+
+    const fecho = (extra: string) => {
+      r.faltando = r.faltando.filter((f: string) => f !== 'categoria');
+      const cartao = rascunho.cartaoNovo;
+      return {
+        texto:
+          this.resumo(r, comOCartao) + '\n\n' +
+          (cartao
+            ? 'Criar o cartão ' + cartao.nome +
+              ' (fecha dia ' + cartao.fechamento + ', vence dia ' + cartao.vencimento +
+              ', limite ' + this.brl(cartao.limite ?? 0) + ')' + extra + ' e lançar?'
+            : extra ? 'Criar' + extra + ' e lançar?' : 'Confirma?'),
+        confirmar: true,
+      };
+    };
+
+    if (existente) {
+      r.categoriaId = existente.id;
+      this.rascunhos.set(userId, { ...rascunho, lancamento: r, esperandoCategoria: false });
+      return fecho('');
+    }
+
+    this.rascunhos.set(userId, {
+      ...rascunho,
+      lancamento: r,
+      esperandoCategoria: false,
+      categoriaNova: { nome, tipo: r.tipo },
+    });
+    return fecho(' e a categoria ' + nome);
   }
 
   /**

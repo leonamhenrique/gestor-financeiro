@@ -186,6 +186,11 @@ const EXPORTADAS = [
   'monthKey',
   'regraParaDigitado',
   'byId',
+  // O número escrito à brasileira. O servidor precisa dele para ler o
+  // limite do cartão, que já vem isolado por uma expressão própria — ali
+  // não há ano nem dia do mês de que desconfiar, enquanto `valorDaFala`
+  // descarta "2000" achando que é ano.
+  'numeroBR',
   // A data escrita como a tela a escreve. O objetivo criado por mensagem
   // começa HOJE, e o dia de hoje é o de quem falou (ver `diaDoUsuario`): com
   // duas formatações diferentes, a mesma data viraria dois dias nas duas
