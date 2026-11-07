@@ -92,6 +92,9 @@ export function diaDoUsuario(
   return new Date(num('year'), num('month') - 1, num('day'));
 }
 
+/** Duas quebras de linha: o espaço que separa o resumo do que vem depois. */
+const EOL_DUPLO = '\n\n';
+
 const SIM =
   /^(sim|s|ok|okay|confirmo?|confirmar|pode|pode lan[çc]ar|isso|claro|beleza|positivo|👍)$/i;
 const NAO = /^(n[ãa]o|n|cancela(r)?|deixa|esquece|negativo)$/i;
@@ -623,6 +626,14 @@ export function mesDaPergunta(texto: string, hoje: Date): string {
   return andar(0);
 }
 
+/** O que já foi descrito na conversa e ainda não nasceu. Atravessa as voltas
+ * da conversa junto com a frase. */
+interface Pendentes {
+  cartaoNovo?: { nome: string; fechamento?: number; vencimento?: number; limite?: number };
+  contaNova?: { nome: string };
+  categoriaNova?: { nome: string; tipo: string };
+}
+
 interface Rascunho {
   lancamento: any;
   criadoEm: number;
@@ -636,14 +647,29 @@ interface Rascunho {
    * INCOMPLETO: sem os dias do ciclo, o rascunho está esperando a resposta
    * com eles, e não um "sim". */
   cartaoNovo?: { nome: string; fechamento?: number; vencimento?: number; limite?: number };
-  /** O rascunho está esperando a CATEGORIA, e não um "sim".
+  /**
+   * A frase ATÉ AGORA, quando o rascunho está esperando o que faltou.
    *
-   * Acontece quando a frase nomeou um cartão que não existe e também não
-   * disse a categoria: depois dos dois dias do ciclo, ainda falta uma coisa.
-   * Perguntar aqui é o que impede o beco — mandar a frase de novo não
-   * adiantaria, porque o cartão continuaria sem existir e os dias seriam
-   * pedidos outra vez. */
-  esperandoCategoria?: boolean;
+   * A resposta da pessoa é grudada aqui e a frase inteira é RELIDA, em vez
+   * de haver um leitor para cada campo que pode faltar. Duas razões:
+   *
+   *   1. a gramática é uma só. "40 reais", "no nubank", "alimentação",
+   *      "na viagem" e "para o itaú" já são entendidos pelo leitor de
+   *      sempre, cada um no seu lugar — escrever um parser por campo seria
+   *      a mesma leitura em dois lugares, livre para divergir;
+   *   2. a ordem se preserva. A resposta vai no FIM, que é onde ela cairia
+   *      se a pessoa tivesse dito tudo de uma vez — e isso importa na
+   *      transferência, onde a primeira conta é a que paga.
+   *
+   * O que estava pendente de criação (cartão, conta, categoria) atravessa
+   * junto: sem isso, o cartão descrito em duas mensagens se perderia na
+   * releitura e os dois dias seriam pedidos outra vez.
+   */
+  fraseAteAgora?: string;
+  /** O que faltava quando a pergunta foi feita. É a comparação com o que
+   * falta DEPOIS que diz se a resposta adiantou alguma coisa — "ainda falta
+   * a categoria" não é a mesma notícia que "não entendi". */
+  faltavam?: string[];
   /** O objetivo por nascer. Como o cartão, ele pode ficar aqui INCOMPLETO:
    * faltando o nome, o valor ou o prazo, o rascunho espera a resposta com a
    * parte que falta. Diferente de todos os outros, ele vem SEM lançamento
@@ -870,6 +896,10 @@ export class ConversaService {
   private async lerFrase(
     userId: string,
     texto: string,
+    /* O que já foi descrito e ainda não nasceu, vindo de uma volta anterior
+     * da conversa. O cartão entra no contexto da leitura como se existisse:
+     * é isso que impede a releitura de pedir os dois dias de novo. */
+    pendentes: Pendentes = {},
   ): Promise<Resposta | null> {
     const rascunho = this.rascunhoDe(userId);
 
@@ -880,11 +910,12 @@ export class ConversaService {
       return this.lerDiasDoCiclo(userId, rascunho, texto);
     }
 
-    // E pode estar esperando a categoria que faltou. "Transporte", lido como
-    // frase nova, não é lançamento nenhum — e o cartão recém-descrito se
-    // perderia junto.
-    if (rascunho?.esperandoCategoria) {
-      return this.lerCategoriaQueFaltou(userId, rascunho, texto);
+    /* E pode estar esperando o que faltou — o valor, a conta, a categoria,
+     * o objetivo. "Alimentação" ou "40 reais", lidos como frase nova, não
+     * são lançamento nenhum: viram "faltou valor, destino, categoria" de
+     * novo, e a pessoa recomeça do zero. Ver `fraseAteAgora`. */
+    if (rascunho?.fraseAteAgora && !SIM.test(texto) && !NAO.test(texto)) {
+      return this.completarOQueFaltou(userId, rascunho, texto);
     }
 
     // E pode estar esperando o nome, o valor ou o prazo de um objetivo. Mesma
@@ -894,7 +925,15 @@ export class ConversaService {
       return this.lerFaltaDoObjetivo(userId, rascunho, texto);
     }
 
-    if (rascunho && SIM.test(texto)) return this.gravar(userId, rascunho);
+    if (rascunho && SIM.test(texto)) {
+      /* "Sim" com uma parte faltando não confirma nada — e sem esta linha
+       * ele ia para `gravar`, que esperava um lançamento e encontrava
+       * `null`. A pergunta volta, dizendo que ainda falta. */
+      if (rascunho.fraseAteAgora) {
+        return this.completarOQueFaltou(userId, rascunho, '', 'Ainda falta uma parte.');
+      }
+      return this.gravar(userId, rascunho);
+    }
     if (rascunho && NAO.test(texto)) {
       this.rascunhos.delete(userId);
       // O que se desistiu de fazer, dito pelo nome: "não lancei nada" depois
@@ -905,7 +944,7 @@ export class ConversaService {
       };
     }
 
-    const ctx = await this.contextoDoUsuario(userId);
+    const ctx = await this.comOsPendentes(await this.contextoDoUsuario(userId), pendentes);
 
     /* Criar objetivo vem antes de TUDO, inclusive da trava de "cadastre uma
      * conta ou um cartão": objetivo não precisa de nenhum dos dois para
@@ -1034,18 +1073,14 @@ export class ConversaService {
       const daRepeticao = r.faltando.includes('por quantas vezes')
         ? ' Diga por quantas vezes: "' + this.exemploDeRepeticao(r.repeticao.freq) + '".'
         : '';
-      return {
-        texto:
-          this.resumo(r, ctx) +
-          '\n\nFaltou ' +
-          r.faltando.join(', ') +
-          '.' +
-          nomes +
-          categorias +
-          daDivisao +
-          daRepeticao +
-          ' Mande a frase de novo com essa parte, ou lance no app.',
-      };
+      return this.pedirOQueFaltou(
+        userId,
+        texto,
+        this.resumo(r, ctx),
+        r.faltando,
+        nomes + categorias + daDivisao + daRepeticao,
+        pendentes,
+      );
     }
 
     /* A conta que não fecha é dita ANTES do "sim", com a frase do próprio
@@ -1101,15 +1136,14 @@ export class ConversaService {
       };
     }
     if (r.faltando.length) {
-      return {
-        texto:
-          this.resumoTransferencia(r, ctx) +
-          '\n\nFaltou ' +
-          r.faltando.join(', ') +
-          '. ' +
-          this.nomesDeConta(ctx) +
-          ' A primeira conta dita é a que paga, a segunda é a que recebe.',
-      };
+      return this.pedirOQueFaltou(
+        userId,
+        r.frase,
+        this.resumoTransferencia(r, ctx),
+        r.faltando,
+        ' ' + this.nomesDeConta(ctx) +
+        ' A primeira conta dita é a que paga, a segunda é a que recebe.',
+      );
     }
 
     this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
@@ -1160,12 +1194,13 @@ export class ConversaService {
       };
     }
     if (r.faltando.length) {
-      return {
-        texto:
-          this.resumoDeObjetivo(r, ctx) +
-          '\n\nFaltou ' + r.faltando.join(', ') + '. ' +
-          (r.faltando.indexOf('conta') >= 0 ? this.nomesDeConta(ctx) : ''),
-      };
+      return this.pedirOQueFaltou(
+        userId,
+        r.frase,
+        this.resumoDeObjetivo(r, ctx),
+        r.faltando,
+        r.faltando.indexOf('conta') >= 0 ? ' ' + this.nomesDeConta(ctx) : '',
+      );
     }
 
     this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
@@ -2958,6 +2993,204 @@ export class ConversaService {
     return { texto: this.pedidoDoCartao(r.cartaoDito) };
   }
 
+  // ----------------------------------------------------------
+  // completar o que faltou
+  // ----------------------------------------------------------
+  /**
+   * Pergunta o que faltou e GUARDA a frase, para a resposta não precisar
+   * repeti-la.
+   *
+   * Antes daqui a saída era "mande a frase de novo com essa parte": quem
+   * ditou "gastei 83,99 com o lava jato no cartão ITI" e esqueceu a
+   * categoria tinha de ditar tudo outra vez. A frase fica guardada por 15
+   * minutos, como qualquer rascunho.
+   */
+  private pedirOQueFaltou(
+    userId: string,
+    frase: string,
+    resumo: string,
+    faltando: string[],
+    ajuda: string,
+    pendentes: Pendentes = {},
+  ): Resposta {
+    this.rascunhos.set(userId, {
+      lancamento: null,
+      criadoEm: Date.now(),
+      fraseAteAgora: frase,
+      faltavam: faltando,
+      ...pendentes,
+    });
+    return {
+      texto:
+        resumo +
+        '\n\nFaltou ' + faltando.join(', ') + '.' + ajuda +
+        '\n\n👉 Responda só com essa parte — eu guardo o resto. ' +
+        'Ou "não" para desistir.',
+    };
+  }
+
+  /**
+   * A resposta que completa: ela é grudada no fim da frase e a frase inteira
+   * volta para a MESMA leitura de sempre.
+   *
+   * No fim, e não no começo, porque é onde ela cairia se a pessoa tivesse
+   * dito tudo de uma vez — e a ordem importa: na transferência, a primeira
+   * conta dita é a que paga.
+   *
+   * Nada aproveitado é dito, em vez de a mesma pergunta voltar igual: quem
+   * leu a resposta idêntica acha que a mensagem não chegou.
+   */
+  private async completarOQueFaltou(
+    userId: string,
+    rascunho: Rascunho,
+    resposta: string,
+    aviso = 'Não entendi essa parte.',
+  ): Promise<Resposta | null> {
+    const antes = rascunho.fraseAteAgora as string;
+
+    /* Nem toda mensagem é resposta. Quem manda uma frase que se sustenta
+     * sozinha — um lançamento completo, uma pergunta — mudou de assunto, e
+     * grudá-la na anterior criaria uma terceira coisa que ninguém disse:
+     * medido, "gastei 30 reais" depois de um rascunho parado virou o
+     * lançamento ANTERIOR com a descrição nova. O rascunho velho morre, e a
+     * mensagem segue como qualquer outra. */
+    if (await this.mudouDeAssunto(userId, resposta, rascunho.faltavam)) {
+      this.rascunhos.delete(userId);
+      return this.lerFrase(userId, resposta);
+    }
+
+    const pendentes: Pendentes = {
+      cartaoNovo: rascunho.cartaoNovo,
+      contaNova: rascunho.contaNova,
+      categoriaNova: rascunho.categoriaNova,
+    };
+    // O rascunho sai ANTES da releitura: ela passa pelo mesmo caminho de uma
+    // frase nova, e encontrar o próprio rascunho ali daria volta sem fim.
+    this.rascunhos.delete(userId);
+    const r = await this.lerFrase(userId, antes + ' ' + resposta.trim(), pendentes);
+    if (!r) return r;
+    /* O que estava pendente volta para o rascunho que a releitura criou.
+     * Sem isto o cartão descrito some no caminho: a releitura o encontra no
+     * contexto (ele entrou como se existisse), guarda um rascunho novo sem
+     * ele, e o "sim" lançaria num cartão que nunca foi criado. O que a
+     * releitura decidiu manda, por isso ele vem por último. */
+    const comPendentes = this.rascunhoDe(userId);
+    if (comPendentes) {
+      const juntos: Rascunho = {
+        ...pendentes,
+        ...comPendentes,
+        cartaoNovo: comPendentes.cartaoNovo ?? pendentes.cartaoNovo,
+        contaNova: comPendentes.contaNova ?? pendentes.contaNova,
+        categoriaNova: comPendentes.categoriaNova ?? pendentes.categoriaNova,
+      };
+      this.rascunhos.set(userId, juntos);
+      /* E a pergunta diz tudo o que vai nascer. A releitura encontra o
+       * cartão pendente como se ele existisse — que é o que impede os dois
+       * dias de serem pedidos de novo — e por isso ela fecharia com um
+       * "Confirma?" seco, criando o cartão calada. Nada nasce sem ser dito. */
+      const vaiNascer = this.oQueVaiNascer(juntos);
+      if (vaiNascer) {
+        /* O preâmbulo "você ainda não tem a categoria X" sai junto quando
+         * existe: a frase nova já nomeia tudo o que vai nascer, e manter os
+         * dois escrevia "a categoria Lava Jato" duas vezes na mesma linha. */
+        const corte = r.texto.lastIndexOf(EOL_DUPLO + 'Você ainda não tem');
+        if (corte >= 0 && /e lançar\?$/.test(r.texto)) {
+          return { ...r, texto: r.texto.slice(0, corte) + EOL_DUPLO + vaiNascer };
+        }
+        if (r.texto.endsWith('Confirma?')) {
+          return { ...r, texto: r.texto.slice(0, -'Confirma?'.length) + vaiNascer };
+        }
+      }
+    }
+    /* O rascunho ANDOU? É isso que separa "não entendi" de "ainda falta
+     * outra coisa". Comparar com "a resposta ainda pede algo" acusava de
+     * não ter entendido uma resposta que resolveu metade: quem disse a
+     * conta, faltando conta E categoria, ouvia "não entendi essa parte" com
+     * a conta já preenchida no resumo logo abaixo. */
+    const novo = this.rascunhoDe(userId);
+    const andou =
+      !novo?.faltavam ||
+      !rascunho.faltavam ||
+      novo.faltavam.length < rascunho.faltavam.length ||
+      novo.faltavam.some((f) => !rascunho.faltavam!.includes(f));
+    if (novo?.fraseAteAgora && !andou) {
+      return { texto: aviso + '\n\n' + r.texto };
+    }
+    return r;
+  }
+
+  /**
+   * A mensagem se sustenta sozinha? Então não é resposta, é assunto novo.
+   *
+   * Duas formas de se sustentar: ser uma PERGUNTA (nenhuma delas completa
+   * um lançamento) ou ser um lançamento que não precisa de mais nada. Uma
+   * resposta de verdade — "40 reais", "no nubank", "alimentação" — é
+   * incompleta por natureza, que é justamente por que ela foi pedida.
+   */
+  private async mudouDeAssunto(
+    userId: string,
+    texto: string,
+    faltavam: string[] = [],
+  ): Promise<boolean> {
+    const ctx = await this.contextoDoUsuario(userId);
+    const temValor = !!fala.valorDaFala(fala.normalizarFala(texto));
+    /* Dinheiro numa resposta que não foi pedida é outra frase. O valor é o
+     * que menos se repete sem querer: quem já disse quanto gastou e está
+     * respondendo a conta não diz o número de novo. Sem isto, "gastei 30
+     * reais" mandado depois de um rascunho parado grudava no anterior e
+     * virava um terceiro lançamento que ninguém pediu. */
+    if (temValor && !faltavam.includes('valor')) return true;
+    const nomeouPessoa = !!fala.acharPorNome(ctx.pessoas || [], fala.normalizarFala(texto));
+    if (
+      perguntaDeFatura(texto, temValor) ||
+      perguntaDeDivida(texto, temValor, nomeouPessoa) ||
+      perguntaDeObjetivos(texto, temValor) ||
+      perguntaDeMeta(texto, temValor) ||
+      perguntaDeMaiores(texto, temValor) ||
+      perguntaDeResultado(texto, temValor) ||
+      perguntaDeSaldo(texto, temValor) ||
+      pedidoDeCriarObjetivo(texto)
+    ) {
+      return true;
+    }
+    const sozinha = fala.interpretarFala(texto, ctx);
+    return !sozinha.faltando.length;
+  }
+
+  /** Tudo o que o "sim" vai criar, numa frase só — para a pergunta não
+   * esconder metade. Vazio quando não há nada por nascer. */
+  private oQueVaiNascer(rascunho: Rascunho): string {
+    const partes: string[] = [];
+    const k = rascunho.cartaoNovo;
+    if (k?.fechamento && k.vencimento) {
+      partes.push(
+        'o cartão ' + k.nome + ' (fecha dia ' + k.fechamento + ', vence dia ' + k.vencimento +
+        ', limite ' + this.brl(k.limite ?? 0) + ')',
+      );
+    }
+    if (rascunho.contaNova) {
+      partes.push('a conta ' + rascunho.contaNova.nome + ' (corrente, saldo R$ 0,00)');
+    }
+    if (rascunho.categoriaNova) partes.push('a categoria ' + rascunho.categoriaNova.nome);
+    if (!partes.length) return '';
+    return 'Criar ' + this.comE(partes) + ' e lançar?';
+  }
+
+  /** O contexto com o que ainda não nasceu dentro dele. O cartão descrito na
+   * volta anterior entra como se existisse — senão a releitura pediria os
+   * dois dias do ciclo de novo, e a conversa andaria em círculo. */
+  private comOsPendentes(ctx: any, pendentes: Pendentes): any {
+    if (!pendentes.cartaoNovo?.fechamento) return ctx;
+    const c = pendentes.cartaoNovo;
+    return {
+      ...ctx,
+      cartoes: [
+        ...ctx.cartoes,
+        { id: 'novo', nome: c.nome, fechamento: c.fechamento, vencimento: c.vencimento, ciclos: [] },
+      ],
+    };
+  }
+
   /**
    * A resposta com os dois dias. Primeiro número é fechamento, segundo é
    * vencimento — a ordem em que a pergunta os pede.
@@ -3084,17 +3317,19 @@ export class ConversaService {
       limite: dias.limite ?? 0,
     };
 
-    /* Ainda falta a categoria: a pergunta continua aqui, com o rascunho
-     * inteiro guardado. Mandar a pessoa repetir a frase seria perder o
-     * cartão descrito e pedir os dois dias outra vez. */
-    if (r.faltando.includes('categoria')) {
-      this.rascunhos.set(userId, {
-        lancamento: r,
-        criadoEm: Date.now(),
-        cartaoNovo,
-        esperandoCategoria: true,
-      });
-      return { texto: this.resumo(r, comOCartao) + '\n\n' + this.pedidoDaCategoria(r, ctx) };
+    /* Ainda falta alguma coisa (quase sempre a categoria): a pergunta
+     * continua aqui, com o cartão já descrito guardado junto. Mandar a
+     * pessoa repetir a frase seria perder os dois dias que ela acabou de
+     * dar e pedi-los outra vez. */
+    if (r.faltando.length) {
+      return this.pedirOQueFaltou(
+        userId,
+        r.frase,
+        this.resumo(r, comOCartao),
+        r.faltando,
+        r.faltando.includes('categoria') ? ' ' + this.ajudaDeCategoria('', r.tipo, ctx) : '',
+        { cartaoNovo },
+      );
     }
 
     this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now(), cartaoNovo });
@@ -3106,91 +3341,6 @@ export class ConversaService {
         ', limite ' + this.brl(dias.limite ?? 0) + ') e lançar?',
       confirmar: true,
     };
-  }
-
-  /** O pedido da categoria que faltou, com as que existem na mão. */
-  private pedidoDaCategoria(r: any, ctx: any): string {
-    const quais = r.tipo === 'INCOME' ? 'receita' : 'despesa';
-    const lista = fala
-      .categoriasLancaveis(r.tipo, ctx.categorias)
-      .map((c: any) => c.nome)
-      .join(', ');
-    return (
-      'Falta a categoria.\n\n' +
-      '👉 Responda só com ela. Suas categorias de ' + quais + ': ' + lista + '.\n\n' +
-      'Se for uma nova, diga o nome e eu crio junto. Ou responda "não" para desistir.'
-    );
-  }
-
-  /**
-   * A resposta com a categoria que faltava.
-   *
-   * O nome que não bate com nenhuma existente é tratado como categoria NOVA
-   * — aqui a resposta inteira é o nome, e não há como confundi-la com outra
-   * parte da frase. É a mesma oferta do lançamento comum, onde o nome só
-   * conta quando vem depois da palavra "categoria".
-   */
-  private async lerCategoriaQueFaltou(
-    userId: string,
-    rascunho: Rascunho,
-    texto: string,
-  ): Promise<Resposta> {
-    if (NAO.test(texto)) {
-      this.rascunhos.delete(userId);
-      return { texto: 'Ok, não lancei nada.' };
-    }
-    const ctx = await this.contextoDoUsuario(userId);
-    const r = rascunho.lancamento;
-    const comOCartao = rascunho.cartaoNovo
-      ? {
-          ...ctx,
-          cartoes: [
-            ...ctx.cartoes,
-            {
-              id: 'novo',
-              nome: rascunho.cartaoNovo.nome,
-              fechamento: rascunho.cartaoNovo.fechamento,
-              vencimento: rascunho.cartaoNovo.vencimento,
-              ciclos: [],
-            },
-          ],
-        }
-      : ctx;
-
-    const nome = texto.trim().slice(0, 60);
-    const existente = fala.acharPorNome(
-      fala.categoriasLancaveis(r.tipo, ctx.categorias),
-      fala.normalizarFala(nome),
-    );
-
-    const fecho = (extra: string) => {
-      r.faltando = r.faltando.filter((f: string) => f !== 'categoria');
-      const cartao = rascunho.cartaoNovo;
-      return {
-        texto:
-          this.resumo(r, comOCartao) + '\n\n' +
-          (cartao
-            ? 'Criar o cartão ' + cartao.nome +
-              ' (fecha dia ' + cartao.fechamento + ', vence dia ' + cartao.vencimento +
-              ', limite ' + this.brl(cartao.limite ?? 0) + ')' + extra + ' e lançar?'
-            : extra ? 'Criar' + extra + ' e lançar?' : 'Confirma?'),
-        confirmar: true,
-      };
-    };
-
-    if (existente) {
-      r.categoriaId = existente.id;
-      this.rascunhos.set(userId, { ...rascunho, lancamento: r, esperandoCategoria: false });
-      return fecho('');
-    }
-
-    this.rascunhos.set(userId, {
-      ...rascunho,
-      lancamento: r,
-      esperandoCategoria: false,
-      categoriaNova: { nome, tipo: r.tipo },
-    });
-    return fecho(' e a categoria ' + nome);
   }
 
   /**
@@ -3310,9 +3460,14 @@ export class ConversaService {
         '. Crie uma no app, em Categorias.'
       );
     }
+    /* "Diga categoria X", e nao "crie no app": a conversa cria categoria
+     * desde 02/11, e a palavra "categoria" antes do nome e o que faz a
+     * leitura saber que aquilo e o nome de uma -- sem ela, todo lojista
+     * desconhecido viraria categoria. Mandar para o app era um caminho a
+     * menos e uma viagem a mais. */
     return (
       disse + 'Suas categorias de ' + quais + ': ' + this.ateOito(nomes) +
-      '. Se for uma nova, crie no app, em Categorias.'
+      '. Se for uma nova, diga "categoria" e o nome, que eu crio junto.'
     );
   }
 

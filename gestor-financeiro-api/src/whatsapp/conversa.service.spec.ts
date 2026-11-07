@@ -611,10 +611,16 @@ describe('ConversaService', () => {
     expect(r?.texto).toContain('(do lojista)');
   });
 
-  it('frase incompleta pergunta, e nao guarda rascunho', async () => {
+  /* A frase incompleta GUARDA o rascunho desde 07/11/2026: a resposta
+   * completa o que faltou, em vez de a pessoa ditar tudo de novo. O que
+   * continua valendo é o principal — nada nasce sem o "sim", e "sim" com
+   * uma parte faltando não é confirmação de nada. */
+  it('frase incompleta pergunta, guarda a frase, e o sim nao lanca', async () => {
     const r = await service.responderA(msg('gastei 30 reais'));
     expect(r?.texto).toMatch(/Faltou destino, categoria/);
-    await service.responderA(msg('sim'));
+    expect(r?.texto).toContain('👉 Responda só com essa parte — eu guardo o resto.');
+    const s2 = await service.responderA(msg('sim'));
+    expect(s2?.texto).toContain('Ainda falta uma parte.');
     expect(criados).toHaveLength(0);
   });
 
@@ -1685,8 +1691,9 @@ describe('ConversaService', () => {
       await service.responderA(msg(FRASE, 'c1'));
       const r = await service.responderA(msg('1 e 10, limite 2000', 'c2'));
       expect(r?.texto).toContain('💳 Cartão: ITI');
-      expect(r?.texto).toContain('Falta a categoria.');
+      expect(r?.texto).toContain('Faltou categoria.');
       expect(r?.texto).toContain('Suas categorias de despesa: Alimentação, Compras.');
+      expect(r?.texto).toContain('👉 Responda só com essa parte — eu guardo o resto.');
       expect(r?.confirmar).toBeUndefined();
     });
 
@@ -1714,8 +1721,16 @@ describe('ConversaService', () => {
     it('categoria que nao existe e oferecida junto, e nasce no sim', async () => {
       await service.responderA(msg(FRASE, 'e1'));
       await service.responderA(msg('1 e 10', 'e2'));
-      const pergunta = await service.responderA(msg('Lava Jato', 'e3'));
-      expect(pergunta?.texto).toContain('e a categoria Lava Jato e lançar?');
+      // O nome de uma categoria nova vem com a palavra que a anuncia: é ela
+      // que impede todo lojista desconhecido de virar categoria, e a
+      // pergunta ensina a forma.
+      const pergunta = await service.responderA(msg('categoria Lava Jato', 'e3'));
+      /* A pergunta nomeia TUDO o que vai nascer. O cartão foi descrito duas
+       * mensagens antes, e a releitura o encontra no contexto como se já
+       * existisse — sem esta linha ele seria criado sem ser anunciado. */
+      expect(pergunta?.texto).toContain(
+        'Criar o cartão ITI (fecha dia 1, vence dia 10, limite R$ 0,00) e a categoria Lava Jato e lançar?',
+      );
 
       await service.responderA(msg('sim', 'e4'));
       expect(criadas).toEqual([
@@ -1757,6 +1772,106 @@ describe('ConversaService', () => {
       expect(r?.texto).toContain('💳 Cartão: Nubank Roxinho');
       expect(r?.texto).toContain('Faltou categoria.');
       expect(r?.texto).not.toContain('Dia do fechamento');
+    });
+  });
+
+  describe('completar o que faltou', () => {
+    /* Antes daqui, faltando qualquer coisa a saída era "mande a frase de
+     * novo com essa parte". A resposta agora é GRUDADA no fim da frase e a
+     * frase inteira é relida — a gramática é uma só, e a ordem se preserva
+     * (na transferência, a primeira conta dita é a que paga). */
+
+    it('o valor que faltou completa o lancamento', async () => {
+      const r = await service.responderA(
+        msg('gastei no mercado pelo debito da conta Nubank categoria alimentacao'),
+      );
+      expect(r?.texto).toContain('Faltou valor.');
+      expect(r?.texto).toContain('👉 Responda só com essa parte — eu guardo o resto.');
+
+      const completo = await service.responderA(msg('40 reais'));
+      expect(completo?.texto).toContain('💵 Valor: R$ 40,00');
+      expect(completo?.texto).toContain('🏦 Conta: Nubank');
+      expect(completo?.texto).toContain('Confirma?');
+      expect(completo?.confirmar).toBe(true);
+
+      await service.responderA(msg('sim'));
+      expect(criados[0]).toMatchObject({ amount: 40, bankAccountId: 'a1', categoryId: 'c1' });
+    });
+
+    it('duas faltas se resolvem uma de cada vez', async () => {
+      await service.responderA(msg('gastei 30 reais', 'x1'));
+      const conta = await service.responderA(msg('na conta Nubank', 'x2'));
+      // O que a resposta resolveu some da lista; o que falta continua.
+      expect(conta?.texto).toContain('🏦 Conta: Nubank');
+      expect(conta?.texto).toContain('Faltou categoria.');
+      expect(conta?.texto).not.toContain('Não entendi');
+
+      const cat = await service.responderA(msg('alimentacao', 'x3'));
+      expect(cat?.texto).toContain('Confirma?');
+      await service.responderA(msg('sim', 'x4'));
+      expect(criados[0]).toMatchObject({ amount: 30, bankAccountId: 'a1', categoryId: 'c1' });
+    });
+
+    /* A resposta vai no FIM da frase, e é isso que mantém a ordem de quem
+     * paga e quem recebe. */
+    it('na transferencia, a conta respondida e a que recebe', async () => {
+      const r = await service.responderA(msg('transferi 200 do nubank'));
+      expect(r?.texto).toContain('Faltou conta de destino.');
+
+      const completo = await service.responderA(msg('para o cofre'));
+      expect(completo?.texto).toContain('🏦 Sai de: Nubank');
+      expect(completo?.texto).toContain('🏦 Entra em: Cofre');
+
+      await service.responderA(msg('sim'));
+      expect(transferidas[0]).toMatchObject({ fromAccountId: 'a1', toAccountId: 'a2', amount: 200 });
+    });
+
+    /* A releitura pode mudar a leitura INTEIRA: "apliquei 500" sozinho é
+     * despesa (o verbo não basta), e com "na viagem" vira movimento de
+     * objetivo — exatamente como se tudo tivesse sido dito de uma vez. */
+    it('a resposta pode mudar o tipo da leitura', async () => {
+      const r = await service.responderA(msg('apliquei 500'));
+      expect(r?.texto).toContain('📉 Despesa');
+
+      const completo = await service.responderA(msg('na viagem'));
+      expect(completo?.texto).toContain('🎯 Aplicar no objetivo');
+      expect(completo?.texto).toContain('🏁 Objetivo: Viagem');
+      expect(completo?.texto).toContain('🏦 Sai da conta: Nubank');
+
+      await service.responderA(msg('sim'));
+      expect(movidos[0]).toMatchObject({ goalId: 'g1', tipo: 'DEPOSIT', amount: 500 });
+    });
+
+    it('resposta que nao adianta nada diz isso, e nao repete calada', async () => {
+      await service.responderA(msg('gastei 30 reais', 'y1'));
+      const r = await service.responderA(msg('sei la', 'y2'));
+      expect(r?.texto).toContain('Não entendi essa parte.');
+      expect(r?.texto).toContain('Faltou destino, categoria.');
+    });
+
+    it('o nao desiste, e nada e lancado', async () => {
+      await service.responderA(msg('gastei 30 reais', 'z1'));
+      const r = await service.responderA(msg('não', 'z2'));
+      expect(r?.texto).toBe('Ok, não lancei nada.');
+      expect(criados).toEqual([]);
+    });
+
+    /* Nem toda mensagem e resposta. Dinheiro numa resposta que nao foi
+     * pedida e outra frase: sem isto, "gastei 30 reais" mandado depois de um
+     * rascunho parado grudava no anterior e virava um terceiro lancamento
+     * que ninguem pediu. */
+    it('frase nova com valor comeca de novo, em vez de grudar', async () => {
+      await service.responderA(msg('gastei 30 reais no mercado', 'w1'));
+      const r = await service.responderA(msg('gastei 50 reais na farmacia', 'w2'));
+      expect(r?.texto).toContain('💵 Valor: R$ 50,00');
+      expect(r?.texto).toContain('📝 Descrição: Farmacia');
+      expect(r?.texto).not.toContain('Mercado');
+    });
+
+    it('pergunta no meio do caminho e respondida como pergunta', async () => {
+      await service.responderA(msg('gastei 30 reais', 'v1'));
+      const r = await service.responderA(msg('qual meu saldo', 'v2'));
+      expect(r?.texto).toContain('💰 Saldo de hoje');
     });
   });
 
@@ -2323,7 +2438,9 @@ describe('ConversaService', () => {
       const r = await service.responderA(msg(frase));
       expect(r?.texto).toContain('Faltou categoria.');
       expect(r?.texto).toContain('Suas categorias de despesa: Alimentação, Compras');
-      expect(r?.texto).toContain('crie no app, em Categorias');
+      // A conversa cria categoria desde 02/11: a ajuda ensina a forma que a
+      // leitura entende, em vez de mandar a pessoa para o app.
+      expect(r?.texto).toContain('diga "categoria" e o nome, que eu crio junto');
       expect(criados).toHaveLength(0);
     });
 
@@ -2398,7 +2515,9 @@ describe('ConversaService', () => {
       // COMO categoria.
       const r = await service.responderA(msg(frase));
       expect(r?.texto).not.toContain('Criar e lançar?');
-      expect(r?.texto).toContain('crie no app, em Categorias');
+      // A conversa cria categoria desde 02/11: a ajuda ensina a forma que a
+      // leitura entende, em vez de mandar a pessoa para o app.
+      expect(r?.texto).toContain('diga "categoria" e o nome, que eu crio junto');
     });
 
     it('o nao descarta a categoria junto com o lancamento', async () => {
