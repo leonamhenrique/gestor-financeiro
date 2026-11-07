@@ -1842,6 +1842,28 @@ describe('ConversaService', () => {
       expect(movidos[0]).toMatchObject({ goalId: 'g1', tipo: 'DEPOSIT', amount: 500 });
     });
 
+    /* O objetivo que falta era o ÚNICO "faltou" que não guardava a frase:
+     * listava os objetivos e ia embora. Medido na conversa real — quem
+     * respondia "viagem" via o nome virar a DESCRIÇÃO de uma despesa de
+     * R$ 0,00, porque a frase de antes já não existia. */
+    it('o objetivo que faltou guarda a frase, como qualquer outra falta', async () => {
+      const r = await service.responderA(msg('apliquei 500 objetivo', 'o1'));
+      expect(r?.texto).toContain('🎯 Aplicar no objetivo');
+      expect(r?.texto).toContain('Faltou objetivo, conta.');
+      // E uma vez só: a leitura já contava o objetivo entre as faltas.
+      expect(r?.texto).not.toContain('objetivo, objetivo');
+      expect(r?.texto).toContain('Os seus são: Viagem, Notebook.');
+      expect(r?.texto).toContain('👉 Responda só com essa parte — eu guardo o resto.');
+
+      const completo = await service.responderA(msg('viagem', 'o2'));
+      expect(completo?.texto).toContain('🏁 Objetivo: Viagem');
+      expect(completo?.texto).toContain('🏦 Sai da conta: Nubank');
+      expect(completo?.confirmar).toBe(true);
+
+      await service.responderA(msg('sim', 'o3'));
+      expect(movidos[0]).toMatchObject({ goalId: 'g1', tipo: 'DEPOSIT', amount: 500 });
+    });
+
     it('resposta que nao adianta nada diz isso, e nao repete calada', async () => {
       await service.responderA(msg('gastei 30 reais', 'y1'));
       const r = await service.responderA(msg('sei la', 'y2'));

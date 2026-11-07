@@ -1183,23 +1183,27 @@ export class ConversaService {
           'Reabra ele no app se quiser voltar a guardar. Resgatar continua valendo.',
       };
     }
-    if (!r.objetivoId) {
+    /* O objetivo que falta é uma falta como as outras. Esta saída listava os
+     * objetivos e não guardava nada: quem respondia "viagem" via o nome virar
+     * a DESCRIÇÃO de uma despesa de R$ 0,00, porque a frase de antes já não
+     * existia mais. */
+    if (!r.objetivoId || r.faltando.length) {
+      const semObjetivo = !r.objetivoId;
       const nomes = objetivos.map((o: any) => o.nome).join(', ');
-      return {
-        texto:
-          (r.objetivoDito
-            ? 'Não achei o objetivo "' + r.objetivoDito + '".'
-            : 'Não entendi em qual objetivo.') +
-          '\n\nOs seus são: ' + nomes + '.',
-      };
-    }
-    if (r.faltando.length) {
+      const ajuda =
+        (semObjetivo
+          ? (r.objetivoDito ? ' Não achei "' + r.objetivoDito + '".' : '') +
+            ' Os seus são: ' + nomes + '.'
+          : '') +
+        (r.faltando.indexOf('conta') >= 0 ? ' ' + this.nomesDeConta(ctx) : '');
       return this.pedirOQueFaltou(
         userId,
         r.frase,
         this.resumoDeObjetivo(r, ctx),
-        r.faltando,
-        r.faltando.indexOf('conta') >= 0 ? ' ' + this.nomesDeConta(ctx) : '',
+        semObjetivo
+          ? ['objetivo'].concat(r.faltando.filter((f: string) => f !== 'objetivo'))
+          : r.faltando,
+        ajuda,
       );
     }
 
