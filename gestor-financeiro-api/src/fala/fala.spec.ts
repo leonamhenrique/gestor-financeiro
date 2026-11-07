@@ -94,6 +94,41 @@ describe('fala.js — a mesma leitura da tela, fora dela', () => {
     expect(r.faturaMes).toBe('2026-12');
   });
 
+  /* O nome de uma fatura é o mês em que ela VENCE — a chave guardada no
+   * lançamento continua sendo o mês em que ela FECHA. Os dois casos abaixo
+   * são por que não dá para somar um mês e pronto. */
+  describe('o mes que da nome a fatura', () => {
+    const mesDoVencimento = (card: any, y: number, m: number) => {
+      const v = fala.vencimentoDaFatura(card, y, m);
+      return v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0');
+    };
+
+    it('vence depois de fechar, no mes seguinte: o nome anda', () => {
+      // Fecha 28/10, vence 10/11 — financeiramente, é a fatura de novembro.
+      const card = { fechamento: 28, vencimento: 10, ciclos: [] };
+      expect(mesDoVencimento(card, 2026, 9)).toBe('2026-11');
+    });
+
+    it('vence depois de fechar, no MESMO mes: o nome nao anda', () => {
+      // Fecha 01/10, vence 10/10 — continua sendo a fatura de outubro.
+      const card = { fechamento: 1, vencimento: 10, ciclos: [] };
+      expect(mesDoVencimento(card, 2026, 9)).toBe('2026-10');
+    });
+
+    it('o ciclo manda, e nao os dias de hoje', () => {
+      // O cartão mudou de vencimento: cada fatura usa os dias do SEU período.
+      const card = {
+        fechamento: 25, vencimento: 28,
+        ciclos: [
+          { inicio: '2026-01', fechamento: 28, vencimento: 10 },
+          { inicio: '2026-10', fechamento: 25, vencimento: 28 },
+        ],
+      };
+      expect(mesDoVencimento(card, 2026, 8)).toBe('2026-10');   // período antigo: anda
+      expect(mesDoVencimento(card, 2026, 9)).toBe('2026-10');   // período novo: não anda
+    });
+  });
+
   /* A data escrita em números faltava na gramática. No cartão isso é pior do
    * que uma data errada: ela escolhe a FATURA em que a compra cai. */
   describe('a data escrita em numeros', () => {

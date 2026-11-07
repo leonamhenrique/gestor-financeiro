@@ -1212,24 +1212,30 @@ export class ConversaService {
   }
 
   /**
-   * Quando aquela fatura vence — entre parênteses, ao lado do mês.
+   * A fatura, com o nome que o app dá a ela: o mês em que ela VENCE.
    *
-   * O mês da fatura é o mês em que ela FECHA, e é assim no app inteiro.
-   * Sozinho ele engana quem lê uma mensagem: num cartão que fecha dia 30 e
-   * vence dia 7, a compra de hoje cai na "fatura 11/2026" e o dinheiro só
-   * sai em 07/12. O extrato do app já mostra essa fatura na data em que ela
-   * vence — aqui faltava dizer.
+   * A chave guardada no lançamento é outra — é o mês em que a fatura FECHA,
+   * e ela não muda, porque é o que liga a compra à fatura. O que muda é o
+   * nome, e ele é o mesmo dos dois lados: quem calcula é a função da tela,
+   * trazida pelo recorte. Num cartão que fecha 25 e vence 28 os dois meses
+   * são o mesmo, então não dá para somar um mês e pronto.
    *
-   * Quem calcula é a MESMA função da tela: o vencimento pode cair no mês
-   * seguinte ao do fechamento, e essa regra mora num lugar só.
+   * O dia junto, porque é a pergunta seguinte: quando sai o dinheiro.
    */
-  private quandoVence(r: any, ctx: any): string {
+  private faturaPorExtenso(r: any, ctx: any): string {
     const cartao = (ctx.cartoes || []).find((c: any) => c.id === r.cartaoId);
     const mes = String(r.faturaMes || '');
-    if (!cartao || !/^\d{4}-\d{2}$/.test(mes)) return '';
+    if (!cartao || !/^\d{4}-\d{2}$/.test(mes)) return this.mesBR(mes);
     const d = fala.vencimentoDaFatura(cartao, +mes.slice(0, 4), +mes.slice(5, 7) - 1);
-    if (!d || isNaN(d.getTime())) return '';
-    return ' (vence ' + this.dataBR(fala.isoDate(d)) + ')';
+    if (!d || isNaN(d.getTime())) return this.mesBR(mes);
+    const iso = fala.isoDate(d);
+    return this.mesBR(iso.slice(0, 7)) + ' (vence ' + this.dataBR(iso) + ')';
+  }
+
+  /** O mês de uma fatura a partir da data em que ela vence — para as
+   * respostas que já trazem o vencimento e não precisam do cartão. */
+  private mesQueVence(vencimento: string): string {
+    return this.mesBR(String(vencimento).slice(0, 7));
   }
 
   /** O resumo do movimento: a direção em primeiro lugar, que é o que a
@@ -2666,7 +2672,7 @@ export class ConversaService {
       linhas.push('');
       for (const f of r.faturas.slice(0, 4)) {
         linhas.push(
-          '💳 ' + f.cartao + ' (fatura ' + this.mesBR(f.referencia) + ', ' +
+          '💳 ' + f.cartao + ' (fatura ' + this.mesQueVence(f.vencimento) + ', ' +
           f.situacao.toLowerCase() + '): ' + this.brl(Math.abs(f.valor)),
         );
       }
@@ -2742,7 +2748,7 @@ export class ConversaService {
   private linhaDeFatura(f: LinhaDeFatura, comNome: boolean): string {
     return (
       (comNome ? f.cartao + ' — fatura ' : 'Fatura ') +
-      this.mesBR(f.referencia) + ', ' + f.situacao.toLowerCase() + ': ' +
+      this.mesQueVence(f.vencimento) + ', ' + f.situacao.toLowerCase() + ': ' +
       this.brl(Math.abs(f.valor)) + ' (vence ' + this.dataBR(f.vencimento) + ')'
     );
   }
@@ -2922,7 +2928,7 @@ export class ConversaService {
     // A nota fiscal (🧾) é a fatura, e não as parcelas: no lançamento
     // parcelado as duas linhas aparecem juntas, e é a fatura que ela nomeia.
     if (r.cartaoId && r.faturaMes)
-      linhas.push('🧾 Fatura: ' + this.mesBR(r.faturaMes) + this.quandoVence(r, ctx));
+      linhas.push('🧾 Fatura: ' + this.faturaPorExtenso(r, ctx));
     linhas.push('📅 Data: ' + this.dataBR(r.data));
     linhas.push(
       r.confirmada ? '✅ Situação: confirmado' : '🕒 Situação: previsto',

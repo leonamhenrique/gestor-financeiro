@@ -1790,7 +1790,9 @@ describe('ConversaService', () => {
       expect(r?.texto).toContain('📅 Data: 07/11/2026');
       // O mês é o do FECHAMENTO — como no app inteiro —, e o dinheiro só sai
       // no mês seguinte. Sem o vencimento ao lado, "11/2026" parecia errado.
-      expect(r?.texto).toContain('🧾 Fatura: 11/2026 (vence 07/12/2026)');
+      // 11/2026 é a chave guardada — o mês em que ela FECHA. O nome é o mês
+      // em que ela vence, que é como o banco a chama.
+      expect(r?.texto).toContain('🧾 Fatura: 12/2026 (vence 07/12/2026)');
     });
 
     it('a data dita manda, e muda a fatura junto', async () => {
@@ -1798,7 +1800,7 @@ describe('ConversaService', () => {
         msg('despesa na data de 28/10/2026 de 83,99 com roney lava jato no cartao iti', 'f2'),
       );
       expect(r?.texto).toContain('📅 Data: 28/10/2026');
-      expect(r?.texto).toContain('🧾 Fatura: 10/2026 (vence 07/11/2026)');
+      expect(r?.texto).toContain('🧾 Fatura: 11/2026 (vence 07/11/2026)');
     });
   });
 
@@ -2757,7 +2759,9 @@ describe('ConversaService', () => {
       // novembro: dizer so uma das duas datas faz a pessoa conferir o numero
       // contra o mes errado.
       const r = await service.responderA(msg('qual o valor das minhas faturas?'));
-      expect(r?.texto).toContain('Carrefour — fatura 10/2026, paga: R$ 300,00 (vence 05/11/2026)');
+      // A lista concorda com o próprio cabeçalho: sob "faturas que vencem em
+      // novembro" não cabe uma linha chamada 10/2026.
+      expect(r?.texto).toContain('Carrefour — fatura 11/2026, paga: R$ 300,00 (vence 05/11/2026)');
     });
 
     it('o mes citado e o mes consultado', async () => {
@@ -2801,7 +2805,7 @@ describe('ConversaService', () => {
       it('reconhece o apelido pela mesma regra do lancamento', async () => {
         const r = await service.responderA(msg('qual a fatura do carrefour?'));
         expect(r?.texto).toContain('Carrefour — fatura que vence em Novembro 2026');
-        expect(r?.texto).toContain('Fatura 10/2026, paga: R$ 300,00');
+        expect(r?.texto).toContain('Fatura 11/2026, paga: R$ 300,00');
         expect(r?.texto).not.toContain('Nubank');
       });
 
@@ -2890,8 +2894,12 @@ describe('ConversaService', () => {
       );
       // Com fechamento 28 valendo para a fatura DESTE mes, a compra de hoje
       // (qualquer dia ate 28) fica nela, e nao na do mes seguinte.
+      /* O nome da fatura e o mes em que ela VENCE: com o ciclo novo
+       * (fecha 28, vence 5), a fatura DESTE mes vence no dia 5 do mes que
+       * vem, e e por esse mes que ela se chama. */
+      const vence = new Date(esteMes.getFullYear(), esteMes.getMonth() + 1, 5);
       const esperado =
-        String(esteMes.getMonth() + 1).padStart(2, '0') + '/' + esteMes.getFullYear();
+        String(vence.getMonth() + 1).padStart(2, '0') + '/' + vence.getFullYear();
       if (hoje.getDate() <= 28) expect(r?.texto).toContain('Fatura: ' + esperado);
     });
 

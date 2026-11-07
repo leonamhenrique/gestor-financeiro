@@ -4657,6 +4657,26 @@
     return mesDoIndice(indiceMes(vm) - 1);
   }
 
+  /**
+   * O mês de uma fatura é o mês em que ela VENCE — é assim que o banco a
+   * chama, e é a pergunta que a pessoa faz ("a fatura de dezembro").
+   *
+   * A CHAVE guardada em cada lançamento continua sendo o mês em que a fatura
+   * fecha: ela é o que liga a compra à fatura, está em todo lançamento já
+   * gravado, e renomear dado é migração. O que muda é só o que se escreve.
+   *
+   * O deslocamento não é "+1 mês": num cartão que fecha 25 e vence 28 o
+   * vencimento cai no MESMO mês, e o nome não se move. Por isso toda chamada
+   * precisa do cartão — `vencimentoDaFatura` é quem sabe.
+   *
+   * `referenciaQueVenceEm` faz o caminho de volta, para o seletor de mês.
+   */
+  function mesDaFatura(card, vm) {
+    var v = vencimentoDaFatura(card, vm.y, vm.m);
+    return { y: v.getFullYear(), m: v.getMonth() };
+  }
+  function rotuloFatura(card, vm) { return rotuloMes(mesDaFatura(card, vm)); }
+
   /** A data com que um lançamento entra nos relatórios. Fora do cartão, é
    * sempre a data dele: conta não tem fatura. */
   function dataDeRelatorio(t) {
@@ -4842,7 +4862,7 @@
       var ctx = cfg.contexto ? cfg.contexto() : null;
       if (!ctx || !valor) { rodape.hidden = true; return; }
       rodape.hidden = false;
-      rodape.textContent = "Fecha dia " + ctx.fechamento + " · cai na fatura de " + rotuloMes(ctx.faturaDe(valor));
+      rodape.textContent = "Fecha dia " + ctx.fechamento + " · cai na fatura de " + ctx.faturaDe(valor);
     }
     function definir(iso, silencioso) {
       valor = iso || null;
@@ -4906,7 +4926,7 @@
     var pelaData = faturaPelaData(dataIso, card);
     var virada = (card.viradas || {})[monthKey(pelaData)];
     if (virada && monthKey(sugerido) !== monthKey(pelaData)) {
-      return "A fatura de " + rotuloMes(pelaData).toLowerCase() + " foi virada em " + fmtDia(virada) +
+      return "A fatura de " + rotuloFatura(card, pelaData).toLowerCase() + " foi virada em " + fmtDia(virada) +
         ": a sugestão é a seguinte.";
     }
     var dia = new Date(dataIso + "T00:00:00").getDate();
@@ -5156,7 +5176,7 @@
       '<span class="card-name num">' + money(f.confirmado) + '</span></div>' +
       '<div class="bar"><i class="' + (uso >= 80 ? "warn" : "accent") + '" style="width:' + Math.min(100, Math.max(0, uso)).toFixed(1) + '%"></i></div>' +
       '<div class="card-head">' +
-      '<span class="card-meta">' + rotuloMes(periodo).toLowerCase() + ' · <span class="tag ' + STATUS_CLASSE[status] + '">' + STATUS_LABEL[status] + '</span></span>' +
+      '<span class="card-meta">' + rotuloFatura(card, periodo).toLowerCase() + ' · <span class="tag ' + STATUS_CLASSE[status] + '">' + STATUS_LABEL[status] + '</span></span>' +
       '<span class="card-meta num">disponível ' + money(disponivel) + '</span></div>' +
       (comAcoes ? '<div class="row-acoes" style="justify-content:flex-end">' +
         botaoIcone("edit", "editar-cartao", card.id, "Editar cartão") + '</div>' : '') +
@@ -5407,7 +5427,7 @@
     var mk = monthKey(vm);
     var titulo = quitada
       ? (x.status === "CARRIED" ? "Pagamento parcial da fatura de " : "Pagamento da fatura de ") +
-        MESES[vm.m].toLowerCase() + " de " + vm.y
+        (function () { var f = mesDaFatura(x.card, vm); return MESES[f.m].toLowerCase() + " de " + f.y; })()
       : "Fatura " + x.card.nome;
     var origem = quitada
       ? (x.contas.length === 1 ? x.contas[0] : (x.contas.length ? x.contas.length + " contas" : "—"))
@@ -6899,7 +6919,11 @@
       var card = byId(state.cards, r.cartaoId);
 
       var mk = r.faturaMes || (card ? monthKey(resolveInvoicePeriodFromDate(r.data, card)) : null);
-      linhas.push({ rotulo: "Fatura", valor: mk ? rotuloMes(parseMonthKey(mk)) : "—", ok: true });
+      linhas.push({
+        rotulo: "Fatura",
+        valor: mk && card ? rotuloFatura(card, parseMonthKey(mk)) : "—",
+        ok: true
+      });
     }
     linhas.push({ rotulo: "Data", valor: fmtDataBR(r.data), ok: true });
     linhas.push({ rotulo: "Situação", valor: r.confirmada ? "Confirmado" : "Previsto", ok: true });
@@ -10364,11 +10388,13 @@
 
     document.getElementById("k-det-nome").textContent = card.nome;
     document.getElementById("k-det-status").innerHTML = '<span class="tag ' + STATUS_CLASSE[status] + '">' + STATUS_LABEL[status] + '</span>';
-    pintarMes("k-mes-label", faturaMes);
+    // O cabeçalho mostra o mês em que a fatura vence; quem navega continua
+    // andando de fatura em fatura, que é a mesma coisa um passo de cada vez.
+    pintarMes("k-mes-label", mesDaFatura(card, faturaMes));
     document.getElementById("k-det-confirmado").textContent = money(f.confirmado);
     document.getElementById("k-det-pago").textContent = money(pago);
     document.getElementById("k-det-aberto").textContent = money(f.emAberto || 0);
-    document.getElementById("k-fixa-mes").textContent = rotuloMes(faturaMes);
+    document.getElementById("k-fixa-mes").textContent = rotuloFatura(card, faturaMes);
     document.getElementById("k-fixa-aberto").textContent = money(f.emAberto || 0);
     document.getElementById("k-det-fecha").textContent = "dia " + card.fechamento;
     document.getElementById("k-det-vence").textContent = "dia " + card.vencimento;
@@ -10412,7 +10438,7 @@
       ? '<div class="row">' +
         '<span class="row-main"><span class="row-title">' +
         '<span class="dot" style="background:var(--warning)"></span>' +
-        '<span class="row-name">Saldo transportado de ' + rotuloMes(mesAnterior).toLowerCase() + '</span></span>' +
+        '<span class="row-name">Saldo transportado de ' + rotuloFatura(card, mesAnterior).toLowerCase() + '</span></span>' +
         '<span class="row-meta">Sobra da fatura paga em parte</span></span>' +
         '<span class="row-val num">−' + money(f.transportado) + '</span>' +
         '<span class="row-acoes"></span></div>'
@@ -10425,7 +10451,7 @@
     aviso.hidden = !(f.levado > 0);
     if (f.levado > 0) {
       aviso.textContent = "Pagamento parcial: " + brl(f.levado) +
-        " foram transportados para a fatura de " + rotuloMes(mesSeguinte).toLowerCase() + ".";
+        " foram transportados para a fatura de " + rotuloFatura(card, mesSeguinte).toLowerCase() + ".";
     }
   }
 
@@ -11005,12 +11031,30 @@
       var sug = faturaSugeridaDoArquivo();
       if (sug) imp.fatura = sug;
     }
-    pintarMes("imp-fatura-label", imp.fatura);
+    pintarMes("imp-fatura-label",
+      (function () { var k = cartaoDaImportacao(); return k ? mesDaFatura(k, imp.fatura) : imp.fatura; })());
   }
   document.getElementById("imp-destino").addEventListener("change", atualizarCampoDeFatura);
   ligarSeletorDeMes("imp-fatura-label",
-    function () { return imp ? imp.fatura : { y: HOJE.getFullYear(), m: HOJE.getMonth() }; },
-    function (vm) { if (imp) { imp.fatura = { y: vm.y, m: vm.m }; imp.faturaEscolhida = true; pintarMes("imp-fatura-label", imp.fatura); } });
+    function () {
+      if (!imp) return { y: HOJE.getFullYear(), m: HOJE.getMonth() };
+      var k = cartaoDaImportacao();
+      return k ? mesDaFatura(k, imp.fatura) : imp.fatura;
+    },
+    function (vm) {
+      if (!imp) return;
+      var k = cartaoDaImportacao();
+      imp.fatura = k ? referenciaQueVenceEm(k, vm) : { y: vm.y, m: vm.m };
+      imp.faturaEscolhida = true;
+      pintarMes("imp-fatura-label", k ? mesDaFatura(k, imp.fatura) : imp.fatura);
+    });
+
+  /** O cartão para onde a importação vai — é ele quem dá nome às faturas. */
+  function cartaoDaImportacao() {
+    var destino = document.getElementById("imp-destino");
+    var v = destino ? destino.value || "" : "";
+    return v.slice(0, 2) === "k:" ? byId(state.cards, v.slice(2)) : null;
+  }
 
   /** Os lotes já importados, montados a partir dos lançamentos que os
    * carregam. Sem registro paralelo: o que foi apagado à mão simplesmente
@@ -11044,7 +11088,12 @@
         '<span class="imp-lote-txt">' +
           "<b>" + g.n + (g.n === 1 ? " lançamento" : " lançamentos") + "</b>" +
           '<span class="imp-lote-meta">' + esc(onde || "destino removido") +
-            (g.fatura ? " · fatura " + esc(rotuloMes(parseMonthKey(g.fatura))) : "") +
+            (g.fatura
+              ? " · fatura " + esc((function () {
+                  var k = byId(state.cards, g.cartaoId);
+                  return k ? rotuloFatura(k, parseMonthKey(g.fatura)) : rotuloMes(parseMonthKey(g.fatura));
+                })())
+              : "") +
             (quando ? " · importado em " + quando : "") +
             " · " + money(Math.abs(g.valor)) +
           "</span>" +
@@ -11282,7 +11331,11 @@
       "<span>" + (imp.ehCartao ? "fica na fatura" : "resultado") +
         "<b class='num'>" + money(Math.abs(saidas - entradas)) + "</b></span>" +
       (repetidas ? "<span>já existem<b>" + repetidas + "</b></span>" : "") +
-      (imp.ehCartao ? "<span>fatura<b>" + rotuloMes(imp.fatura) + "</b></span>" : "");
+      (imp.ehCartao
+        ? "<span>fatura<b>" +
+          (function () { var k = cartaoDaImportacao(); return k ? rotuloFatura(k, imp.fatura) : rotuloMes(imp.fatura); })() +
+          "</b></span>"
+        : "");
 
     /* As séries saem das linhas MARCADAS: desmarcar a compra e ainda assim
      * criar a continuidade dela seria inventar dívida que ninguém pediu. */
@@ -11297,7 +11350,8 @@
       document.getElementById("imp-parcelas-titulo").textContent = cabem.length
         ? "Criar " + cabem.length + (cabem.length === 1 ? " parcela que falta" : " parcelas que faltam")
         : "Nenhuma parcela pode ser criada";
-      var meses = puladas.map(function (d) { return rotuloMes(d.vm); });
+      var kImp = cartaoDaImportacao();
+      var meses = puladas.map(function (d) { return kImp ? rotuloFatura(kImp, d.vm) : rotuloMes(d.vm); });
       document.getElementById("imp-parcelas-meta").textContent =
         (cabem.length
           ? imp.series.map(function (s) {
@@ -12322,8 +12376,9 @@
       deslocarTipo = "FATURA";
       deslocarMeses = mesesEntreMeses(antes.fatura, faturaDepois);
       var passo = Math.abs(deslocarMeses);
-      ctx = "Esta parcela saiu da fatura de " + rotuloMes(parseMonthKey(antes.fatura)) +
-        " para a de " + rotuloMes(parseMonthKey(faturaDepois)) + ".";
+      var kDesloc = byId(state.cards, t.cartaoId);
+      ctx = "Esta parcela saiu da fatura de " + rotuloFatura(kDesloc, parseMonthKey(antes.fatura)) +
+        " para a de " + rotuloFatura(kDesloc, parseMonthKey(faturaDepois)) + ".";
       metaProximas = (quantas === 1 ? "A próxima anda " : "As próximas " + quantas + " andam ") +
         (passo === 1 ? "um mês" : passo + " meses") +
         (deslocarMeses > 0 ? " para a frente" : " para trás") + ", junto com esta.";
@@ -12481,7 +12536,9 @@
       if (!card) return null;
       return {
         fechamento: card.fechamento,
-        faturaDe: function (iso) { return faturaSugerida(iso, card); }
+        // O calendario e generico: o NOME da fatura vem pronto de quem o
+        // configura, que e quem conhece o cartao.
+        faturaDe: function (iso) { return rotuloFatura(card, faturaSugerida(iso, card)); }
       };
     }
   });
@@ -12551,7 +12608,8 @@
     var opcoes = [];
     for (var i = -2; i <= 6; i++) {
       var d = adicionarMeses(base, i);
-      opcoes.push({ id: monthKey({ y: d.getFullYear(), m: d.getMonth() }), nome: rotuloMes({ y: d.getFullYear(), m: d.getMonth() }) });
+      var vmOpcao = { y: d.getFullYear(), m: d.getMonth() };
+      opcoes.push({ id: monthKey(vmOpcao), nome: rotuloFatura(card, vmOpcao) });
     }
     var atual = faturaTocada ? document.getElementById("l-fatura").value : monthKey(sugerido);
     preencherSelect(document.getElementById("l-fatura"), opcoes, atual);
@@ -12568,8 +12626,10 @@
     if (valores.indexOf(mk) < 0) {
       valores.push(mk);
       valores.sort();
+      var kSel = byId(state.cards, document.getElementById("l-cartao").value);
       sel.innerHTML = valores.map(function (v) {
-        return '<option value="' + v + '">' + rotuloMes(parseMonthKey(v)) + "</option>";
+        return '<option value="' + v + '">' +
+          (kSel ? rotuloFatura(kSel, parseMonthKey(v)) : rotuloMes(parseMonthKey(v))) + "</option>";
       }).join("");
     }
     sel.value = mk;
@@ -13465,7 +13525,7 @@
         var vm = { y: d.getFullYear(), m: d.getMonth() };
         var st = statusFatura(card, vm.y, vm.m);
         if (st !== "PAID" && st !== "CARRIED") {
-          opcoes.push({ id: monthKey(vm), nome: rotuloMes(vm) });
+          opcoes.push({ id: monthKey(vm), nome: rotuloFatura(card, vm) });
         }
         d = adicionarMeses(d, 1);
       }
@@ -13534,11 +13594,12 @@
       ? movidas.map(function (x) {
           // No cartão o que muda é o mês da FATURA; na conta, o da data.
           var de = anteciparCard
-            ? rotuloMes(periodoDaTransacao(x, anteciparCard))
+            ? rotuloFatura(anteciparCard, periodoDaTransacao(x, anteciparCard))
             : rotuloMes(parseMonthKey(String(x.data).slice(0, 7)));
           return '<div class="row"><span class="row-main"><span class="row-title">' +
             '<span class="row-name">' + esc(rotuloLancamento(x) || "Parcela") + '</span></span>' +
-            '<span class="row-meta">' + de + ' → ' + rotuloMes(destino) + '</span></span>' +
+            '<span class="row-meta">' + de + ' → ' +
+            (anteciparCard ? rotuloFatura(anteciparCard, destino) : rotuloMes(destino)) + '</span></span>' +
             '<span class="row-val num">' + money(x.valor) + '</span></div>';
         }).join("") +
         '<div class="row"><span class="row-main"><span class="row-title">' +
@@ -13608,7 +13669,7 @@
   /** O que mudou, em uma frase — e são coisas diferentes nos dois destinos. */
   function recadoDaAntecipacao(card, destino) {
     return card
-      ? "Elas agora entram na fatura de " + rotuloMes(destino) + ". A data da compra não mudou."
+      ? "Elas agora entram na fatura de " + rotuloFatura(card, destino) + ". A data da compra não mudou."
       : "A data delas passou para " + rotuloMes(destino) + ", que é quando o dinheiro sai da conta.";
   }
 
@@ -13643,9 +13704,11 @@
     if (emUso) {
       var atual = periodoDoCicloDeHoje(k);
       var seguinte = { y: atual.m === 11 ? atual.y + 1 : atual.y, m: (atual.m + 1) % 12 };
+      // Nomeadas pelos dias de HOJE: é a partir de uma fatura existente que
+      // o ciclo novo passa a valer.
       preencherSelect(document.getElementById("k-ciclo-de"), [
-        { id: monthKey(atual), nome: rotuloMes(atual) },
-        { id: monthKey(seguinte), nome: rotuloMes(seguinte) }
+        { id: monthKey(atual), nome: rotuloFatura(k, atual) },
+        { id: monthKey(seguinte), nome: rotuloFatura(k, seguinte) }
       ], monthKey(atual));
     }
     document.getElementById("k-ciclo-help").textContent = emUso
@@ -13928,7 +13991,7 @@
     document.getElementById("pg-titulo").textContent = "Pagar fatura";
     document.getElementById("pg-submit").textContent = "Registrar pagamento";
     document.getElementById("pg-ctx").textContent =
-      card.nome + " · " + rotuloMes(faturaMes) + " · em aberto " + brl(restante);
+      card.nome + " · " + rotuloFatura(card, faturaMes) + " · em aberto " + brl(restante);
     var contas = listaContasPagamento(null);
     preencherSelect(document.getElementById("pg-conta"), contas, card.contaId || (contas[0] || {}).id);
     document.getElementById("pg-valor").value = restante.toFixed(2);
@@ -13990,13 +14053,13 @@
     botaoDaAcao = e.currentTarget;
 
     pedirConfirmacao({
-      titulo: desfazer ? "Desfazer a virada?" : "Virar a fatura de " + rotuloMes(faturaMes).toLowerCase() + "?",
+      titulo: desfazer ? "Desfazer a virada?" : "Virar a fatura de " + rotuloFatura(card, faturaMes).toLowerCase() + "?",
       ctx: card.nome,
       detalhe: desfazer
         ? "A fatura volta a fechar no dia " + card.fechamento + ". O que já foi lançado não muda de fatura: " +
           "a fatura de cada compra fica gravada no lançamento."
         : "Ela fecha hoje, e não no dia " + card.fechamento + ", como seria. As compras de hoje em diante entram na fatura de " +
-          rotuloMes(seguinte).toLowerCase() + ", que vence em " + fmtDia(isoDate(vencimentoDaFatura(card, seguinte.y, seguinte.m))) +
+          rotuloFatura(card, seguinte).toLowerCase() + ", que vence em " + fmtDia(isoDate(vencimentoDaFatura(card, seguinte.y, seguinte.m))) +
           ". O vencimento desta não muda. Registre aqui depois de virar no banco.",
       acao: desfazer ? "Desfazer" : "Virar fatura"
     }, async function () {
@@ -14022,7 +14085,7 @@
     editandoPagamento = pagamentoId;
     document.getElementById("pg-titulo").textContent = "Editar pagamento";
     document.getElementById("pg-submit").textContent = "Salvar";
-    document.getElementById("pg-ctx").textContent = card.nome + " · " + rotuloMes(parseMonthKey(p.mesKey));
+    document.getElementById("pg-ctx").textContent = card.nome + " · " + rotuloFatura(card, parseMonthKey(p.mesKey));
     preencherSelect(document.getElementById("pg-conta"), listaContasPagamento(conta && conta.id), conta && conta.id);
     document.getElementById("pg-valor").value = p.valor.toFixed(2);
     calPagamento.fechar();
@@ -14041,7 +14104,7 @@
     var conta = contaDoPagamento(p);
     pedirConfirmacao({
       titulo: "Desfazer pagamento",
-      ctx: card.nome + " · " + rotuloMes(parseMonthKey(p.mesKey)) + " · " + brl(p.valor),
+      ctx: card.nome + " · " + rotuloFatura(card, parseMonthKey(p.mesKey)) + " · " + brl(p.valor),
       detalhe: "O valor volta para " + (conta ? conta.nome : "a conta de origem") + " e a fatura fica em aberto de novo.",
       acao: "Desfazer", destrutivo: true
     }, function () {
@@ -15952,7 +16015,21 @@
   ligarSeletorDeMes("r-mes-label", function () { return resumoMes; }, function (vm) { mudarMesDoResumo(0, vm); });
   ligarSeletorDeMes("p-mes-label", function () { return resumoMes; }, function (vm) { mudarMesDoResumo(0, vm); });
   ligarSeletorDeMes("l-mes-label", function () { return extratoMes; }, function (vm) { extratoMes.y = vm.y; extratoMes.m = vm.m; renderExtrato(); });
-  ligarSeletorDeMes("k-mes-label", function () { return faturaMes; }, function (vm) { faturaMes.y = vm.y; faturaMes.m = vm.m; renderCartoes(); });
+  /* A grade escolhe pelo nome da fatura, que é o mês do VENCIMENTO; o que
+   * fica guardado continua sendo o mês de referência. `referenciaQueVenceEm`
+   * faz a volta — sem ela, o cabeçalho diria novembro e a grade marcaria
+   * outubro. Sem cartão escolhido não há fatura, e o seletor não traduz. */
+  ligarSeletorDeMes("k-mes-label",
+    function () {
+      var k = byId(state.cards, cartaoSel);
+      return k ? mesDaFatura(k, faturaMes) : faturaMes;
+    },
+    function (vm) {
+      var k = byId(state.cards, cartaoSel);
+      var ref = k ? referenciaQueVenceEm(k, vm) : vm;
+      faturaMes.y = ref.y; faturaMes.m = ref.m;
+      renderCartoes();
+    });
   ligarSeletorDeMes("rl-mes-label", function () { return relatorioMes; }, function (vm) { relatorioMes = { y: vm.y, m: vm.m }; renderRelatorio(); });
   ligarSeletorDeMes("pl-mes-label", function () { return planMes; }, function (vm) { planMes.y = vm.y; planMes.m = vm.m; renderPlanejamento(); });
 
@@ -17169,7 +17246,8 @@
     var opcoes = [];
     for (var i = -2; i <= 6; i++) {
       var d = adicionarMeses(base, i);
-      opcoes.push({ id: monthKey({ y: d.getFullYear(), m: d.getMonth() }), nome: rotuloMes({ y: d.getFullYear(), m: d.getMonth() }) });
+      var vmOpcao = { y: d.getFullYear(), m: d.getMonth() };
+      opcoes.push({ id: monthKey(vmOpcao), nome: rotuloFatura(card, vmOpcao) });
     }
     var atual = cpdFaturaTocada ? document.getElementById("cpd-fatura").value : monthKey(sugerido);
     preencherSelect(document.getElementById("cpd-fatura"), opcoes, atual);
