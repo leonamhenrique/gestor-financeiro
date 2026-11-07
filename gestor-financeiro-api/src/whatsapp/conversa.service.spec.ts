@@ -1775,6 +1775,33 @@ describe('ConversaService', () => {
     });
   });
 
+  describe('a data dita, e a fatura que ela escolhe', () => {
+    /* Um cartão como o do print: fecha dia 30, vence dia 7. O vencimento cai
+     * no mês SEGUINTE ao do fechamento, e é aí que a etiqueta do mês sozinha
+     * engana quem lê uma mensagem. */
+    beforeEach(() => {
+      cartoes = [
+        { id: 'k1', name: 'ITI', bankAccountId: 'a1', closingDay: 30, dueDay: 7, cycles: [] } as any,
+      ];
+    });
+
+    it('sem data dita, a compra e de hoje e a fatura diz quando vence', async () => {
+      const r = await service.responderA(msg('83,99 com roney lava jato no cartao iti', 'f1'));
+      expect(r?.texto).toContain('📅 Data: 07/11/2026');
+      // O mês é o do FECHAMENTO — como no app inteiro —, e o dinheiro só sai
+      // no mês seguinte. Sem o vencimento ao lado, "11/2026" parecia errado.
+      expect(r?.texto).toContain('🧾 Fatura: 11/2026 (vence 07/12/2026)');
+    });
+
+    it('a data dita manda, e muda a fatura junto', async () => {
+      const r = await service.responderA(
+        msg('despesa na data de 28/10/2026 de 83,99 com roney lava jato no cartao iti', 'f2'),
+      );
+      expect(r?.texto).toContain('📅 Data: 28/10/2026');
+      expect(r?.texto).toContain('🧾 Fatura: 10/2026 (vence 07/11/2026)');
+    });
+  });
+
   describe('completar o que faltou', () => {
     /* Antes daqui, faltando qualquer coisa a saída era "mande a frase de
      * novo com essa parte". A resposta agora é GRUDADA no fim da frase e a

@@ -94,6 +94,44 @@ describe('fala.js — a mesma leitura da tela, fora dela', () => {
     expect(r.faturaMes).toBe('2026-12');
   });
 
+  /* A data escrita em números faltava na gramática. No cartão isso é pior do
+   * que uma data errada: ela escolhe a FATURA em que a compra cai. */
+  describe('a data escrita em numeros', () => {
+    it('a data dita manda, e nao o dia de hoje', () => {
+      const r = fala.interpretarFala(
+        'despesa na data de 28/10/2026 de 83,99 com roney lava jato no cartao Nubank Roxinho',
+        ctx(),
+      );
+      expect(r.data).toBe('2026-10-28');
+      // E o valor continua sendo o valor: sem cuidado, o "28" virava R$ 28,00.
+      expect(r.valor).toBe(83.99);
+    });
+
+    it('sem ano, a ocorrencia mais perto de hoje', () => {
+      // Hoje é 29/10/2026 no contexto do teste.
+      expect(fala.interpretarFala('gastei 50 reais em 15/11', ctx()).data).toBe('2026-11-15');
+      expect(fala.interpretarFala('gastei 50 reais em 15/1', ctx()).data).toBe('2027-01-15');
+    });
+
+    it('dois digitos de ano sao 20xx, e o hifen vale como a barra', () => {
+      expect(fala.interpretarFala('gastei 50 reais em 15-10-27', ctx()).data).toBe('2027-10-15');
+    });
+
+    it('mes fora de 1 a 12 nao e data', () => {
+      expect(fala.interpretarFala('gastei 50 reais em 15/13', ctx()).data).toBe('2026-10-29');
+    });
+
+    /* "dia" seguido de número é DATA, não prazo. O descarte de prazo comia o
+     * valor da frase: "gastei 83,99 dia 28" devolvia valor nenhum. */
+    it('o valor sobrevive ao "dia" que vem depois dele', () => {
+      const r = fala.interpretarFala('gastei 83,99 dia 28/10 no cartao Nubank Roxinho', ctx());
+      expect(r.valor).toBe(83.99);
+      expect(r.data).toBe('2026-10-28');
+      // E "daqui 10 dias" continua sendo prazo, e não dinheiro.
+      expect(fala.valorDaFala('pago daqui 10 dias')).toBe(null);
+    });
+  });
+
   describe('a chave do lojista ignora o "loja das" do comeco', () => {
     // O caso medido: "comprei na loja das Casas Bahia" hoje e "comprei nas
     // Casas Bahia" amanha geravam chaves diferentes, o aprendizado nao

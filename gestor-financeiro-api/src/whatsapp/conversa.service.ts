@@ -1211,6 +1211,27 @@ export class ConversaService {
     return { texto: this.resumoDeObjetivo(r, ctx) + '\n\nConfirma?', confirmar: true };
   }
 
+  /**
+   * Quando aquela fatura vence — entre parênteses, ao lado do mês.
+   *
+   * O mês da fatura é o mês em que ela FECHA, e é assim no app inteiro.
+   * Sozinho ele engana quem lê uma mensagem: num cartão que fecha dia 30 e
+   * vence dia 7, a compra de hoje cai na "fatura 11/2026" e o dinheiro só
+   * sai em 07/12. O extrato do app já mostra essa fatura na data em que ela
+   * vence — aqui faltava dizer.
+   *
+   * Quem calcula é a MESMA função da tela: o vencimento pode cair no mês
+   * seguinte ao do fechamento, e essa regra mora num lugar só.
+   */
+  private quandoVence(r: any, ctx: any): string {
+    const cartao = (ctx.cartoes || []).find((c: any) => c.id === r.cartaoId);
+    const mes = String(r.faturaMes || '');
+    if (!cartao || !/^\d{4}-\d{2}$/.test(mes)) return '';
+    const d = fala.vencimentoDaFatura(cartao, +mes.slice(0, 4), +mes.slice(5, 7) - 1);
+    if (!d || isNaN(d.getTime())) return '';
+    return ' (vence ' + this.dataBR(fala.isoDate(d)) + ')';
+  }
+
   /** O resumo do movimento: a direção em primeiro lugar, que é o que a
    * pessoa precisa conferir — de qual conta sai e para qual objetivo vai. */
   private resumoDeObjetivo(r: any, ctx: any): string {
@@ -2808,6 +2829,9 @@ export class ConversaService {
         nome: k.name,
         contaId: k.bankAccountId,
         fechamento: k.closingDay,
+        // O dia de vencimento junto: sem nenhum ciclo cadastrado é daqui que
+        // `diasDaFatura` o tira, e sem ele a fatura não sabe quando vence.
+        vencimento: k.dueDay,
         viradas: viradasDoCartao[k.id] ?? {},
         // A linha do tempo do ciclo, no formato que a leitura do app usa. Sem
         // ela, uma compra lançada pelo WhatsApp num cartão que mudou de
@@ -2898,7 +2922,7 @@ export class ConversaService {
     // A nota fiscal (🧾) é a fatura, e não as parcelas: no lançamento
     // parcelado as duas linhas aparecem juntas, e é a fatura que ela nomeia.
     if (r.cartaoId && r.faturaMes)
-      linhas.push('🧾 Fatura: ' + this.mesBR(r.faturaMes));
+      linhas.push('🧾 Fatura: ' + this.mesBR(r.faturaMes) + this.quandoVence(r, ctx));
     linhas.push('📅 Data: ' + this.dataBR(r.data));
     linhas.push(
       r.confirmada ? '✅ Situação: confirmado' : '🕒 Situação: previsto',

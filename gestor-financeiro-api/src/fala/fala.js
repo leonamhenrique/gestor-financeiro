@@ -217,6 +217,18 @@ function faturaSugerida(dataIso, card) {
 
 function diaValido(y, m, dia) { return Math.min(dia, new Date(y, m + 1, 0).getDate()); }
 
+function fechamentoDaFatura(card, y, m) {
+    return new Date(y, m, diaValido(y, m, diasDaFatura(card, y, m).fechamento));
+  }
+
+function vencimentoDaFatura(card, y, m) {
+    var dia = diasDaFatura(card, y, m).vencimento;
+    var noMes = new Date(y, m, diaValido(y, m, dia));
+    if (noMes > fechamentoDaFatura(card, y, m)) return noMes;
+    var ay = m === 11 ? y + 1 : y, am = (m + 1) % 12;
+    return new Date(ay, am, diaValido(ay, am, dia));
+  }
+
 function dataDeHoje() { return new Date(); }
 
 function normalizarNome(s) {
@@ -351,7 +363,13 @@ function valorDaFala(texto) {
       var depois = texto.slice(achado.index + palavra.length, achado.index + palavra.length + 14);
       if (/^\d{4}$/.test(palavra) && valor > 1900 && valor < 2100) continue;   // ano
       if (/\bdia\s*$/.test(antes)) continue;                                   // "dia 12"
-      if (/^\s*(?:dias?|semanas?|mes(?:es)?|anos?)\b/.test(depois)) continue;   // prazo
+      // A data escrita em números não é dinheiro, de nenhum dos dois lados:
+      // em "28/10/2026 de 83,99" o valor é 83,99, e sem isto era 28.
+      if (/[/-]\s*$/.test(antes)) continue;                                    // "28/10": o 10
+      if (/^\s*[/-]\s*\d/.test(depois)) continue;                              // "28/10": o 28
+      // Prazo é "10 dias" — a unidade sozinha. Seguida de número ela é uma
+      // DATA ("83,99 dia 28"), e descartar aí fazia o valor sumir da frase.
+      if (/^\s*(?:dias?|semanas?|mes(?:es)?|anos?)\b(?!\s*\d)/.test(depois)) continue;   // prazo
       return comMil(valor, depois);
     }
     return null;
@@ -448,6 +466,27 @@ function dataDaFala(texto, agora) {
     if (/depois de amanh[ãa]/.test(texto)) return iso(adicionarDias(hoje, 2));
     if (/amanh[ãa]/.test(texto)) return iso(adicionarDias(hoje, 1));
     if (/\bhoje\b/.test(texto)) return iso(hoje);
+
+    /* A data escrita em números — "28/10/2026", "28/10", "28-10". Ela vence
+     * todo o resto porque não tem o que interpretar. Sem ela, "despesa na
+     * data de 28/10 no cartão" nascia HOJE, e no cartão isso é pior do que
+     * uma data errada: muda a fatura em que a compra cai.
+     *
+     * Dois dígitos de ano são 20xx; nenhum escolhe a ocorrência mais perto de
+     * hoje, como o mês por extenso faz. Mês fora de 1–12 não é data: "3/4 do
+     * valor" não vira 3 de abril. */
+    var mNum = texto.match(/\b(\d{1,2})\s*[\/-]\s*(\d{1,2})(?:\s*[\/-]\s*(\d{2}|\d{4}))?(?!\d)/);
+    if (mNum && +mNum[2] >= 1 && +mNum[2] <= 12 && +mNum[1] >= 1 && +mNum[1] <= 31) {
+      var dN = +mNum[1], mN = +mNum[2] - 1;
+      if (mNum[3]) {
+        var aN = +mNum[3];
+        return iso(comDia(aN < 100 ? 2000 + aN : aN, mN, dN));
+      }
+      var perto = [-1, 0, 1].map(function (k) { return comDia(hoje.getFullYear() + k, mN, dN); });
+      if (falaDeFuturo(texto)) perto = perto.filter(function (d) { return d >= hoje; });
+      perto.sort(function (a, b) { return Math.abs(a - hoje) - Math.abs(b - hoje); });
+      return iso(perto[0]);
+    }
 
     // "daqui a 3 dias" e "daqui 3 dias" são a mesma frase na boca das pessoas;
     // "uns/umas" é só arredondamento falado e não muda a conta.
@@ -1143,4 +1182,4 @@ function interpretarFala(frase, ctx) {
     return r;
   }
 
-module.exports = { interpretarFala, valorDaFala, chaveDeLojista, lojistaDoHistorico, regraDoLojista, MIN_LOJISTA, normalizarFala, MESES, mesPorNome, categoriasLancaveis, acharPorNome, faturaSugerida, monthKey, regraParaDigitado, byId, numeroBR, isoDate };
+module.exports = { interpretarFala, valorDaFala, chaveDeLojista, lojistaDoHistorico, regraDoLojista, MIN_LOJISTA, normalizarFala, MESES, mesPorNome, categoriasLancaveis, acharPorNome, faturaSugerida, vencimentoDaFatura, monthKey, regraParaDigitado, byId, numeroBR, isoDate };

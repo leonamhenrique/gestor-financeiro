@@ -88,6 +88,11 @@ const FUNCOES = [
   'depoisDaVirada',
   'faturaSugerida',
   'diaValido',
+  // Quando a fatura fecha e quando ela VENCE. O mes da fatura e o mes em que
+  // ela fecha, e sozinho ele engana: "fatura 11/2026" num cartao que fecha
+  // dia 30 vence em 07/12. Quem le a mensagem precisa dos dois.
+  'fechamentoDaFatura',
+  'vencimentoDaFatura',
   'dataDeHoje',
   'normalizarNome',
   // categorias
@@ -183,6 +188,8 @@ const EXPORTADAS = [
   // sugerida pela data da compra, a chave do mes e a regra de lojista do
   // jeito que o formulario digitado a consulta.
   'faturaSugerida',
+  // E a data em que ela vence, para o resumo nao deixar o mes sozinho.
+  'vencimentoDaFatura',
   'monthKey',
   'regraParaDigitado',
   'byId',
