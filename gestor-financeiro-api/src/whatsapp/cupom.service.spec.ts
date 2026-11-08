@@ -79,6 +79,34 @@ describe('CupomService', () => {
       expect(r?.estabelecimento).not.toMatch(/\d/);
     });
 
+    /* Medido num comprovante de verdade: a maquininha aparece grande no
+     * topo e a loja miúda no rodapé, junto do CNPJ. O leitor trouxe "Mercado
+     * Pago" como estabelecimento, e o estrago não seria só a descrição — a
+     * REGRA DE LOJISTA aprendida mandaria toda compra paga em maquininha
+     * Mercado Pago, de qualquer loja, para a mesma categoria. */
+    it('a marca da maquininha nao e a loja', () => {
+      for (const marca of ['Mercado Pago', 'MERCADO PAGO', 'Cielo', 'PagSeguro', 'SumUp', 'Stone']) {
+        expect(conferir({ ...cheio, estabelecimento: marca })?.estabelecimento).toBeNull();
+      }
+    });
+
+    it('mas loja com nome parecido continua passando', () => {
+      // O descarte é pelo nome INTEIRO. "Mercadinho do Pago" é loja, e
+      // descartar por conter apagaria comércio de verdade.
+      for (const loja of ['Mercadinho do Pago', 'Casa do Pao', 'Stone Burger Grill']) {
+        expect(conferir({ ...cheio, estabelecimento: loja })?.estabelecimento).toBe(loja);
+      }
+    });
+
+    /* A instrução ao leitor dizia "nunca inclua nome de pessoa", escrita
+     * para não vazar o nome do portador do cartão. Só que metade do comércio
+     * brasileiro se chama pelo nome do dono, e a regra empurrava o leitor a
+     * recusar a loja e pegar a marca do topo. */
+    it('nome de pessoa pode ser nome de loja', () => {
+      expect(conferir({ ...cheio, estabelecimento: 'Salim Campolina' })?.estabelecimento)
+        .toBe('Salim Campolina');
+    });
+
     it('nome curto demais ou vazio vira nulo', () => {
       for (const estabelecimento of ['', '   ', '42', null, 7]) {
         expect(conferir({ ...cheio, estabelecimento })?.estabelecimento).toBeNull();

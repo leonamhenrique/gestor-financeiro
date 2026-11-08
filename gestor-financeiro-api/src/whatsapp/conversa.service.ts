@@ -648,6 +648,15 @@ interface Rascunho {
    * com eles, e não um "sim". */
   cartaoNovo?: { nome: string; fechamento?: number; vencimento?: number; limite?: number };
   /**
+   * O cupom JÁ LIDO, quando o rascunho nasceu de uma foto.
+   *
+   * Guardar os campos extraídos é o que permite completar sem a foto voltar:
+   * a resposta é grudada na LEGENDA, e a releitura junta a legenda nova ao
+   * mesmo cupom. Reler a imagem seria pedir de novo o que já se sabe — e
+   * custar outra chamada ao leitor para obter o mesmo valor.
+   */
+  cupom?: Cupom;
+  /**
    * A frase ATÉ AGORA, quando o rascunho está esperando o que faltou.
    *
    * A resposta da pessoa é grudada aqui e a frase inteira é RELIDA, em vez
@@ -797,33 +806,49 @@ export class ConversaService {
       };
     }
 
-    const r = this.juntarCupomComLegenda(lido, legenda, ctx);
+    return this.comOCupom(userId, lido, legenda, ctx);
+  }
 
-    const contaDoCupom = this.ofereceCriarConta(userId, r, ctx);
+  /**
+   * Do cupom LIDO até a resposta — e é por aqui que a releitura volta.
+   *
+   * Separado de `lerCupom` porque completar o que faltou não pode custar
+   * outra leitura da imagem: a foto já foi lida uma vez, e os campos dela
+   * estão no rascunho. Só a legenda cresce.
+   */
+  private async comOCupom(
+    userId: string,
+    lido: Cupom,
+    legenda: string,
+    ctx: any,
+    pendentes: Pendentes = {},
+  ): Promise<Resposta | null> {
+    const comPendentes = await this.comOsPendentes(ctx, pendentes);
+    const r = this.juntarCupomComLegenda(lido, legenda, comPendentes);
+
+    const contaDoCupom = this.ofereceCriarConta(userId, r, comPendentes);
     if (contaDoCupom) return contaDoCupom;
 
-    const criarDoCupom = this.ofereceCriarCategoria(userId, r, ctx);
+    const criarDoCupom = this.ofereceCriarCategoria(userId, r, comPendentes);
     if (criarDoCupom) return criarDoCupom;
 
     if (r.faltando.length) {
-      const nomes = r.faltando.includes('destino') ? ' ' + this.nomesDeDestino(ctx) : '';
+      const nomes = r.faltando.includes('destino') ? ' ' + this.nomesDeDestino(comPendentes) : '';
       const categorias = r.faltando.includes('categoria')
-        ? ' ' + this.ajudaDeCategoria(legenda, r.tipo, ctx)
+        ? ' ' + this.ajudaDeCategoria(legenda, r.tipo, comPendentes)
         : '';
-      return {
-        texto:
-          this.resumo(r, ctx) +
-          '\n\nLi o cupom, mas faltou ' +
-          r.faltando.join(', ') +
-          '.' +
-          nomes +
-          categorias +
-          ' Responda com essa parte, ou lance no app.',
-      };
+      /* A MESMA porta do texto, e é isso que faz a foto não precisar voltar:
+       * o cupom fica guardado com a legenda, e a resposta é grudada nela. */
+      const pedido = this.pedirOQueFaltou(
+        userId, legenda, this.resumo(r, comPendentes), r.faltando, nomes + categorias, pendentes,
+      );
+      const guardado = this.rascunhoDe(userId);
+      if (guardado) this.rascunhos.set(userId, { ...guardado, cupom: lido });
+      return { ...pedido, texto: pedido.texto.replace('\n\nFaltou ', '\n\nLi o cupom, mas faltou ') };
     }
 
-    this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now() });
-    return { texto: this.resumo(r, ctx) + '\n\nConfirma?', confirmar: true };
+    this.rascunhos.set(userId, { lancamento: r, criadoEm: Date.now(), ...pendentes });
+    return { texto: this.resumo(r, comPendentes) + '\n\nConfirma?', confirmar: true };
   }
 
   /**
@@ -914,7 +939,7 @@ export class ConversaService {
      * o objetivo. "Alimentação" ou "40 reais", lidos como frase nova, não
      * são lançamento nenhum: viram "faltou valor, destino, categoria" de
      * novo, e a pessoa recomeça do zero. Ver `fraseAteAgora`. */
-    if (rascunho?.fraseAteAgora && !SIM.test(texto) && !NAO.test(texto)) {
+    if (this.esperandoOQueFaltou(rascunho) && !SIM.test(texto) && !NAO.test(texto)) {
       return this.completarOQueFaltou(userId, rascunho, texto);
     }
 
@@ -929,7 +954,7 @@ export class ConversaService {
       /* "Sim" com uma parte faltando não confirma nada — e sem esta linha
        * ele ia para `gravar`, que esperava um lançamento e encontrava
        * `null`. A pergunta volta, dizendo que ainda falta. */
-      if (rascunho.fraseAteAgora) {
+      if (this.esperandoOQueFaltou(rascunho)) {
         return this.completarOQueFaltou(userId, rascunho, '', 'Ainda falta uma parte.');
       }
       return this.gravar(userId, rascunho);
@@ -3039,6 +3064,19 @@ export class ConversaService {
    * categoria tinha de ditar tudo outra vez. A frase fica guardada por 15
    * minutos, como qualquer rascunho.
    */
+  /**
+   * O rascunho está esperando o que faltou?
+   *
+   * A pergunta não é "tem frase guardada", é "tem campo guardado" — e a
+   * diferença custou uma medição: uma FOTO sem legenda nenhuma guarda
+   * `fraseAteAgora` como string vazia, que é falsa em JavaScript. A resposta
+   * seguinte escapava da interceptação, virava frase nova, e o cupom lido se
+   * perdia: valor R$ 0,00 na tela de quem só tinha dito o cartão.
+   */
+  private esperandoOQueFaltou(rascunho?: Rascunho | null): boolean {
+    return rascunho?.fraseAteAgora !== undefined;
+  }
+
   private pedirOQueFaltou(
     userId: string,
     frase: string,
@@ -3101,7 +3139,15 @@ export class ConversaService {
     // O rascunho sai ANTES da releitura: ela passa pelo mesmo caminho de uma
     // frase nova, e encontrar o próprio rascunho ali daria volta sem fim.
     this.rascunhos.delete(userId);
-    const r = await this.lerFrase(userId, antes + ' ' + resposta.trim(), pendentes);
+    /* A releitura volta pela porta de onde o rascunho veio. Nascido de uma
+     * foto, o que cresce é a LEGENDA, e o cupom lido entra inteiro de novo —
+     * sem baixar nem ler a imagem outra vez. */
+    const legendaNova = (antes + ' ' + resposta.trim()).trim();
+    const r = rascunho.cupom
+      ? await this.comOCupom(
+          userId, rascunho.cupom, legendaNova, await this.contextoDoUsuario(userId), pendentes,
+        )
+      : await this.lerFrase(userId, legendaNova, pendentes);
     if (!r) return r;
     /* O que estava pendente volta para o rascunho que a releitura criou.
      * Sem isto o cartão descrito some no caminho: a releitura o encontra no
@@ -3147,7 +3193,7 @@ export class ConversaService {
       !rascunho.faltavam ||
       novo.faltavam.length < rascunho.faltavam.length ||
       novo.faltavam.some((f) => !rascunho.faltavam!.includes(f));
-    if (novo?.fraseAteAgora && !andou) {
+    if (this.esperandoOQueFaltou(novo) && !andou) {
       return { texto: aviso + '\n\n' + r.texto };
     }
     return r;
