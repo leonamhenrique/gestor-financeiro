@@ -15,7 +15,13 @@ Thumbs.db
 
 # Cópias antigas de arquivos que já estão em gestor-financeiro-api/src.
 extracted/
-files.zip
+
+# Arquivo compactado nenhum entra. Este repositório é PÚBLICO, e zip é
+# justamente o formato em que coisa baixada ou exportada chega — arte,
+# backup, keystore dentro — sem que o conteúdo apareça na revisão do
+# diff. Esta linha substitui o `files.zip` que estava aqui; o que for do
+# projeto entra descompactado, no lugar dele.
+*.zip
 
 # Estado de sessao do Claude Code, nao e do projeto.
 .claude/scheduled_tasks.lock
