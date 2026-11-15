@@ -25,7 +25,52 @@ o app já tem**. Por isso:
   lado só;
 - **nada que a integração faça altera lançamento que o usuário criou.** No
   máximo ela propõe, como o importador de OFX já faz. Assim o pior caso é um
-  lançamento duplicado visível, que se apaga — e não saldo corrompido.
+  lançamento duplicado visível, que se apaga — e não saldo corrompido;
+- **as duas formas convivem, e a conexão é sempre a segunda.** Exigência do
+  dono do app em 15/11/2026: quem não quiser conectar banco nenhum usa o
+  sistema inteiro como hoje. Open Finance é **aditivo, nunca substitutivo** —
+  nenhuma tela passa a exigir conexão, nenhuma fica pela metade sem ela, e a
+  escolha é **por conta/cartão**, não um modo do usuário: dá para conectar o
+  Nubank e seguir lançando o cartão da loja na mão. Quem nunca conectar vê
+  exatamente uma coisa a mais, um convite recusável.
+
+### Por onde a sincronização entra
+
+Pela porta do **importador que já existe**, não por uma nova. O app já
+importa OFX; sincronizar é esse mesmo caminho rodando sozinho, com os mesmos
+casadores e a mesma `faturaSugerida`. O ledger do app continua sendo a
+verdade, e o banco **alimenta lançamentos** — não vira uma segunda fonte de
+saldo brigando com a primeira. Daí sai de graça: nenhuma regra travada muda
+(saldo só por `$transaction`, XOR conta/cartão, soft-delete), o lançamento
+manual não muda nem para quem conectou, e desligar é parar de sincronizar —
+o que sobra parece lançamento importado, que o app já sabe ter.
+
+## Produção, a partir de 15/11/2026
+
+O plano **Starter** (R$ 159/mês) foi assinado em 15/11/2026, e `GET
+/api/v2/consents` passou a responder 200 — antes do plano, rota de produção
+devolvia 402. Conferido no mesmo dia: **zero consentimento de produção**,
+portanto nada cobrável ainda. O plano **não inclui** consentimento: cada um
+custa R$ 3,60/mês na primeira faixa, e só conta quando o usuário autoriza no
+banco e a sincronização conclui. Sem fidelidade.
+
+`conferir-plano.js` refaz essa conferência e **não cria consentimento
+nenhum** — criar um sem o dono da conta mandar seria gastar o dinheiro dele.
+
+Dos 210 bancos do catálogo, 192 estão `OPERATIONAL`, entre eles os dois que
+interessam aqui: **Nubank** e **Iti**. O Iti é o que importa para a dúvida em
+aberto lá embaixo — ele fecha dia 30 e vence dia 7, a forma que o gerador do
+sandbox nunca produziu.
+
+**O que a produção acrescenta ao contrato de reversar:** consentimento real
+traz dado financeiro de verdade para dentro do banco de dados. Desistir passa
+a incluir **revogar o consentimento na Polp** (`DELETE /consents/{id}`, que
+também pára a cobrança) e **apagar os lançamentos sincronizados** — que se
+reconhecem pelo id do provedor guardado em cada um. A mesma coluna serve a
+duas coisas: não duplicar ao ressincronizar, e saber o que apagar na saída.
+
+**A autorização no banco é do dono da conta.** Ela acontece no Polp Link, com
+o login do banco dele; nenhum passo deste experimento preenche senha.
 
 ## Credenciais
 
@@ -42,12 +87,16 @@ node scripts/openfinance/medir-sandbox.js --revogar <consentId>
 node scripts/openfinance/medir-forecast.js           # caça o cartão que atravessa o mês
 node scripts/openfinance/casar.js                    # casamento no CARTÃO
 node scripts/openfinance/casar-conta.js              # casamento na CONTA
+node scripts/openfinance/conferir-plano.js [nome]    # produção: só leitura
 ```
 
-Todos só tocam `/api/v2/sandbox`, onde consentimento nunca é cobrado, e
-revogam o que criam (`medir-sandbox` imprime o comando; os outros revogam
-sozinhos). Para conferir que não ficou nada vivo, `GET
+Os quatro primeiros só tocam `/api/v2/sandbox`, onde consentimento nunca é
+cobrado, e revogam o que criam (`medir-sandbox` imprime o comando; os outros
+revogam sozinhos). Para conferir que não ficou nada vivo, `GET
 /api/v2/sandbox/consents` deve devolver lista vazia.
+
+`conferir-plano.js` é o único que fala com **produção**, e só lê: lista
+consentimentos e instituições. Ele não cria nada, logo não gera cobrança.
 
 Cada um é autossuficiente, com a sua própria cópia das quatro funções de
 rede. É de propósito enquanto for bancada: um script de medição que se roda
