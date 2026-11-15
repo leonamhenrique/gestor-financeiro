@@ -72,6 +72,54 @@ duas coisas: não duplicar ao ressincronizar, e saber o que apagar na saída.
 **A autorização no banco é do dono da conta.** Ela acontece no Polp Link, com
 o login do banco dele; nenhum passo deste experimento preenche senha.
 
+## O módulo, a partir de 15/11/2026
+
+`src/openfinance/` existe, com 32 testes. O que ele **faz**: fala com a Polp,
+guarda a conexão, e devolve uma **proposta**. O que ele **não faz**: gravar
+lançamento. Quem decide é a tela de conferência, com a pessoa olhando — o
+pior caso de um erro aqui é uma linha a mais numa lista, e não dinheiro
+errado no saldo de alguém.
+
+| arquivo | o que é |
+| --- | --- |
+| `polp.client.ts` | a conversa com o provedor, e só isso. Normaliza e devolve. |
+| `openfinance.service.ts` | conectar, conferir, propor, desconectar. |
+| `openfinance.controller.ts` | as rotas, todas atrás da flag. |
+
+**A flag é a saída de emergência.** Sem `OPENFINANCE_ENABLED=true` o guard
+responde **404**, e não 403: 403 conta que a coisa existe e você não pode;
+404 é o app de antes, em que isto nunca foi escrito. (Para quem nem token
+tem, o guard global responde 401 primeiro — a rota continua não existindo
+para quem está logado, que é o caso que importa.)
+
+### Duas "não duplicações", que são problemas diferentes
+
+1. **A mesma transação vindo de novo do banco**, numa segunda
+   sincronização. Resolve-se no servidor, por `providerTxId`: exata, sem
+   tolerância, sem depender de texto. O provedor reenvia tudo a cada
+   leitura — sem esse corte, a lista de conferência viria cheia do que a
+   pessoa importou ontem.
+2. **O que o usuário já tinha lançado à mão**, ou que o app projetou como
+   parcela. Essa não tem `providerTxId` nenhum — o banco não sabe que ela
+   existe. Quem resolve é o casamento da tela.
+
+Confundir as duas erra nos dois sentidos: a primeira, resolvida por texto e
+data, erraria; a segunda, resolvida por id, nunca casaria.
+
+### O CPF atravessa e some
+
+Ele vai no corpo do `POST /openfinance/connections`, segue para o provedor e
+**não é gravado**. Guardar documento de alguém por uma integração opcional
+aumenta o que se perde num vazamento em troca de nada: na reconexão ele
+digita de novo, uma vez por ano. Tem teste que lê o que foi gravado e exige
+que o número não esteja lá.
+
+### O que falta
+
+A **tela**. A API propõe; o navegador ainda não consome. O caminho é o do
+importador de OFX, que já tem conferência, casamento e desfazer por lote —
+e é o que mantém as regras numa versão só.
+
 ## Credenciais
 
 `POLP_API_CLIENT` e `POLP_API_SECRET`, no `.env` da API (ignorado pelo git) e
