@@ -173,75 +173,76 @@ async function status(id) {
 
 // ---------------------------------------------------------------- medir
 /**
- * A resposta da pergunta do mês.
+ * A resposta da pergunta do mês, medida em fatura de verdade.
  *
- * Para cada parcela FUTURA (a que só tem `bill_forecast_date`), olha a
- * fatura do mesmo cartão e pergunta: o mês previsto bate com o mês do
- * FECHAMENTO ou com o do VENCIMENTO? Num cartão que atravessa o mês os dois
- * são diferentes, e a resposta sai sozinha.
+ * ATENÇÃO a uma diferença entre os ambientes, que custou uma leitura errada:
+ * no sandbox, `occurrences[]` de um parcelamento vem como OBJETOS com os
+ * campos da parcela; em produção vem como **ids de transação**. Ler o campo
+ * direto da ocorrência, como o medidor do sandbox fazia, devolve `undefined`
+ * em produção — e `undefined` parecia "o banco não manda o campo", quando na
+ * verdade era "você olhou no lugar errado". Aqui a conta se faz sobre
+ * `/credit-cards/{id}/transactions`, que é onde os campos moram.
+ *
+ * A pergunta: `bill_forecast_date` (AAAA-MM) segue o mês do FECHAMENTO ou o
+ * do VENCIMENTO? Só um cartão cuja fatura atravesse o mês separa os dois, e
+ * cada transação já faturada traz o `bill_id` que leva à fatura com as duas
+ * datas. Logo: uma transação, um voto.
  */
 async function medir(id) {
   const cartoes = dados(await pedir(BASE + '/consents/' + id + '/credit-cards'));
   if (!cartoes.length) return console.log('Nenhum cartão neste consentimento.');
 
-  let votosFechamento = 0;
-  let votosVencimento = 0;
-  let inconclusivos = 0;
+  let fech = 0, venc = 0, nenhum = 0, atravessa = 0, semFatura = 0, semForecast = 0;
 
   for (const cartao of cartoes) {
     console.log('\n=== ' + (cartao.name || cartao.product_type || cartao.id));
 
     const faturas = dados(await pedir(BASE + '/credit-cards/' + cartao.id + '/bills'));
-    if (!faturas.length) { console.log('  (sem faturas)'); continue; }
-
+    const porId = {};
+    let cruza = 0;
     for (const f of faturas) {
-      const fecha = dia(f.bill_closing_date);
-      const vence = dia(f.due_date);
-      const atravessa = mes(fecha) !== mes(vence);
-      console.log('  fatura ' + (f.id || '').slice(0, 8) +
-        '  fecha ' + fecha + '  vence ' + vence +
-        (atravessa ? '   <-- ATRAVESSA O MÊS' : ''));
+      porId[f.id] = { f: mes(f.bill_closing_date), v: mes(f.due_date) };
+      if (mes(f.bill_closing_date) !== mes(f.due_date)) cruza++;
     }
+    console.log('  faturas: ' + faturas.length + ', das quais ' + cruza + ' atravessam o mês');
+    if (!cruza) console.log('  (este cartão não separa os dois candidatos)');
 
-    // A fatura mais recente serve de régua: dela saem os dois candidatos.
-    const regua = faturas
-      .slice()
-      .sort((a, b) => String(b.bill_closing_date).localeCompare(String(a.bill_closing_date)))[0];
-    const mesFecha = mes(regua.bill_closing_date);
-    const mesVence = mes(regua.due_date);
+    const transacoes = dados(await pedir(BASE + '/credit-cards/' + cartao.id + '/transactions'));
+    console.log('  transações: ' + transacoes.length);
 
-    let parcelamentos = [];
-    try {
-      parcelamentos = dados(await pedir(BASE + '/credit-cards/' + cartao.id + '/installments'));
-    } catch (e) {
-      console.log('  installments: ' + e.message.slice(0, 120));
-    }
-
-    for (const p of parcelamentos) {
-      for (const o of p.occurrences || []) {
-        const futura = !o.bill_id;
-        if (!futura) continue;
-        const prev = mes(o.bill_forecast_date);
-        const casaFecha = prev === mesFecha;
-        const casaVence = prev === mesVence;
-        console.log('  parcela futura "' + (p.description || '').slice(0, 28) +
-          '"  forecast=' + prev +
-          '  (fechamento=' + mesFecha + ', vencimento=' + mesVence + ')');
-        if (mesFecha === mesVence) { inconclusivos++; continue; }
-        if (casaFecha && !casaVence) votosFechamento++;
-        else if (casaVence && !casaFecha) votosVencimento++;
-        else inconclusivos++;
-      }
+    for (const t of transacoes) {
+      if (!t.bill_forecast_date) { semForecast++; continue; }
+      /* Sem `bill_id` = ainda não faturada. É ESTE o critério, e não a
+       * data-sentinela "0001-01-01" que a documentação promete: medido aqui,
+       * `bill_post_date` dessas vem como data real. */
+      if (!t.bill_id || !porId[t.bill_id]) { semFatura++; continue; }
+      const { f, v } = porId[t.bill_id];
+      if (f === v) continue;
+      atravessa++;
+      const p = mes(t.bill_forecast_date);
+      if (p === f && p !== v) fech++;
+      else if (p === v && p !== f) venc++;
+      else nenhum++;
     }
   }
 
   console.log('\n----------------------------------------------------------');
-  console.log('bill_forecast_date segue o FECHAMENTO em ' + votosFechamento + ' parcela(s)');
-  console.log('bill_forecast_date segue o VENCIMENTO em ' + votosVencimento + ' parcela(s)');
-  console.log('inconclusivas (os dois meses coincidem, ou nenhum bate): ' + inconclusivos);
-  if (!votosFechamento && !votosVencimento) {
-    console.log('\nINCONCLUSIVO: nenhum cartão deste consentimento atravessa o mês,');
-    console.log('ou não há parcela futura. A pergunta continua em aberto.');
+  console.log('transações sem forecast: ' + semForecast);
+  console.log('transações ainda não faturadas (bill_id nulo): ' + semFatura);
+  console.log('transações em fatura que ATRAVESSA o mês: ' + atravessa);
+  console.log('  forecast = mês do FECHAMENTO: ' + fech);
+  console.log('  forecast = mês do VENCIMENTO: ' + venc);
+  console.log('  nenhum dos dois: ' + nenhum);
+
+  if (!atravessa) {
+    console.log('\nINCONCLUSIVO: nenhuma transação caiu em fatura que atravessa o mês,');
+    console.log('então os dois candidatos coincidem e a pergunta continua em aberto.');
+  } else if (venc && !fech && !nenhum) {
+    console.log('\nRESPOSTA: bill_forecast_date é o mês do VENCIMENTO. Sem exceção.');
+  } else if (fech && !venc && !nenhum) {
+    console.log('\nRESPOSTA: bill_forecast_date é o mês do FECHAMENTO. Sem exceção.');
+  } else {
+    console.log('\nMISTURADO: não há regra única nestes dados. Não dependa do campo.');
   }
 }
 

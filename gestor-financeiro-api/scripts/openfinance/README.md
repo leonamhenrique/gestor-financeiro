@@ -144,23 +144,69 @@ de sete dias viram **candidata**, para o app perguntar. E quando mais de um
 previsto cabe, nenhum é escolhido: a saída é **ambígua**. Sortear com o
 dinheiro de alguém é pior que perguntar.
 
+### Contra extrato de verdade, 15/11/2026
+
+Os dois casadores aceitam `--consent <id>` e passam a ler **produção** em vez
+do sandbox — leitura pura: não criam consentimento, e não revogam o que não
+criaram. Rodados contra o consentimento do Inter:
+
+| | cartão | conta |
+| --- | --- | --- |
+| transações | 483 | 18 |
+| conferência | 483 de 483 | 18 de 18 |
+| o caso central apareceu | 3 parcelas projetadas | sim |
+
+No cartão, a série real repetiu o que o sandbox tinha mostrado: as quatro
+parcelas de uma compra chegaram **todas com a data da compra**, e sem a
+passada que casa por série ignorando a data elas entrariam de novo, com o
+mesmo valor, ao lado das que o app projetou.
+
+**`PAGAMENTO_DE_FATURA` deixou de ser ramo não medido:** apareceu **6 vezes**
+no extrato real, onde no sandbox nunca tinha aparecido nenhuma. É o caso de
+não contar o mesmo dinheiro duas vezes — a fatura já é a soma das compras, e
+o pagamento dela na conta tem caminho próprio no app.
+
 ### O que ainda não foi exercitado
 
-- O cenário é montado, não é o extrato de verdade de ninguém. Cobre os casos
-  que sabemos nomear.
-- `PAGAMENTO_DE_FATURA` (reconhecido pela categoria
-  `LOAN_PAYMENTS_CREDIT_CARD_PAYMENT`, para não contar o mesmo dinheiro duas
-  vezes) nunca apareceu nas contas do sandbox. O ramo existe e não foi
-  medido.
+- O cenário do lado do APP é montado, não é a base de ninguém: as transações
+  do banco são reais, mas "o que o app já tem" é construído a partir delas,
+  com a resposta certa anotada. Cobre os casos que sabemos nomear.
 - As janelas de dias (3 no cartão, 7 no previsto) são chute explícito. Num
   extrato real elas se recalibram.
 - A primeira sincronização de todas tem 100% de "nova". Isso não é
   duplicação, é carga inicial — outro problema, ainda não tratado.
 
-## A dúvida em aberto
+## A dúvida, RESPONDIDA em 15/11/2026
 
-Se `bill_forecast_date` segue o mês de `bill_closing_date` ou o de `due_date`.
-Pergunta enviada ao Suporte da Polp em 07/11/2026.
+`bill_forecast_date` é o mês do **VENCIMENTO**. Medido em fatura de verdade:
+cartão Inter GOLD, que fecha dia 30 e vence dia 7 — **15 faturas, todas
+atravessando o mês**, e **469 de 469** transações faturadas com o previsto
+igual ao mês do vencimento. Nenhuma exceção, nenhum empate.
+
+É a mesma convenção que o app adotou em 07/11 (`3653c86`): a fatura se chama
+pelo mês em que vence. O provedor e o app falam a mesma língua.
+
+Duas coisas vieram junto, e as duas corrigem o que o sandbox tinha sugerido:
+
+1. **`bill_post_date` nunca veio como `"0001-01-01"`**, nem nas 14 transações
+   da fatura ainda aberta: vem a data real de lançamento. O critério de "ainda
+   não faturada" continua sendo `bill_id === null`, como já estava decidido.
+2. **`occurrences[]` tem forma diferente nos dois ambientes.** No sandbox vem
+   como objetos com os campos da parcela; em produção vem como **ids de
+   transação**. Ler o campo direto da ocorrência devolve `undefined` em
+   produção — e `undefined` se parece com "o banco não mandou o campo".
+   Parecia INCONCLUSIVO quando era lugar errado. Os campos moram em
+   `/credit-cards/{id}/transactions`.
+
+Refaz com `--medir <consentId>`.
+
+**O caminho escolhido não muda.** Para parcela futura a fatura continua sendo
+derivada por `faturaSugerida(data, cartão)` — a regra do próprio app — e o
+`bill_forecast_date` segue como conferência. Agora se sabe que as duas devem
+concordar, e discordar virou sinal de defeito, não dúvida de interpretação.
+
+A pergunta ao Suporte, enviada em 07/11, perdeu a urgência: dados reais
+responderam.
 
 **Ela não bloqueia.** Para transação já faturada não há ambiguidade: o
 `bill_id` leva à fatura, que traz as duas datas. Ela só importa na parcela

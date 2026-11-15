@@ -30,6 +30,18 @@ const SANDBOX = BASE + '/sandbox';
 const CPF = process.env.POLP_CPF_TESTE || '12345678900';
 const TOLERANCIA_DIAS = 3;
 
+/* `--consent <id>` troca a bancada pelo mundo: em vez de caçar um cartão
+ * fictício no sandbox, lê um consentimento de PRODUÇÃO já autorizado. É
+ * leitura pura — não cria consentimento, não revoga nada, não grava nada.
+ * O cenário continua sendo montado a partir das próprias transações, com a
+ * resposta certa anotada: o que muda é que as compras passam a ser de
+ * verdade, com nome de loja sujo e parcelamento como o banco escreve. */
+const CONSENT = (() => {
+  const i = process.argv.indexOf('--consent');
+  return i > 0 ? process.argv[i + 1] : null;
+})();
+const ORIGEM = CONSENT ? BASE : SANDBOX;
+
 // ------------------------------------------------------------------
 // as funções do app, lidas do app
 // ------------------------------------------------------------------
@@ -271,7 +283,7 @@ function cenario(doBanco) {
 // ------------------------------------------------------------------
 /** As transações de um cartão, já traduzidas. */
 async function lancamentosDoCartao(cartao) {
-  const txs = dados(await pedir(SANDBOX + '/credit-cards/' + cartao.id + '/transactions'))
+  const txs = dados(await pedir(ORIGEM + '/credit-cards/' + cartao.id + '/transactions'))
     .filter((t) => t.transaction_type !== 'PAGAMENTO_FATURA');
   return txs.map(paraLancamento).filter((x) => isFinite(x.valor) && x.valor > 0);
 }
@@ -284,6 +296,24 @@ const temParcelaFutura = (lista) =>
   lista.some((x) => x._parcela && Number(x._parcela.split('/')[0]) >= 2);
 
 async function acharCartao() {
+  if (CONSENT) {
+    const cartoes = dados(await pedir(BASE + '/consents/' + CONSENT + '/credit-cards'));
+    let reserva = null;
+    for (const cartao of cartoes) {
+      const lista = await lancamentosDoCartao(cartao);
+      const nome = 'produção / ' + (cartao.name || cartao.id);
+      if (temParcelaFutura(lista)) {
+        console.log('  ' + nome + ': tem parcela futura — serve.' + String.fromCharCode(10));
+        return { nome, lista, criados: [] };
+      }
+      console.log('  ' + nome + ': ' + lista.length + ' transações, nenhuma parcela 2/N');
+      if (!reserva) reserva = { nome, lista };
+    }
+    return reserva
+      ? { ...reserva, criados: [], semParcelaFutura: true }
+      : { criados: [], lista: null };
+  }
+
   const instituicoes = dados(await pedir(BASE + '/institutions'))
     .filter((i) => i.type === 'PERSONAL');
   const criados = [];

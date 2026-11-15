@@ -28,6 +28,16 @@ const BASE = 'https://api.polp.com.br/api/v2';
 const SANDBOX = BASE + '/sandbox';
 const CPF = process.env.POLP_CPF_TESTE || '12345678900';
 
+/* `--consent <id>`: usa um consentimento de PRODUÇÃO já autorizado em vez de
+ * criar um no sandbox. Leitura pura — não cria, não revoga, não grava. É
+ * aqui que o caso difícil aparece de verdade: num extrato real o texto do
+ * banco ("PIX ENVIADO ...") nunca se parece com o que a pessoa digitou. */
+const CONSENT = (() => {
+  const i = process.argv.indexOf('--consent');
+  return i > 0 ? process.argv[i + 1] : null;
+})();
+const ORIGEM = CONSENT ? BASE : SANDBOX;
+
 /* A janela do previsto é maior que a do cartão: quem agenda "dia 7" e o
  * banco debita no dia 9 (fim de semana, feriado) descreve o mesmo dinheiro.
  * Sete dias é chute explícito — num extrato de verdade isto se recalibra. */
@@ -263,26 +273,32 @@ function cenario(doBanco) {
 
 // ------------------------------------------------------------------
 async function main() {
-  const inst = dados(await pedir(BASE + '/institutions')).find((i) => i.type === 'PERSONAL');
-  const consent = (await pedir(SANDBOX + '/consents', {
-    method: 'POST',
-    body: JSON.stringify({
-      institution_id: inst.id, cpf: CPF,
-      cliente_user_id: 'casador-conta', products: ['ACCOUNT', 'CREDIT_CARD_ACCOUNT'],
-    }),
-  })).data;
-  console.log('Consentimento sandbox ' + consent.id + ' (' + (inst.name || '') + ')\n');
+  let consent;
+  if (CONSENT) {
+    consent = { id: CONSENT };
+    console.log('Consentimento de PRODUÇÃO ' + CONSENT + ' (só leitura)\n');
+  } else {
+    const inst = dados(await pedir(BASE + '/institutions')).find((i) => i.type === 'PERSONAL');
+    consent = (await pedir(SANDBOX + '/consents', {
+      method: 'POST',
+      body: JSON.stringify({
+        institution_id: inst.id, cpf: CPF,
+        cliente_user_id: 'casador-conta', products: ['ACCOUNT', 'CREDIT_CARD_ACCOUNT'],
+      }),
+    })).data;
+    console.log('Consentimento sandbox ' + consent.id + ' (' + (inst.name || '') + ')\n');
+  }
 
   try {
     let contas = [];
     for (let i = 0; i < 12 && !contas.length; i++) {
-      contas = dados(await pedir(SANDBOX + '/consents/' + consent.id + '/accounts'));
+      contas = dados(await pedir(ORIGEM + '/consents/' + consent.id + '/accounts'));
       if (!contas.length) await esperar(2500);
     }
     if (!contas.length) { console.log('Nenhuma conta veio.'); return; }
 
     const conta = contas[0];
-    const txs = dados(await pedir(SANDBOX + '/accounts/' + conta.id + '/transactions'));
+    const txs = dados(await pedir(ORIGEM + '/accounts/' + conta.id + '/transactions'));
     const doBanco = txs.map(paraLancamento).filter((x) => isFinite(x.valor) && x.valor > 0);
     console.log('Conta: ' + (conta.name || conta.id) + ' — ' + doBanco.length + ' transações');
 
@@ -333,7 +349,13 @@ async function main() {
       console.log('  incluindo o previsto que só casa por valor e data, e o empate que não foi resolvido.');
     }
   } finally {
-    try { await pedir(SANDBOX + '/consents/' + consent.id, { method: 'DELETE' }); console.log('\n(consentimento revogado)'); } catch (e) {}
+    /* Só se revoga o que este script criou. Um consentimento de produção é
+     * do dono da conta, custa dinheiro e levou uma autorização no banco. */
+    if (CONSENT) {
+      console.log('\n(consentimento de produção intacto: este script não revoga o que não criou)');
+    } else {
+      try { await pedir(SANDBOX + '/consents/' + consent.id, { method: 'DELETE' }); console.log('\n(consentimento revogado)'); } catch (e) {}
+    }
   }
 }
 

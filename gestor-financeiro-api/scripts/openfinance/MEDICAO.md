@@ -87,3 +87,48 @@ importador de OFX — e usar `bill_forecast_date` só como conferência.
    `bill_id = null` como critério?
 3. O sandbox pode gerar cartões cuja fatura feche num mês e vença no
    seguinte, para validar (1) sem consentimento de produção?
+
+
+---
+
+# Produção, 15/11/2026 — a pergunta do mês, respondida
+
+Plano Starter ativo. Consentimento real no **Banco Inter PF**, produtos
+`ACCOUNT` e `CREDIT_CARD_ACCOUNT`.
+
+Três marcas recusaram antes: **iti** falha no DCR junto ao Itaú (HTTP 400
+`ERRO_FLUXO_DCM`), **Itaú PF** e a primeira tentativa do **Inter** falharam na
+tela do próprio banco. Vale registrar o que atrapalhou o diagnóstico: o
+`request_uri` é de **uso único**, então reabrir o mesmo link responde
+`invalid_request_uri` — o que parecia "falhou de novo" era link gasto. Com
+link novo, o Inter autorizou de primeira.
+
+## O cartão que o sandbox não sabe gerar
+
+Inter GOLD: fecha dia 30, vence dia 7 do mês seguinte. **15 de 15 faturas
+atravessam o mês** — exatamente a forma que, em 21 cartões fictícios, nunca
+apareceu.
+
+| | |
+| --- | --- |
+| transações lidas | 483 |
+| sem `bill_forecast_date` | 0 |
+| ainda não faturadas (`bill_id` nulo) | 14 |
+| em fatura que atravessa o mês | 469 |
+| **previsto = mês do FECHAMENTO** | **0** |
+| **previsto = mês do VENCIMENTO** | **469** |
+
+Exemplo, parcela 2/10: compra em `2026-02-28`, `bill_post_date 2026-03-29`
+(fatura que fecha 30/03 e vence 07/04), `bill_forecast_date "2026-04"`. O
+previsto acompanha o vencimento, não o fechamento.
+
+## O que isso corrige nos achados do sandbox
+
+- **`bill_post_date` real, também na fatura aberta.** As 14 transações sem
+  `bill_id` têm data de lançamento de verdade (ex.: compra 12/11, post 13/11,
+  previsto `2026-12`). A sentinela `"0001-01-01"` da documentação não
+  apareceu em ambiente nenhum. `bill_id === null` continua sendo o critério.
+- **`occurrences[]` muda de forma entre os ambientes**: objetos no sandbox,
+  **ids de transação** em produção. Ler o campo na ocorrência dá
+  `undefined` — e `undefined` se disfarça de "campo ausente". A primeira
+  leitura desta medição disse INCONCLUSIVO por isso, com o dado na mão.
