@@ -31,7 +31,7 @@
 
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PolpClient, LancamentoDoProvedor } from './polp.client';
+import { PolpClient, LancamentoDoProvedor, ConflitoDeConsentimento } from './polp.client';
 
 /** Está ligada? Sem a variável, o app se comporta exatamente como antes. */
 export const openFinanceLigado = (): boolean => process.env.OPENFINANCE_ENABLED === 'true';
@@ -89,34 +89,131 @@ export class OpenFinanceService {
     const instituicao = (await this.polp.instituicoes()).find((i) => i.id === dados.institutionId);
     if (!instituicao) throw new NotFoundException('Instituição não encontrada.');
 
-    const criado = await this.polp.criarConsentimento({
-      institutionId: dados.institutionId,
-      cpf,
-      clienteUserId: userId,
-    });
-
-    const conexao = await this.prisma.openFinanceConnection.create({
-      data: {
-        userId,
-        provider: 'POLP',
-        consentId: criado.consentId,
+    let criado;
+    try {
+      criado = await this.polp.criarConsentimento({
         institutionId: dados.institutionId,
-        institutionName: instituicao.nome,
-        status: criado.status,
-        products: ['ACCOUNT', 'CREDIT_CARD_ACCOUNT'],
-      },
-    });
+        cpf,
+        clienteUserId: userId,
+      });
+    } catch (e) {
+      if (e instanceof ConflitoDeConsentimento) {
+        return await this.resolverConflito(userId, instituicao, e);
+      }
+      throw e;
+    }
+
+    const conexao = await this.guardarConexao(userId, instituicao, criado.consentId, criado.status);
 
     return {
       id: conexao.id,
       instituicao: instituicao.nome,
       status: criado.status,
-      /* Uso ÚNICO e validade curta: reabrir o mesmo link responde
-       * `invalid_request_uri`, o que se disfarça de "o banco recusou". Quem
-       * errar o clique precisa de um link novo, não de insistir no mesmo. */
+      jaConectado: false,
+      /* Uso ÚNICO e validade curta: reabrir o mesmo link dá uma página de
+       * "link não disponível", o que se disfarça de "o banco recusou". Quem
+       * errar o clique precisa de um link novo, não de insistir no mesmo.
+       * Pré-visualização de mensageiro NÃO consome o link — mandar por
+       * WhatsApp é seguro; antivírus de e-mail pode consumir. */
       urlParaAutorizar: criado.urlParaAutorizar,
       urlExpiraEm: criado.urlExpiraEm,
+      reaproveitado: criado.reaproveitado,
     };
+  }
+
+  /**
+   * O 409 da v3, que é resposta e não erro.
+   *
+   * O caso que mais importa é o primeiro: o provedor diz "este CPF já tem
+   * consentimento valendo neste banco, e o id é este". Aí o certo é ADOTAR
+   * — criar outro queimaria de novo a cota mensal do CPF na instituição, que
+   * é finita e não se recupera até a virada do mês.
+   */
+  private async resolverConflito(
+    userId: string,
+    instituicao: { id: string; nome: string },
+    conflito: ConflitoDeConsentimento,
+  ) {
+    if (conflito.motivo === 'CONSENT_ALREADY_AUTHORISED' && conflito.consentId) {
+      const conexao = await this.guardarConexao(
+        userId,
+        instituicao,
+        conflito.consentId,
+        'AUTHORISED',
+      );
+      return {
+        id: conexao.id,
+        instituicao: instituicao.nome,
+        status: 'AUTHORISED',
+        /* Sem link: não há o que autorizar. A tela diz "já conectado" e
+         * segue direto para buscar os lançamentos. */
+        jaConectado: true,
+        urlParaAutorizar: null,
+        urlExpiraEm: null,
+        reaproveitado: true,
+      };
+    }
+
+    if (conflito.motivo === 'AUTHORIZATION_LINK_ACTIVE') {
+      throw new BadRequestException(
+        'Já existe um link de autorização válido para este banco, e ele ainda não foi aberto. ' +
+          'Use o que você recebeu' +
+          (conflito.disponivelEm ? ' — outro só pode ser gerado depois de ' + conflito.disponivelEm : '') +
+          '.',
+      );
+    }
+
+    if (conflito.motivo === 'CONSENT_CREATION_IN_PROGRESS') {
+      throw new BadRequestException('Já há uma conexão sendo criada. Tente de novo em instantes.');
+    }
+
+    throw new BadRequestException('O provedor recusou: ' + conflito.motivo + '.');
+  }
+
+  /**
+   * A conexão daqui que aponta para o consentimento de lá.
+   *
+   * `upsert` porque a v3 REAPROVEITA o mesmo consentimento: tentar de novo
+   * devolve o id que já está guardado, e um `create` cego esbarraria no
+   * índice único com um erro que não diz nada a ninguém.
+   */
+  private async guardarConexao(
+    userId: string,
+    instituicao: { id: string; nome: string },
+    consentId: string,
+    status: string,
+  ) {
+    /* O índice único é por (provider, consentId), sem o dono. Se a linha
+     * existe e é de OUTRA pessoa, isto não pode virar um "upsert" silencioso
+     * que troca o dono de um consentimento. */
+    const existente = await this.prisma.openFinanceConnection.findFirst({
+      where: { provider: 'POLP', consentId },
+    });
+    if (existente && existente.userId !== userId) {
+      throw new BadRequestException('Este consentimento já pertence a outra conta.');
+    }
+
+    return this.prisma.openFinanceConnection.upsert({
+      where: { provider_consentId: { provider: 'POLP', consentId } },
+      create: {
+        userId,
+        provider: 'POLP',
+        consentId,
+        institutionId: instituicao.id,
+        institutionName: instituicao.nome,
+        status,
+        products: ['ACCOUNT', 'CREDIT_CARD_ACCOUNT'],
+      },
+      update: {
+        status,
+        institutionName: instituicao.nome,
+        /* Reaproveitar um consentimento revogado o traz de volta à vida: a
+         * marca de encerrado precisa sair junto, ou ele continuaria fora de
+         * toda listagem. */
+        revokedAt: null,
+        ...(status === 'AUTHORISED' ? { authorizedAt: new Date() } : {}),
+      },
+    });
   }
 
   // ------------------------------------------------------------- listar

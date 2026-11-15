@@ -81,6 +81,26 @@ export const soODia = (iso: unknown): string => String(iso ?? '').slice(0, 10);
 /** `AAAA-MM`. */
 export const soOMes = (iso: unknown): string => String(iso ?? '').slice(0, 7);
 
+/**
+ * O 409 da criação v3 — que não é falha, é resposta.
+ *
+ * `CONSENT_ALREADY_AUTHORISED`: já existe um consentimento valendo para este
+ * CPF nesta instituição; o `consentId` vem junto, e o certo é adotar esse em
+ * vez de criar outro. `AUTHORIZATION_LINK_ACTIVE`: o link anterior ainda
+ * está vivo e não foi aberto — `disponivelEm` diz quando dá para gerar
+ * outro. `CONSENT_CREATION_IN_PROGRESS`: outra criação em andamento.
+ */
+export class ConflitoDeConsentimento extends Error {
+  constructor(
+    readonly motivo: string,
+    readonly consentId?: string | null,
+    readonly disponivelEm?: string | null,
+  ) {
+    super(motivo);
+    this.name = 'ConflitoDeConsentimento';
+  }
+}
+
 @Injectable()
 export class PolpClient {
   private readonly base = process.env.POLP_BASE_URL || 'https://api.polp.com.br/api/v2';
@@ -98,6 +118,30 @@ export class PolpClient {
   }
 
   private async pedir<T = any>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
+    const r = await this.bruto(caminho, opcoes);
+    if (!r.ok) {
+      /* 402 é plano/fatura da NOSSA conta no provedor, 401 é chave errada:
+       * nos dois casos quem conserta somos nós, e o usuário só precisa saber
+       * que não deu. A mensagem crua do provedor não sobe. */
+      throw new ServiceUnavailableException(
+        'O provedor recusou a chamada (HTTP ' + r.status + ').',
+      );
+    }
+    return r.corpo as T;
+  }
+
+  /**
+   * A chamada sem julgamento: devolve status e corpo.
+   *
+   * Existe porque a criação de consentimento precisa LER o 409 — ele não é
+   * falha, é resposta: diz que já existe consentimento autorizado, ou que o
+   * link anterior ainda está vivo. Tratar isso como erro genérico foi o que
+   * fez a primeira versão criar seis consentimentos no mesmo banco.
+   */
+  private async bruto(
+    caminho: string,
+    opcoes: RequestInit = {},
+  ): Promise<{ ok: boolean; status: number; corpo: any }> {
     if (!this.configurado) {
       throw new ServiceUnavailableException('Open Finance não está configurado.');
     }
@@ -123,15 +167,7 @@ export class PolpClient {
     } catch {
       corpo = null;
     }
-    if (!r.ok) {
-      /* 402 é plano/fatura da NOSSA conta no provedor, 401 é chave errada:
-       * nos dois casos quem conserta somos nós, e o usuário só precisa
-       * saber que não deu. A mensagem crua do provedor não sobe. */
-      throw new ServiceUnavailableException(
-        'O provedor recusou a chamada (HTTP ' + r.status + ').',
-      );
-    }
-    return (corpo?.data ?? corpo) as T;
+    return { ok: r.ok, status: r.status, corpo: corpo?.data ?? corpo, bruto: corpo } as any;
   }
 
   // ---------------------------------------------------------------- bancos
@@ -165,9 +201,15 @@ export class PolpClient {
     status: string;
     urlParaAutorizar: string | null;
     urlExpiraEm: string | null;
+    reaproveitado: boolean;
   }> {
-    const c = await this.pedir<any>('/consents', {
+    const r = await this.bruto('/consents', {
       method: 'POST',
+      /* A v3 é o que impede duplicata. Sem este cabeçalho a criação é a
+       * legada, e cada tentativa nasce um consentimento novo — que, pela
+       * documentação da Polp, QUEIMA A COTA MENSAL do CPF naquela
+       * instituição. Seis tentativas num dia gastaram o mês de um banco. */
+      headers: { 'x-consent-version': '3' },
       body: JSON.stringify({
         institution_id: dados.institutionId,
         cpf: dados.cpf.replace(/\D/g, ''),
@@ -175,11 +217,31 @@ export class PolpClient {
         products: ['ACCOUNT', 'CREDIT_CARD_ACCOUNT'],
       }),
     });
+
+    if (r.status === 409) {
+      const e = r.corpo || {};
+      throw new ConflitoDeConsentimento(
+        e.reason || 'CONFLITO',
+        e.consent_id ?? e.consentId ?? null,
+        e.available_at ?? e.availableAt ?? null,
+      );
+    }
+    if (!r.ok) {
+      throw new ServiceUnavailableException(
+        'O provedor recusou a criação do consentimento (HTTP ' + r.status + ').',
+      );
+    }
+
+    const c = r.corpo || {};
     return {
       consentId: c.id,
       status: c.status,
       urlParaAutorizar: c.url_to_authenticate ?? null,
       urlExpiraEm: c.url_to_authenticate_expires_at ?? null,
+      /* 201 nasceu; 200 reaproveitou o mesmo consentimento, com os dados que
+       * já tinham sido importados. Quem chama precisa saber a diferença: no
+       * reaproveitamento não há importação do zero. */
+      reaproveitado: r.status === 200,
     };
   }
 

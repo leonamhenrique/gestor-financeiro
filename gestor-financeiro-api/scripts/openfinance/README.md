@@ -136,6 +136,48 @@ existir), o `provider_tx_id` que não atravessava do navegador até o pedido
 — a idempotência existia só no papel — e o vínculo que nunca era gravado
 porque ninguém chamava a função.
 
+### A cota, e por que a criação é v3
+
+Aprendido no dia 15/11/2026, do jeito caro. Pela documentação da Polp:
+
+> Cada `POST /consents` dispara a importação inicial do histórico, e essa
+> importação **consome a cota mensal do CPF/CNPJ naquela instituição**. Ao
+> atingir o teto, os dados não são atualizados até a virada do mês.
+
+Tentar conectar de novo não é de graça: **seis tentativas no mesmo banco, no
+mesmo dia, gastaram cota de um mês**. E o sintoma não diz isso — a tela do
+banco simplesmente para de avançar depois da biometria.
+
+Por isso a criação manda `x-consent-version: 3`, que **impede duplicata**:
+
+| o que existe lá | o que volta |
+| --- | --- |
+| nada | 201, consentimento novo |
+| recusado, expirado, revogado, ou link já aberto | 200, **reaproveita o mesmo** |
+| já autorizado | 409 `CONSENT_ALREADY_AUTHORISED` + o `consent_id` |
+| link ainda vivo e não aberto | 409 `AUTHORIZATION_LINK_ACTIVE` + `available_at` |
+
+O 409 **não é erro, é resposta**. No primeiro caso o app ADOTA o
+consentimento que já existe em vez de pedir outro; no segundo, manda usar o
+link que a pessoa já tem.
+
+Na v3 o `url_to_authenticate` é um link curto da própria Polp
+(`api.polp.com.br/c/{token}`), de uso único e uma hora de validade. Pré-
+visualização de mensageiro (WhatsApp, Telegram) **não** consome o link —
+mandar por mensagem é seguro; antivírus de e-mail pode consumir.
+
+### Autorizar no computador
+
+Quem decide como o cliente se autentica é a instituição, e algumas só
+aceitam o próprio aplicativo: o **Inter** responde "disponível somente no
+Super App" e oferece um QR para passar o fluxo ao celular. Não há, na
+documentação da Polp, fluxo desacoplado (CIBA) que evite isso.
+
+A tela avisa disso antes de abrir o link. O que ainda dá para melhorar:
+mostrar o QR do link na nossa própria tela, e mandar o link para o WhatsApp
+de quem está conectando — o app já tem esse canal, e pré-visualização não
+gasta o link.
+
 ### Ligar isso em produção
 
 Duas variáveis, e a ordem importa:

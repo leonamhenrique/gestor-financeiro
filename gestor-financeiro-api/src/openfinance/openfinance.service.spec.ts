@@ -17,7 +17,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OpenFinanceService } from './openfinance.service';
 import { OpenFinanceAtivo } from './openfinance.controller';
-import { PolpClient } from './polp.client';
+import { PolpClient, ConflitoDeConsentimento } from './polp.client';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('OpenFinance', () => {
@@ -45,8 +45,9 @@ describe('OpenFinance', () => {
       criarConsentimento: jest.fn().mockResolvedValue({
         consentId: 'consent-1',
         status: 'AWAITING_AUTHORIZATION',
-        urlParaAutorizar: 'https://banco.exemplo/autorizar',
+        urlParaAutorizar: 'https://api.polp.com.br/c/abc',
         urlExpiraEm: '2026-11-15T16:27:01.000Z',
+        reaproveitado: false,
       }),
       consentimento: jest.fn().mockResolvedValue({ status: 'AUTHORISED', execucao: 'SUCCESS' }),
       contas: jest.fn().mockResolvedValue([]),
@@ -60,6 +61,7 @@ describe('OpenFinance', () => {
     prisma = {
       openFinanceConnection: {
         create: jest.fn().mockImplementation(({ data }: any) => ({ id: 'cx1', ...data })),
+        upsert: jest.fn().mockImplementation(({ create }: any) => ({ id: 'cx1', ...create })),
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue(CONEXAO),
         update: jest.fn().mockImplementation(({ data }: any) => ({ ...CONEXAO, ...data })),
@@ -168,7 +170,7 @@ describe('OpenFinance', () => {
     it('guarda a conexao e devolve o link para o DONO autorizar', async () => {
       const r = await service.conectar('u1', { institutionId: 'inst-1', cpf: '123.456.789-00' });
 
-      expect(r.urlParaAutorizar).toBe('https://banco.exemplo/autorizar');
+      expect(r.urlParaAutorizar).toBe('https://api.polp.com.br/c/abc');
       expect(polp.criarConsentimento).toHaveBeenCalledWith(
         expect.objectContaining({ institutionId: 'inst-1', cpf: '12345678900', clienteUserId: 'u1' }),
       );
@@ -180,7 +182,7 @@ describe('OpenFinance', () => {
     it('o CPF atravessa e some: nao vai para o banco de dados', async () => {
       await service.conectar('u1', { institutionId: 'inst-1', cpf: '12345678900' });
 
-      const gravado = JSON.stringify(prisma.openFinanceConnection.create.mock.calls[0][0]);
+      const gravado = JSON.stringify(prisma.openFinanceConnection.upsert.mock.calls[0][0]);
       expect(gravado).not.toContain('12345678900');
       expect(gravado).toContain('consent-1');
     });
@@ -192,11 +194,83 @@ describe('OpenFinance', () => {
       expect(polp.criarConsentimento).not.toHaveBeenCalled();
     });
 
+    /* O defeito que esta parte conserta custou caro: cada criacao de
+     * consentimento QUEIMA a cota mensal do CPF naquela instituicao, e seis
+     * tentativas num dia gastaram o mes de um banco. A v3 responde 409 em
+     * vez de criar de novo -- e 409 aqui nao e erro, e resposta. */
+    it('ja autorizado: ADOTA o consentimento em vez de criar outro', async () => {
+      polp.criarConsentimento.mockRejectedValue(
+        new ConflitoDeConsentimento('CONSENT_ALREADY_AUTHORISED', 'consent-ja-existe'),
+      );
+
+      const r = await service.conectar('u1', { institutionId: 'inst-1', cpf: '12345678900' });
+
+      expect(r.jaConectado).toBe(true);
+      expect(r.urlParaAutorizar).toBeNull();
+      expect(prisma.openFinanceConnection.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { provider_consentId: { provider: 'POLP', consentId: 'consent-ja-existe' } },
+        }),
+      );
+    });
+
+    it('link ainda vivo: nao gera outro, e diz ate quando esperar', async () => {
+      polp.criarConsentimento.mockRejectedValue(
+        new ConflitoDeConsentimento('AUTHORIZATION_LINK_ACTIVE', null, '2026-11-15T18:00:00Z'),
+      );
+
+      await expect(
+        service.conectar('u1', { institutionId: 'inst-1', cpf: '12345678900' }),
+      ).rejects.toThrow(/2026-11-15T18:00:00Z/);
+      expect(prisma.openFinanceConnection.upsert).not.toHaveBeenCalled();
+    });
+
+    it('criacao em andamento vira "tente em instantes"', async () => {
+      polp.criarConsentimento.mockRejectedValue(
+        new ConflitoDeConsentimento('CONSENT_CREATION_IN_PROGRESS'),
+      );
+      await expect(
+        service.conectar('u1', { institutionId: 'inst-1', cpf: '12345678900' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    /* O indice unico e por (provider, consentId), sem o dono. Um upsert cego
+     * trocaria o dono de um consentimento -- e com ele, de uma conta
+     * bancaria inteira. */
+    it('consentimento de outra conta nao se adota', async () => {
+      prisma.openFinanceConnection.findFirst.mockResolvedValue({ id: 'cx9', userId: 'outro' });
+      polp.criarConsentimento.mockRejectedValue(
+        new ConflitoDeConsentimento('CONSENT_ALREADY_AUTHORISED', 'consent-de-outro'),
+      );
+
+      await expect(
+        service.conectar('u1', { institutionId: 'inst-1', cpf: '12345678900' }),
+      ).rejects.toThrow(/outra conta/);
+      expect(prisma.openFinanceConnection.upsert).not.toHaveBeenCalled();
+    });
+
+    it('reaproveitado: grava pelo upsert, e nao cria linha nova', async () => {
+      prisma.openFinanceConnection.findFirst.mockResolvedValue(null);
+      polp.criarConsentimento.mockResolvedValue({
+        consentId: 'consent-1',
+        status: 'AWAITING_AUTHORIZATION',
+        urlParaAutorizar: 'https://api.polp.com.br/c/xyz',
+        urlExpiraEm: null,
+        reaproveitado: true,
+      });
+
+      const r = await service.conectar('u1', { institutionId: 'inst-1', cpf: '12345678900' });
+
+      expect(r.reaproveitado).toBe(true);
+      expect(prisma.openFinanceConnection.create).not.toHaveBeenCalled();
+      expect(prisma.openFinanceConnection.upsert).toHaveBeenCalled();
+    });
+
     it('instituicao que nao existe nao vira conexao', async () => {
       await expect(
         service.conectar('u1', { institutionId: 'nao-existe', cpf: '12345678900' }),
       ).rejects.toThrow(NotFoundException);
-      expect(prisma.openFinanceConnection.create).not.toHaveBeenCalled();
+      expect(prisma.openFinanceConnection.upsert).not.toHaveBeenCalled();
     });
   });
 

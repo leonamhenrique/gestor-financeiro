@@ -92,8 +92,14 @@ async function main() {
   }
   const lista = dados(consents.corpo);
   console.log('PLANO: liberado (GET /consents respondeu 200)');
-  console.log('Consentimentos de produção hoje: ' + lista.length +
-    (lista.length ? '  <-- ATENÇÃO: já existe consentimento cobrável' : '  (nenhum, nada sendo cobrado)') + '\n');
+  /* Quem custa dinheiro é o AUTORIZADO, e só ele. Contar linhas — como esta
+   * saída fazia — anuncia "5 cobráveis" num dia em que nenhum está de pé:
+   * revogado, recusado e expirado continuam na lista e não custam nada. Um
+   * número que assusta à toa é um número que para de ser lido. */
+  const cobraveis = lista.filter((c) => c.status === 'AUTHORISED');
+  console.log('Consentimentos na lista: ' + lista.length +
+    '  |  AUTORIZADOS (os que a Polp cobra): ' + cobraveis.length +
+    (cobraveis.length ? '  <-- R$ 3,60/mês cada' : '  (nada sendo cobrado)') + '\n');
   for (const c of lista) {
     console.log('  ' + c.id + '  status=' + c.status + '  inst=' + (c.institution_id || '?'));
   }

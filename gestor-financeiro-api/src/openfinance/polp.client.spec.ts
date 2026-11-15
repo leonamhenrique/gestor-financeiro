@@ -6,7 +6,7 @@
 // documentação — que, em dois pontos, diz o que não acontece.
 // ============================================================
 
-import { PolpClient } from './polp.client';
+import { PolpClient, ConflitoDeConsentimento } from './polp.client';
 
 describe('PolpClient', () => {
   let polp: PolpClient;
@@ -142,6 +142,62 @@ describe('PolpClient', () => {
   it('cartao sem fatura nenhuma nao inventa dia', async () => {
     responder({ data: [] });
     expect(await polp.diasDoCartao('k1')).toEqual({ fechamento: null, vencimento: null });
+  });
+
+  // ------------------------------------------------- criar consentimento
+  const criar = () =>
+    polp.criarConsentimento({ institutionId: 'i1', cpf: '123.456.789-00', clienteUserId: 'u1' });
+
+  /* Sem este cabecalho a criacao e a LEGADA, e cada tentativa nasce um
+   * consentimento novo -- que, pela documentacao da Polp, queima a cota
+   * mensal do CPF naquela instituicao. Seis tentativas num dia gastaram o
+   * mes de um banco; por isso isto e um teste, e nao um comentario. */
+  it('a criacao vai na versao 3, que e a que impede duplicata', async () => {
+    responder({ data: { id: 'c1', status: 'AWAITING_AUTHORIZATION' } }, true, 201);
+    await criar();
+    const [, opcoes] = (global as any).fetch.mock.calls[0];
+    expect(opcoes.headers['x-consent-version']).toBe('3');
+    expect(JSON.parse(opcoes.body).cpf).toBe('12345678900');
+  });
+
+  it('201 e consentimento novo; 200 e reaproveitado', async () => {
+    responder({ data: { id: 'c1', status: 'AWAITING_AUTHORIZATION' } }, true, 201);
+    expect((await criar()).reaproveitado).toBe(false);
+
+    responder({ data: { id: 'c1', status: 'AWAITING_AUTHORIZATION' } }, true, 200);
+    expect((await criar()).reaproveitado).toBe(true);
+  });
+
+  /* 409 aqui NAO e falha: e o provedor dizendo "ja existe, e o id e este".
+   * Tratar como erro generico foi o que deixou seis consentimentos para
+   * tras no mesmo banco. */
+  it('409 vira conflito legivel, com o id e o prazo', async () => {
+    responder(
+      { reason: 'CONSENT_ALREADY_AUTHORISED', consent_id: 'c-ja', available_at: null },
+      false,
+      409,
+    );
+    await expect(criar()).rejects.toMatchObject({
+      name: 'ConflitoDeConsentimento',
+      motivo: 'CONSENT_ALREADY_AUTHORISED',
+      consentId: 'c-ja',
+    });
+
+    responder(
+      { reason: 'AUTHORIZATION_LINK_ACTIVE', available_at: '2026-11-15T18:00:00Z' },
+      false,
+      409,
+    );
+    await expect(criar()).rejects.toMatchObject({
+      motivo: 'AUTHORIZATION_LINK_ACTIVE',
+      disponivelEm: '2026-11-15T18:00:00Z',
+    });
+  });
+
+  it('outro erro na criacao continua sendo indisponibilidade, sem vazar corpo', async () => {
+    responder({ message: 'Plano inativo' }, false, 402);
+    await expect(criar()).rejects.toThrow(/recusou a criação/);
+    await expect(criar()).rejects.not.toBeInstanceOf(ConflitoDeConsentimento);
   });
 
   // ------------------------------------------------------------ segredos

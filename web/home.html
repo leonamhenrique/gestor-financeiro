@@ -11354,13 +11354,28 @@
       ofEl("of-cpf").value = "";
     }
     ofFecharFormulario();
+
+    /* O provedor pode responder "este CPF JÁ tem consentimento valendo neste
+     * banco" em vez de criar outro — e aí não há nada para autorizar. Criar
+     * mais um custaria caro: cada criação queima a cota mensal do CPF
+     * naquela instituição, e esgotada ela só volta na virada do mês. */
+    if (of.pendente.jaConectado) {
+      of.pendente = null;
+      await ofRecarregarLista();
+      avisar("Já estava conectado",
+        "Este banco já tinha uma autorização sua valendo, então aproveitei a que existe " +
+        "em vez de pedir outra. É só tocar em Buscar.");
+      return;
+    }
+
     ofEl("of-autorizar").hidden = false;
     ofEl("of-autorizar-texto").textContent =
       "Autorize no " + (of.pendente.instituicao || "banco") +
-      ", com o seu login de lá. O link abre uma vez só e vale cerca de uma hora — " +
-      "se não der certo, volte aqui e gere outro.";
-    of.conexoes = await api("/openfinance/connections").catch(function () { return of.conexoes; });
-    pintarOpenFinance();
+      ", com o seu login de lá. O link abre UMA vez só e vale cerca de uma hora — " +
+      "se não der certo, volte aqui e gere outro. " +
+      "Alguns bancos, como o Inter, só autorizam pelo aplicativo do celular: " +
+      "se você estiver no computador, faça este passo pelo telefone.";
+    await ofRecarregarLista();
   }
 
   function ofAbrirBanco() {
