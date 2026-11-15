@@ -147,6 +147,31 @@ services:
       # chamada sair, para um teste não cobrar gente de verdade.
       - key: ASAAS_BASE_URL
         value: https://api.asaas.com/v3
+      # ---------- Open Finance (Polp / Celcoin) ----------
+      # EXPERIMENTO. Enquanto estas três não existirem no painel, o módulo
+      # inteiro responde 404 e o app se comporta exatamente como antes dele.
+      #
+      # As chaves ficam no painel, nunca aqui: `x-api-secret` dá acesso a
+      # TODOS os consentimentos da conta — os de todo mundo, não só os de
+      # quem está logado. O `sync: false` é o que documenta o NOME sem
+      # trazer o valor, e também o que impede uma reaplicação do blueprint
+      # de varrer do painel uma variável que ele não conhecia.
+      - key: POLP_API_CLIENT
+        sync: false
+      - key: POLP_API_SECRET
+        sync: false
+      # "true" liga as rotas. Qualquer outra coisa, inclusive ausente, 404.
+      - key: OPENFINANCE_ENABLED
+        sync: false
+      # Quem ENXERGA a integração: ids ou e-mails separados por vírgula.
+      #
+      # Existe porque ligar a flag sozinha estrearia o recurso para o app
+      # inteiro — e cada consentimento autorizado é cobrado na nossa conta do
+      # provedor, de quem quer que conecte. Com a lista, a integração sobe
+      # ligada e segue invisível para todos menos para quem está nela.
+      # VAZIA quer dizer TODO MUNDO.
+      - key: OPENFINANCE_USERS
+        sync: false
       # Este não é segredo e fica versionado. O domínio precisa estar
       # verificado no Resend, e o endereço não precisa de caixa postal: o
       # Resend só envia, e quem responder cai em contato@saldonline.com.br

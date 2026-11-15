@@ -47,6 +47,7 @@ function linhaDoExtrato(dto: ImportItemDto) {
     seriesRef: dto.seriesRef,
     seriesIndex: dto.seriesIndex,
     seriesCount: dto.seriesCount,
+    providerTxId: dto.providerTxId,
   };
 }
 

@@ -130,6 +130,28 @@ describe('TransactionsService — importar extrato', () => {
     expect(todas.every((t) => t.importedAt instanceof Date)).toBe(true);
   });
 
+  /* A linha que veio do Open Finance guarda o id dela NO PROVEDOR. E o que
+   * faz a proxima sincronizacao reencontrar o que ja entrou: o provedor
+   * reenvia tudo a cada leitura, e sem esta coluna a lista de conferencia
+   * viria cheia do que a pessoa importou ontem. Tambem e o que diz o que
+   * apagar se a conexao cair -- com ele veio do banco, sem ele e do usuario. */
+  it('a linha do Open Finance leva o id do provedor', async () => {
+    await service.criarEmLote('user-1', 'imp-abc123', [
+      linha(10, { providerTxId: 'tx-do-banco-1' }),
+      linha(20),
+    ]);
+    const todas = [...transacoes.values()];
+    const deLa = todas.filter((t) => t.providerTxId);
+    expect(deLa).toHaveLength(1);
+    expect(deLa[0].providerTxId).toBe('tx-do-banco-1');
+    expect(deLa[0].syncedAt instanceof Date).toBe(true);
+
+    // A de arquivo continua sem nada: nulo nao colide com nulo no indice.
+    const daMao = todas.filter((t) => !t.providerTxId)[0];
+    expect(daMao.providerTxId).toBeNull();
+    expect(daMao.syncedAt).toBeNull();
+  });
+
   it('o carimbo de hora e o MESMO em todas', async () => {
     // Uma hora por linha faria "importações recentes" listar 74 lotes de uma
     // linha cada, em vez de um lote de 74.

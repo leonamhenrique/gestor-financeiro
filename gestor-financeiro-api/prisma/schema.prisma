@@ -138,6 +138,7 @@ model User {
   categoryRules       CategoryRule[]
   whatsappLink        WhatsappLink?
   whatsappPairings    WhatsappPairing[]
+  openFinanceConnections OpenFinanceConnection[]
 
   @@map("users")
 }
@@ -314,10 +315,16 @@ model BankAccount {
   // listados por padrão (ex: conta conjunta, reserva que não se quer ver).
   isHidden           Boolean     @default(false) @map("is_hidden")
   sortOrder          Int         @default(0) @map("sort_order") // ordem escolhida pelo usuário
+  /// De qual conexão de Open Finance esta conta vem, quando vem de alguma.
+  /// Nulo é o normal: conta criada à mão nunca teve conexão. Desconectar
+  /// devolve a conta para esse estado, com o histórico inteiro.
+  connectionId       String?     @map("connection_id")
+  providerAccountId  String?     @map("provider_account_id")
   createdAt          DateTime    @default(now()) @map("created_at")
   updatedAt          DateTime    @updatedAt @map("updated_at")
 
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection      OpenFinanceConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
   transactions    Transaction[]
   transfersOut    Transfer[]       @relation("TransferFrom")
   transfersIn     Transfer[]       @relation("TransferTo")
@@ -327,7 +334,9 @@ model BankAccount {
   invoicePayments InvoicePayment[] // pagamentos de fatura que saíram desta conta
   settlements     Settlement[] // acertos de despesa compartilhada que passaram por aqui
 
+  @@unique([connectionId, providerAccountId])
   @@index([userId])
+  @@index([connectionId])
   @@map("bank_accounts")
 }
 
@@ -421,6 +430,14 @@ model Transaction {
   // lancamentos que o carregam, e a verdade esta sempre nos proprios dados.
   importBatchId        String?           @map("import_batch_id")
   importedAt           DateTime?         @map("imported_at")
+  /// O id deste lançamento NO PROVEDOR de Open Finance, quando ele veio de
+  /// lá. Faz duas coisas com uma chave só: sincronizar de novo reencontra o
+  /// que já existe em vez de criar outro igual, e desconectar sabe o que
+  /// apagar — com `providerTxId` veio do banco, sem ele é do usuário, e esse
+  /// não se toca. Mesma forma do `clientKey`: nulo em tudo que não veio de
+  /// fora, e no Postgres nulos não colidem entre si num índice único.
+  providerTxId         String?           @map("provider_tx_id")
+  syncedAt             DateTime?         @map("synced_at")
   createdAt            DateTime          @default(now()) @map("created_at")
   updatedAt            DateTime          @updatedAt @map("updated_at")
 
@@ -441,6 +458,7 @@ model Transaction {
   // Por usuário, não global: a chave nasce no aparelho de cada um, e duas
   // pessoas podem gerar a mesma sem nunca terem se visto.
   @@unique([userId, clientKey])
+  @@unique([userId, providerTxId])
   // Desfazer uma importação busca todos os lançamentos de um lote.
   @@index([userId, importBatchId])
   @@index([userId, transactionDate])
@@ -665,16 +683,23 @@ model CreditCard {
   color         String?
   isActive      Boolean  @default(true) @map("is_active")
   sortOrder     Int      @default(0) @map("sort_order") // ordem escolhida pelo usuário
+  /// Mesma ideia da conta: nulo até alguém conectar, e nulo de novo depois
+  /// de desconectar — o cartão e as compras dele continuam onde estavam.
+  connectionId  String?  @map("connection_id")
+  providerAccountId String? @map("provider_account_id")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   user         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   bankAccount  BankAccount?             @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  connection   OpenFinanceConnection?   @relation(fields: [connectionId], references: [id], onDelete: SetNull)
   transactions Transaction[]
   invoices     CreditCardInvoice[]
   cycles       CreditCardBillingCycle[]
 
+  @@unique([connectionId, providerAccountId])
   @@index([userId])
+  @@index([connectionId])
   @@map("credit_cards")
 }
 
@@ -1012,6 +1037,55 @@ model CategoryRule {
 // `phoneLast4` existe para a tela poder dizer QUAL numero esta ligado sem
 // mostrar o numero inteiro: "termina em 4321". E o mesmo acordo do cartao,
 // onde o app guarda bandeira e ultimos quatro e nunca o PAN.
+/// Uma autorização de Open Finance: um banco, um usuário, um consentimento.
+///
+/// Existe como tabela, e não como colunas da conta, porque um consentimento
+/// é de um BANCO e traz várias contas e cartões de uma vez — e porque ele
+/// tem vida própria: nasce esperando autorização, vive meses, expira, é
+/// revogado, enquanto a conta do app existe antes, durante e depois.
+///
+/// `revokedAt` em vez de apagar: os lançamentos que entraram por ela
+/// continuam existindo depois de desconectar — desistir da integração não
+/// apaga o dinheiro de ninguém. Apagar a linha deixaria esse passado sem
+/// explicação.
+///
+/// O conectar é sempre opcional: quem nunca conectar nada no app não tem
+/// nenhuma linha aqui, e nada no sistema se comporta diferente por isso.
+model OpenFinanceConnection {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  /// Qual intermediário. Hoje só existe "POLP"; a coluna existe para que
+  /// trocar de provedor não seja uma migração de dados.
+  provider        String    @default("POLP")
+  /// O id do consentimento NO PROVEDOR — por ele se lê, se confere o status
+  /// e se revoga lá fora.
+  consentId       String    @map("consent_id")
+  institutionId   String    @map("institution_id")
+  /// Gravado de propósito, em vez de buscado a cada tela: o catálogo do
+  /// provedor muda, e uma conexão antiga tem de continuar sabendo dizer de
+  /// que banco ela era.
+  institutionName String?   @map("institution_name")
+  status          String
+  products        String[]  @default([])
+  /// Quando a autorização concluiu. Nulo enquanto espera o banco — e é só
+  /// a partir daí que o provedor cobra.
+  authorizedAt    DateTime? @map("authorized_at")
+  lastSyncedAt    DateTime? @map("last_synced_at")
+  revokedAt       DateTime? @map("revoked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccounts BankAccount[]
+  creditCards  CreditCard[]
+
+  /// O mesmo consentimento não entra duas vezes: uma segunda sincronização
+  /// criaria outra conexão, e as contas ficariam divididas entre as duas.
+  @@unique([provider, consentId])
+  @@index([userId])
+  @@map("open_finance_connections")
+}
+
 model WhatsappLink {
   id         String    @id @default(uuid())
   // Um vinculo por usuario: a pessoa fala de um numero so.

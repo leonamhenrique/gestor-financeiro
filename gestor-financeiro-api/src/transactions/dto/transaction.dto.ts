@@ -329,6 +329,17 @@ export class ImportItemDto {
   @MaxLength(80)
   seriesRef?: string;
 
+  /* O id desta transação NO PROVEDOR de Open Finance, quando a linha veio de
+   * lá. É o que faz a próxima sincronização reencontrar o que já entrou em
+   * vez de propor de novo: sem ele, o provedor reenvia tudo a cada leitura e
+   * a lista de conferência vem cheia do que a pessoa importou ontem.
+   *
+   * Nulo em importação de arquivo, que é a maioria. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  providerTxId?: string;
+
   @IsOptional()
   @IsInt()
   @Min(0)
