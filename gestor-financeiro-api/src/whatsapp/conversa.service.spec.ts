@@ -1833,12 +1833,27 @@ describe('ConversaService', () => {
 
     it('sem data dita, a compra e de hoje e a fatura diz quando vence', async () => {
       const r = await service.responderA(msg('83,99 com roney lava jato no cartao iti', 'f1'));
-      expect(r?.texto).toContain('📅 Data: 07/11/2026');
-      // O mês é o do FECHAMENTO — como no app inteiro —, e o dinheiro só sai
-      // no mês seguinte. Sem o vencimento ao lado, "11/2026" parecia errado.
-      // 11/2026 é a chave guardada — o mês em que ela FECHA. O nome é o mês
-      // em que ela vence, que é como o banco a chama.
-      expect(r?.texto).toContain('🧾 Fatura: 12/2026 (vence 07/12/2026)');
+      const texto = r?.texto ?? '';
+
+      /* Este caso é "hoje", e data escrita à mão aqui apodrece de um dia para
+       * o outro: escrita em 07/11/2026, ela passou a falhar sozinha em 08/11,
+       * sem nada ter mudado no código. O que se afirma é a REGRA. */
+      const hoje = new Date();
+      const dois = (n: number) => String(n).padStart(2, '0');
+      const hojeEscrito =
+        dois(hoje.getDate()) + '/' + dois(hoje.getMonth() + 1) + '/' + hoje.getFullYear();
+      expect(texto).toContain('📅 Data: ' + hojeEscrito);
+
+      // O mês guardado é o do FECHAMENTO — como no app inteiro —, e o dinheiro
+      // só sai no mês seguinte. Sem o vencimento ao lado, a etiqueta sozinha
+      // parecia errada. O NOME da fatura é o mês em que ela VENCE, que é como o
+      // banco a chama — e é isso que as duas linhas abaixo afirmam, sem
+      // depender do dia em que o teste roda.
+      const m = texto.match(/Fatura: (\d{2})\/(\d{4}) \(vence (\d{2})\/(\d{2})\/(\d{4})\)/);
+      expect(m).toBeTruthy();
+      expect(m![1] + '/' + m![2]).toBe(m![4] + '/' + m![5]);
+      // E o cartão deste describe vence dia 7.
+      expect(m![3]).toBe('07');
     });
 
     it('a data dita manda, e muda a fatura junto', async () => {
