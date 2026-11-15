@@ -1,14 +1,27 @@
 // ============================================================
-// openfinance.controller.ts — as portas, todas atrás de uma flag
+// openfinance.controller.ts — as portas, atrás de uma flag e de uma lista
 // ============================================================
 // Sem `OPENFINANCE_ENABLED=true` nenhuma destas rotas existe: o guard
 // responde 404, e não 403. A diferença importa — 403 conta que a coisa
 // existe e você não pode; 404 é o app de antes, em que isto nunca foi
 // escrito. É assim que "desistir" fica a uma variável de distância.
+//
+// E POR QUE NÃO BASTA A FLAG
+// Ligar a flag publicaria a integração para TODO MUNDO de uma vez — e cada
+// consentimento autorizado é cobrado na nossa conta do provedor, de quem
+// quer que conecte. Experimento que custa dinheiro por pessoa não pode
+// estrear no app inteiro. `OPENFINANCE_USERS` é a lista de quem enxerga:
+// com ela, a integração sobe ligada e continua invisível para todos menos
+// para quem está nela.
+//
+// Lista VAZIA quer dizer "todo mundo", que é o que a flag sozinha já dizia.
+// O cuidado fica em ligar a flag sem a lista, e é por isso que isto está
+// escrito aqui.
 // ============================================================
 
 import {
   CanActivate,
+  ExecutionContext,
   Controller,
   Injectable,
   NotFoundException,
@@ -24,11 +37,36 @@ import {
 import { IsString, IsNotEmpty, Matches, IsIn, IsOptional } from 'class-validator';
 import { OpenFinanceService, openFinanceLigado } from './openfinance.service';
 
-/** A flag, como guard: desligada, o módulo inteiro desaparece. */
+/**
+ * Quem enxerga a integração: ids ou e-mails, separados por vírgula.
+ *
+ * Aceita os dois porque quem configura sabe o próprio e-mail e não sabe o
+ * próprio id — e pedir que vá cavá-lo no banco para ligar uma flag seria
+ * transformar um passo de um minuto num de vinte.
+ */
+export function quemPodeOpenFinance(): string[] {
+  return (process.env.OPENFINANCE_USERS || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** A flag e a lista, como guard: fora delas, o módulo inteiro desaparece. */
 @Injectable()
 export class OpenFinanceAtivo implements CanActivate {
-  canActivate(): boolean {
+  canActivate(contexto?: ExecutionContext): boolean {
     if (!openFinanceLigado()) throw new NotFoundException();
+
+    const lista = quemPodeOpenFinance();
+    if (!lista.length) return true;
+
+    const usuario = contexto?.switchToHttp().getRequest()?.user || {};
+    const meus = [usuario.id, usuario.email]
+      .filter(Boolean)
+      .map((x: string) => String(x).toLowerCase());
+    /* Mesmo 404 de quando a flag está desligada: para quem não está na
+     * lista, a integração não existe — e não "existe e é para outros". */
+    if (!meus.some((x) => lista.includes(x))) throw new NotFoundException();
     return true;
   }
 }

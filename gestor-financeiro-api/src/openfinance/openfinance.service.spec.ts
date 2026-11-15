@@ -94,28 +94,72 @@ describe('OpenFinance', () => {
   });
 
   // ----------------------------------------------------------------------
-  describe('a flag desligada apaga o modulo', () => {
-    const antes = process.env.OPENFINANCE_ENABLED;
+  describe('quem enxerga a integracao', () => {
+    const antes = { ...process.env };
     afterEach(() => {
-      if (antes === undefined) delete process.env.OPENFINANCE_ENABLED;
-      else process.env.OPENFINANCE_ENABLED = antes;
+      process.env = { ...antes };
     });
+
+    /** Um contexto de requisicao como o Nest entrega, com o usuario logado. */
+    const como = (usuario: any) =>
+      ({ switchToHttp: () => ({ getRequest: () => ({ user: usuario }) }) }) as any;
+
+    const EU = { id: 'u-1', email: 'dono@exemplo.com' };
+    const OUTRO = { id: 'u-2', email: 'alguem@exemplo.com' };
 
     /* 404 e nao 403: 403 conta que existe e voce nao pode. 404 e o app de
      * antes, em que isto nunca foi escrito. */
     it('sem a variavel, as rotas nao existem', () => {
       delete process.env.OPENFINANCE_ENABLED;
-      expect(() => new OpenFinanceAtivo().canActivate()).toThrow(NotFoundException);
+      expect(() => new OpenFinanceAtivo().canActivate(como(EU))).toThrow(NotFoundException);
     });
 
     it('"false" tambem e desligado', () => {
       process.env.OPENFINANCE_ENABLED = 'false';
-      expect(() => new OpenFinanceAtivo().canActivate()).toThrow(NotFoundException);
+      expect(() => new OpenFinanceAtivo().canActivate(como(EU))).toThrow(NotFoundException);
     });
 
-    it('so "true" liga', () => {
+    it('ligada e sem lista: todo mundo', () => {
       process.env.OPENFINANCE_ENABLED = 'true';
-      expect(new OpenFinanceAtivo().canActivate()).toBe(true);
+      delete process.env.OPENFINANCE_USERS;
+      expect(new OpenFinanceAtivo().canActivate(como(OUTRO))).toBe(true);
+    });
+
+    /* O caso que esta lista existe para resolver: a integracao sobe LIGADA em
+     * producao e mesmo assim nao estreia para o app inteiro -- cada
+     * consentimento autorizado e cobrado, de quem quer que conecte. */
+    it('com lista, quem esta nela entra', () => {
+      process.env.OPENFINANCE_ENABLED = 'true';
+      process.env.OPENFINANCE_USERS = 'dono@exemplo.com';
+      expect(new OpenFinanceAtivo().canActivate(como(EU))).toBe(true);
+    });
+
+    it('com lista, quem nao esta nela ve o MESMO 404 de desligado', () => {
+      process.env.OPENFINANCE_ENABLED = 'true';
+      process.env.OPENFINANCE_USERS = 'dono@exemplo.com';
+      expect(() => new OpenFinanceAtivo().canActivate(como(OUTRO))).toThrow(NotFoundException);
+    });
+
+    it('vale pelo id tambem, nao so pelo e-mail', () => {
+      process.env.OPENFINANCE_ENABLED = 'true';
+      process.env.OPENFINANCE_USERS = 'u-1';
+      expect(new OpenFinanceAtivo().canActivate(como(EU))).toBe(true);
+      expect(() => new OpenFinanceAtivo().canActivate(como(OUTRO))).toThrow(NotFoundException);
+    });
+
+    /* Quem digita a lista no painel digita com espaco depois da virgula e com
+     * a maiuscula que o teclado do telefone poe sozinha. Nenhum dos dois pode
+     * custar uma tarde de "liguei e nao apareceu". */
+    it('espaco e maiuscula nao derrubam ninguem', () => {
+      process.env.OPENFINANCE_ENABLED = 'true';
+      process.env.OPENFINANCE_USERS = ' Dono@Exemplo.com , outro@exemplo.com ';
+      expect(new OpenFinanceAtivo().canActivate(como(EU))).toBe(true);
+    });
+
+    it('lista so de virgulas conta como vazia, e nao tranca todo mundo', () => {
+      process.env.OPENFINANCE_ENABLED = 'true';
+      process.env.OPENFINANCE_USERS = ' , , ';
+      expect(new OpenFinanceAtivo().canActivate(como(OUTRO))).toBe(true);
     });
   });
 

@@ -114,11 +114,46 @@ aumenta o que se perde num vazamento em troca de nada: na reconexão ele
 digita de novo, uma vez por ano. Tem teste que lê o que foi gravado e exige
 que o número não esteja lá.
 
-### O que falta
+### A tela, e a prova de ponta a ponta
 
-A **tela**. A API propõe; o navegador ainda não consome. O caminho é o do
-importador de OFX, que já tem conferência, casamento e desfazer por lote —
-e é o que mantém as regras numa versão só.
+A tela existe e entra pela porta do importador de OFX — que já tem
+conferência, casamento, criação de parcelas e desfazer por lote. Depois que
+os lançamentos chegam, não há mais nada de Open Finance no caminho.
+
+Rodado em 15/11/2026 com a API local e o consentimento real do Inter:
+
+| passo | medido |
+| --- | --- |
+| sincronizar | 18 na conta + 483 no cartão, em **14 faturas** na tela |
+| importar uma fatura | 14 lançamentos, todos com `provider_tx_id` e `synced_at` |
+| vínculo | cartão ligado à conexão e à conta de lá |
+| sincronizar de novo | a fatura importada **sumiu** da proposta |
+| desfazer o lote | 14 removidos, saldo e fatura de volta |
+
+Três defeitos só apareceram aí, e nenhum deles teria aparecido em teste de
+unidade: o botão que não fazia nada (seletor de uma classe que deixou de
+existir), o `provider_tx_id` que não atravessava do navegador até o pedido
+— a idempotência existia só no papel — e o vínculo que nunca era gravado
+porque ninguém chamava a função.
+
+### Ligar isso em produção
+
+Duas variáveis, e a ordem importa:
+
+- `OPENFINANCE_ENABLED=true` liga as rotas. Sozinha, ela **estrearia o
+  recurso para o app inteiro** — e cada consentimento autorizado é cobrado
+  na nossa conta do provedor, de quem quer que conecte;
+- `OPENFINANCE_USERS` é a lista de quem ENXERGA: ids ou e-mails separados por
+  vírgula. Com ela, a integração sobe ligada e continua invisível para todos
+  menos para quem está nela. **Vazia quer dizer todo mundo.**
+
+Quem não está na lista recebe o MESMO 404 de quando a flag está desligada:
+para ele a integração não existe, e não "existe e é para outros".
+
+A migration não tem passo manual: o `startCommand` do Render é
+`prisma migrate deploy && node dist/main`, então ela se aplica no deploy. As
+quatro variáveis estão declaradas no `render.yaml` com `sync: false` — o
+nome versionado, o valor só no painel.
 
 ## Credenciais
 
