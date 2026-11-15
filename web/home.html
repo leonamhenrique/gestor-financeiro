@@ -11582,7 +11582,10 @@
     if (!botao) return;
     var acao = botao.getAttribute("data-of");
     if (acao === "usar") return ofUsarFonte(Number(botao.getAttribute("data-i")));
-    var linha = botao.closest(".of-conexao");
+    /* `.imp-lote` é a linha reusada do desfazer logo abaixo. Esta busca já
+     * apontou para uma classe que deixou de existir, e o sintoma foi o pior
+     * tipo: o botão não fazia NADA — sem erro, sem aviso, sem pedido na rede. */
+    var linha = botao.closest(".imp-lote");
     var id = linha && linha.getAttribute("data-id");
     if (!id) return;
     if (acao === "sincronizar") ofSincronizar(id, botao);
@@ -12032,6 +12035,13 @@
         // O extrato é de UMA fatura: o override é o que impede cada compra de
         // cair na fatura da própria data, que é a regra normal do cartão.
         faturaMesOverride: chaveFatura,
+        /* O id do lançamento NO PROVEDOR, quando veio do Open Finance. Vem
+         * no `fitid` — o campo que o OFX já trazia e que ninguém usava — e
+         * precisa atravessar até o servidor: é ele que faz a próxima
+         * sincronização reencontrar o que já entrou. Medido: sem esta linha
+         * a importação grava tudo com `providerTxId` nulo, e a sincronização
+         * seguinte propõe o extrato inteiro de novo. */
+        providerTxId: imp.openFinance ? (l.base.fitid || null) : null,
         importacaoId: loteId, importadoEm: agora
       };
     });
@@ -12094,7 +12104,8 @@
       bankAccountId: t.contaId || undefined,
       creditCardId: t.cartaoId || undefined,
       isConfirmed: t.confirmada,
-      invoiceMonth: t.cartaoId && t.faturaMesOverride ? t.faturaMesOverride : undefined
+      invoiceMonth: t.cartaoId && t.faturaMesOverride ? t.faturaMesOverride : undefined,
+      providerTxId: t.providerTxId || undefined
     };
     // A compra parcelada: o servidor cria uma série por `seriesRef`.
     if (t.serieRef) {
@@ -12169,6 +12180,13 @@
      * A categoria gravada é a RESOLVIDA, depois de "Criar …" virar uma
      * categoria de verdade — uma regra apontando para um nome que não existe
      * não serviria para nada na importação seguinte. */
+    /* A correspondência "esta conta de lá é este cartão daqui" se aprende
+     * AQUI, com a importação que deu certo — a pessoa acabou de responder
+     * com o dedo qual é o destino. Perguntar de novo na próxima seria pedir
+     * duas vezes a mesma coisa. Não bloqueia nem alarma: se falhar, o preço
+     * é uma pergunta a mais, e a importação já aconteceu. */
+    await ofVincular();
+
     var aprendidas = {};
     marcadas.forEach(function (l) {
       if (!l.ensinar || !l.chaveRegra) return;
