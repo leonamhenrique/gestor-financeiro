@@ -166,6 +166,29 @@ Na v3 o `url_to_authenticate` é um link curto da própria Polp
 visualização de mensageiro (WhatsApp, Telegram) **não** consome o link —
 mandar por mensagem é seguro; antivírus de e-mail pode consumir.
 
+### O id do provedor vale DENTRO de um consentimento
+
+Medido em 15/11/2026, com dados reais: depois de revogar um consentimento e
+criar outro no mesmo banco, **nenhum dos 14 ids guardados existia mais**. O
+próprio cartão mudou de id (`01a1dfd3…` virou `01a1e05a…`), e a mesma
+compra voltou com outro id de transação.
+
+Ou seja: `provider_tx_id` identifica a transação **naquele consentimento**,
+não no banco. Vale para o uso normal — sincronizar todo dia pelo mesmo
+consentimento — e deixa de valer quando um consentimento novo substitui o
+antigo.
+
+A v3 reduz muito isso: ela **reaproveita** o consentimento rejeitado,
+expirado ou revogado, mantendo o id da Polp e os recursos já sincronizados.
+Os ids só mudam quando os dados foram apagados por retenção (mais de 6 dias
+nesses status) ou quando nasce um consentimento realmente novo.
+
+**O que protege quando acontece:** a conferência da tela. Os lançamentos
+voltam como proposta, mas o casamento por texto, valor e data os marca como
+repetidos e eles nascem **desmarcados** — o estrago é uma lista comprida,
+não dinheiro em dobro. O vínculo conta/cartão também se perde junto, então
+o destino volta a ser escolhido uma vez.
+
 ### Autorizar no computador
 
 Quem decide como o cliente se autentica é a instituição, e algumas só

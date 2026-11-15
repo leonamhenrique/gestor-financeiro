@@ -335,6 +335,74 @@ describe('OpenFinance', () => {
   });
 
   // ----------------------------------------------------------------------
+  describe('o que espera conferencia', () => {
+    /* Sem isto, quem autorizava no banco voltava ao app e via "aguardando a
+     * sua autorizacao": a tela mostra o ultimo status GUARDADO, e o banco
+     * nao nos avisa por iniciativa propria. A pessoa tinha de tocar em "Ja
+     * autorizei" para o app descobrir o que ja era verdade. */
+    it('abrir a lista confere quem ainda esperava autorizacao', async () => {
+      prisma.openFinanceConnection.findMany.mockResolvedValue([
+        { ...CONEXAO, status: 'AWAITING_AUTHORIZATION', authorizedAt: null },
+      ]);
+      polp.consentimento.mockResolvedValue({ status: 'AUTHORISED', execucao: 'SUCCESS' });
+
+      const r = await service.listar('u1');
+
+      expect(polp.consentimento).toHaveBeenCalledWith('consent-1');
+      expect(r[0].status).toBe('AUTHORISED');
+    });
+
+    it('quem ja esta autorizado nao custa uma chamada', async () => {
+      prisma.openFinanceConnection.findMany.mockResolvedValue([CONEXAO]);
+      await service.listar('u1');
+      expect(polp.consentimento).not.toHaveBeenCalled();
+    });
+
+    it('provedor fora nao apaga a lista', async () => {
+      prisma.openFinanceConnection.findMany.mockResolvedValue([
+        { ...CONEXAO, status: 'AWAITING_AUTHORIZATION' },
+      ]);
+      polp.consentimento.mockRejectedValue(new Error('fora do ar'));
+
+      const r = await service.listar('u1');
+      expect(r[0].status).toBe('AWAITING_AUTHORIZATION');
+    });
+
+    /* Nulo e "ainda nao perguntei"; zero e "perguntei e nao havia nada". So
+     * o zero autoriza a tela a ficar calada, e achatar os dois faria uma
+     * conexao recem-criada parecer conferida e sem novidade. */
+    it('nulo nao vira zero no caminho ate a tela', async () => {
+      prisma.openFinanceConnection.findMany.mockResolvedValue([
+        { id: 'cx1', institutionName: 'Inter', pendingCount: null, pendingCheckedAt: null },
+        { id: 'cx2', institutionName: 'Nubank', pendingCount: 3, pendingCheckedAt: new Date() },
+      ]);
+
+      const r = await service.pendentes('u1');
+
+      expect(r.total).toBe(3);
+      expect(r.conexoes[0].pendentes).toBeNull();
+      expect(r.conexoes[1].pendentes).toBe(3);
+    });
+
+    it('recontar guarda o numero e a hora', async () => {
+      polp.cartoes.mockResolvedValue([{ providerAccountId: 'k-la', nome: 'GOLD' }]);
+      polp.transacoesDoCartao.mockResolvedValue([
+        { providerTxId: 't1', data: '2026-11-12', valor: 10, tipo: 'EXPENSE', descricao: 'A', parcela: null, faturada: true, faturaPrevista: null, pagamentoDeFatura: false },
+        { providerTxId: 't2', data: '2026-11-12', valor: 20, tipo: 'EXPENSE', descricao: 'B', parcela: null, faturada: true, faturaPrevista: null, pagamentoDeFatura: false },
+      ]);
+
+      const total = await service.recontarPendentes('u1', 'cx1');
+
+      expect(total).toBe(2);
+      expect(prisma.openFinanceConnection.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ pendingCount: 2, pendingCheckedAt: expect.any(Date) }),
+        }),
+      );
+    });
+  });
+
+  // ----------------------------------------------------------------------
   describe('vincular', () => {
     it('liga o cartao de la ao cartao daqui', async () => {
       prisma.creditCard.findFirst.mockResolvedValue({ id: 'k-daqui' });

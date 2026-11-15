@@ -9,10 +9,13 @@
 import { Module } from '@nestjs/common';
 import { OpenFinanceController, OpenFinanceAtivo } from './openfinance.controller';
 import { OpenFinanceService } from './openfinance.service';
+import { OpenFinanceScheduler } from './openfinance.scheduler';
 import { PolpClient } from './polp.client';
 
 @Module({
   controllers: [OpenFinanceController],
-  providers: [OpenFinanceService, PolpClient, OpenFinanceAtivo],
+  /* O trabalho diário entra aqui e em lugar nenhum mais: desistir do
+   * experimento continua sendo apagar esta pasta. */
+  providers: [OpenFinanceService, PolpClient, OpenFinanceAtivo, OpenFinanceScheduler],
 })
 export class OpenFinanceModule {}

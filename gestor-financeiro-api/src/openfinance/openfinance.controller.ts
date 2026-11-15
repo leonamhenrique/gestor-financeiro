@@ -113,6 +113,18 @@ export class OpenFinanceController {
     return this.openFinance.listar(req.user.id);
   }
 
+  /**
+   * Quantos lançamentos esperam conferência.
+   *
+   * Lê do banco, sem falar com o provedor: é o que a tela chama ao abrir o
+   * app, e perguntar lá fora aqui custaria o extrato inteiro a cada
+   * abertura. Quem pergunta é o trabalho diário.
+   */
+  @Get('pendentes')
+  pendentes(@Req() req: any) {
+    return this.openFinance.pendentes(req.user.id);
+  }
+
   /** Cria o consentimento e devolve o link que o DONO DA CONTA vai abrir. */
   @Post('connections')
   conectar(@Req() req: any, @Body() dto: ConectarDto) {

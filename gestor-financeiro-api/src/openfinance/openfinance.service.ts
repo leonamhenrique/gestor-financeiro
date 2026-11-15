@@ -222,13 +222,95 @@ export class OpenFinanceService {
       where: { userId, revokedAt: null },
       orderBy: { createdAt: 'desc' },
     });
-    return conexoes.map((c) => ({
+
+    /* Quem está esperando autorização tem o status conferido agora.
+     *
+     * Sem isto, quem autorizou no banco voltava ao app e via "aguardando a
+     * sua autorização" — porque o app mostra o último status que GUARDOU, e
+     * o banco não nos avisa por iniciativa própria. A pessoa tinha de tocar
+     * em "Já autorizei" para o app descobrir o que já era verdade. São
+     * poucas conexões por pessoa, e só as pendentes custam uma chamada. */
+    const frescas = await Promise.all(
+      conexoes.map(async (c) => {
+        if (c.status === 'AUTHORISED') return c;
+        try {
+          const la = await this.polp.consentimento(c.consentId);
+          if (la.status === c.status) return c;
+          return await this.prisma.openFinanceConnection.update({
+            where: { id: c.id },
+            data: {
+              status: la.status,
+              ...(la.status === 'AUTHORISED' && !c.authorizedAt
+                ? { authorizedAt: new Date() }
+                : {}),
+            },
+          });
+        } catch {
+          /* Provedor fora não pode apagar a lista: o que se sabia continua
+           * valendo, e a próxima abertura tenta de novo. */
+          return c;
+        }
+      }),
+    );
+
+    return frescas.map((c) => ({
       id: c.id,
       instituicao: c.institutionName,
       status: c.status,
       autorizadaEm: c.authorizedAt,
       sincronizadaEm: c.lastSyncedAt,
+      pendentes: c.pendingCount,
+      conferidoEm: c.pendingCheckedAt,
     }));
+  }
+
+  /**
+   * Quantos lançamentos esperam — lido do banco, sem falar com o provedor.
+   *
+   * É o que a tela chama ao abrir o app. Perguntar ao provedor aqui custaria
+   * centenas de transações baixadas a cada abertura para, na maioria das
+   * vezes, não mostrar nada. Quem pergunta é o trabalho diário.
+   */
+  async pendentes(userId: string) {
+    const conexoes = await this.prisma.openFinanceConnection.findMany({
+      where: { userId, revokedAt: null, status: 'AUTHORISED' },
+      select: {
+        id: true,
+        institutionName: true,
+        pendingCount: true,
+        pendingCheckedAt: true,
+      },
+    });
+    return {
+      total: conexoes.reduce((soma, c) => soma + (c.pendingCount ?? 0), 0),
+      conexoes: conexoes.map((c) => ({
+        id: c.id,
+        instituicao: c.institutionName,
+        /* Nulo continua nulo até a tela: "ainda não perguntei" não é zero, e
+         * só o zero autoriza a tela a ficar calada. */
+        pendentes: c.pendingCount,
+        conferidoEm: c.pendingCheckedAt,
+      })),
+    };
+  }
+
+  /**
+   * Pergunta ao provedor e guarda o número. Para o trabalho diário.
+   *
+   * Devolve quantos esperam. Erro de uma conexão não pode derrubar as
+   * outras — quem chama trata uma a uma.
+   */
+  async recontarPendentes(userId: string, conexaoId: string): Promise<number> {
+    const proposta = await this.paraImportar(userId, conexaoId);
+    const total =
+      proposta.contas.reduce((n, c) => n + c.lancamentos.length, 0) +
+      proposta.cartoes.reduce((n, k) => n + k.lancamentos.length, 0);
+
+    await this.prisma.openFinanceConnection.update({
+      where: { id: conexaoId },
+      data: { pendingCount: total, pendingCheckedAt: new Date() },
+    });
+    return total;
   }
 
   /** Releva o status no provedor e guarda o que mudou. */

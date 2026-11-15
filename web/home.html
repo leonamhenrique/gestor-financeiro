@@ -1803,6 +1803,23 @@
     transition: color 180ms ease-out;
   }
   .tab.on { color: var(--fg); border-top-color: var(--accent); }
+  /* Quantos lançamentos do banco esperam conferência.
+   *
+   * Fica no item de menu porque é onde a pessoa já olha todo dia — um
+   * lugar próprio seria uma tela que ela teria de lembrar de abrir. Número
+   * que não muda decisão nenhuma não entraria aqui; este manda abrir a
+   * tela, e some sozinho quando chega a zero. */
+  .of-pendentes {
+    min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
+    flex-shrink: 0;
+  }
+  .nav-item .of-pendentes { margin-left: auto; }
+  .tab { position: relative; }
+  /* No celular o rótulo fica embaixo do ícone, então a marca vai para o
+   * canto do próprio botão, e não para o fim da linha. */
+  .tab .of-pendentes { position: absolute; top: 2px; right: calc(50% - 24px); }
   .tab svg { width: 20px; height: 20px; }
   /* O rótulo manda na largura da aba: é por ele que a barra desliza. Nada de
    * reticências — era isso que a barra deslizante veio resolver. */
@@ -7834,6 +7851,10 @@
     }
     entrarNoApp();
     sincronizarFila(true);
+    /* Sem await e sem `catch` que alarme: o número de lançamentos esperando
+     * é recado, não requisito para entrar. Quem não tem Open Finance ligado
+     * leva 404 aqui e nunca vai saber que a chamada existiu. */
+    ofContarPendentes();
   }
 
   async function enviarParaApi(d) {
@@ -11261,6 +11282,33 @@
     }
     bloco.hidden = false;
     pintarOpenFinance();
+    await ofBuscarSozinho();
+    ofContarPendentes();
+  }
+
+  /** O número que a navegação mostra. Lê do nosso banco, não do provedor. */
+  async function ofContarPendentes() {
+    if (!MODO_API) return;
+    var r;
+    try { r = await api("/openfinance/pendentes"); } catch (e) { return; }
+    ofPintarPendentes(r && r.total);
+  }
+
+  /* O aviso onde a pessoa já olha todo dia, e não numa tela que ela teria
+   * de lembrar de abrir. Zero some: número que fica aceso sem querer dizer
+   * nada é número que para de ser lido. */
+  function ofPintarPendentes(total) {
+    document.querySelectorAll('[data-ordem-id="importar"]').forEach(function (item) {
+      var marca = item.querySelector(".of-pendentes");
+      if (!total) { if (marca) marca.remove(); return; }
+      if (!marca) {
+        marca = document.createElement("span");
+        marca.className = "of-pendentes";
+        item.appendChild(marca);
+      }
+      marca.textContent = total > 99 ? "99+" : String(total);
+      marca.setAttribute("aria-label", total + " lançamentos aguardando conferência");
+    });
   }
 
   /* Reusa `.imp-lote` do desfazer logo abaixo: é a mesma coisa na tela — uma
@@ -11440,14 +11488,34 @@
   }
 
   // ---------------------------------------------------------- sincronizar
-  async function ofSincronizar(id, botao) {
+  async function ofSincronizar(id, botao, calado) {
     var proposta = await ofPerguntar(botao, "/openfinance/connections/" + id + "/sync", {});
     if (!proposta) return;
     of.proposta = proposta;
-    of.fontes = ofFontes(proposta);
+    /* Substitui as fontes DESTA conexão e preserva as outras: com dois
+     * bancos conectados, buscar num não pode apagar o que o outro mandou. */
+    of.fontes = of.fontes.filter(function (f) { return f.connectionId !== proposta.connectionId; })
+      .concat(ofFontes(proposta));
     await ofRecarregarLista();
-    if (!of.fontes.length) {
+    if (!of.fontes.length && !calado) {
       avisar("Nada novo", "O banco não mandou nenhum lançamento que você ainda não tenha.");
+    }
+  }
+
+  /**
+   * Buscar sozinho ao abrir a tela.
+   *
+   * O "Buscar" continua existindo para quem quiser forçar, mas ninguém
+   * precisa dele: quem abriu a tela de Importar já disse o que queria. O
+   * trabalho diário conta quantos esperam; aqui a lista aparece pronta.
+   *
+   * `calado` porque isto roda sem ninguém ter pedido: avisar "nada novo" a
+   * cada abertura seria um alarme para dizer que está tudo certo.
+   */
+  async function ofBuscarSozinho() {
+    var prontas = of.conexoes.filter(function (c) { return c.status === "AUTHORISED"; });
+    for (var i = 0; i < prontas.length; i++) {
+      await ofSincronizar(prontas[i].id, null, true);
     }
   }
 
@@ -11470,6 +11538,7 @@
       // viraria "Conta · conta".
       var nome = /conta/i.test(c.nome) ? c.nome : c.nome + " · conta";
       fora.push({ titulo: nome, ehCartao: false, destinoId: c.bankAccountId,
+                  connectionId: p.connectionId,
                   providerAccountId: c.providerAccountId, lancamentos: c.lancamentos });
     });
     (p.cartoes || []).forEach(function (k) {
@@ -11482,6 +11551,7 @@
         fora.push({
           titulo: k.nome + " · fatura " + chave.slice(5) + "/" + chave.slice(0, 4),
           ehCartao: true, destinoId: k.creditCardId, providerAccountId: k.providerAccountId,
+          connectionId: p.connectionId,
           faturaPrevista: chave, lancamentos: porFatura[chave]
         });
       });
@@ -11513,7 +11583,7 @@
       formato: "OPENFINANCE",
       fatura: faturaDoArquivo({ fimDoPeriodo: fim }) || { y: HOJE.getFullYear(), m: HOJE.getMonth() },
       linhas: [],
-      openFinance: { connectionId: of.proposta.connectionId,
+      openFinance: { connectionId: f.connectionId,
                      providerAccountId: f.providerAccountId,
                      destino: f.ehCartao ? "CARTAO" : "CONTA",
                      faturaPrevista: f.faturaPrevista || "" }
@@ -12201,6 +12271,11 @@
      * duas vezes a mesma coisa. Não bloqueia nem alarma: se falhar, o preço
      * é uma pergunta a mais, e a importação já aconteceu. */
     await ofVincular();
+
+    /* O número na navegação cai junto: importar é justamente o que tira
+     * lançamentos da fila de espera, e deixá-lo aceso depois disso faria a
+     * pessoa voltar à tela para encontrar nada. */
+    ofContarPendentes();
 
     var aprendidas = {};
     marcadas.forEach(function (l) {

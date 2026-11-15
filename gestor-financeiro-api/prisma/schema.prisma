@@ -1071,6 +1071,15 @@ model OpenFinanceConnection {
   /// a partir daí que o provedor cobra.
   authorizedAt    DateTime? @map("authorized_at")
   lastSyncedAt    DateTime? @map("last_synced_at")
+  /// Quantos lançamentos esperam conferência, contados pelo trabalho
+  /// diário. A tela lê daqui em vez de perguntar ao provedor a cada abertura
+  /// do app — seriam centenas de transações baixadas para, na maioria das
+  /// vezes, não mostrar nada.
+  ///
+  /// Nulo é "ainda não perguntei", que é diferente de zero, "perguntei e não
+  /// havia nada". Só o zero autoriza a tela a ficar calada.
+  pendingCount     Int?      @map("pending_count")
+  pendingCheckedAt DateTime? @map("pending_checked_at")
   revokedAt       DateTime? @map("revoked_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
