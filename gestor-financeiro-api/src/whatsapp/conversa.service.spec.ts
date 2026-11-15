@@ -747,6 +747,52 @@ describe('ConversaService', () => {
       imagemId: 'img-1',
     });
 
+    /* Antes daqui, faltando qualquer coisa a foto tinha de ir DE NOVO: a
+     * saída do cupom dizia "responda com essa parte" e não guardava nada.
+     * Agora o cupom LIDO fica no rascunho, e só a legenda cresce — a imagem
+     * não é baixada nem lida outra vez. */
+    describe('completar o que faltou na foto', () => {
+      it('a resposta completa a legenda, sem a foto voltar', async () => {
+        lidoDoCupom = { valor: 65, data: '2026-11-07', parcelas: 1, estabelecimento: 'Salim Campolina' };
+
+        const r = await service.responderA(foto('no cartao de credito nubank roxinho', 'f1'));
+        expect(r?.texto).toContain('Li o cupom, mas faltou categoria.');
+        expect(r?.texto).toContain('👉 Responda só com essa parte — eu guardo o resto.');
+
+        const completo = await service.responderA(msg('alimentacao', 'f2'));
+        expect(completo?.texto).toContain('💵 Valor: R$ 65,00');
+        expect(completo?.texto).toContain('📝 Descrição: Salim Campolina');
+        expect(completo?.texto).toContain('🏷️ Categoria: Alimentação');
+        expect(completo?.confirmar).toBe(true);
+
+        // A imagem foi lida UMA vez, e não duas.
+        expect((cupom.ler as jest.Mock).mock.calls.length).toBe(1);
+
+        await service.responderA(msg('sim', 'f3'));
+        expect(criados[0]).toMatchObject({ amount: 65, categoryId: 'c1', creditCardId: 'k1' });
+      });
+
+      /* Foto sem legenda nenhuma guarda a legenda como string VAZIA — e
+       * string vazia é falsa em JavaScript. A interceptação escapava, a
+       * resposta virava frase nova e o cupom se perdia: quem tinha dito só o
+       * cartão via "Valor: R$ 0,00". */
+      it('foto sem legenda nenhuma tambem guarda o cupom', async () => {
+        lidoDoCupom = { valor: 65, data: '2026-11-07', parcelas: 1, estabelecimento: 'Salim Campolina' };
+
+        const r = await service.responderA(foto('', 'g1'));
+        expect(r?.texto).toContain('Li o cupom, mas faltou destino, categoria.');
+
+        const comCartao = await service.responderA(msg('no cartao nubank roxinho', 'g2'));
+        expect(comCartao?.texto).toContain('💵 Valor: R$ 65,00');
+        expect(comCartao?.texto).toContain('Li o cupom, mas faltou categoria.');
+
+        const comTudo = await service.responderA(msg('alimentacao', 'g3'));
+        expect(comTudo?.texto).toContain('💵 Valor: R$ 65,00');
+        expect(comTudo?.confirmar).toBe(true);
+        expect((cupom.ler as jest.Mock).mock.calls.length).toBe(1);
+      });
+    });
+
     it('o cupom da valor e data; a legenda diz onde lancar', async () => {
       const r = await service.responderA(foto('cartao de credito nubank categoria compras'));
       expect(r?.texto).toContain('💵 Valor: R$ 182,94');

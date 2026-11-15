@@ -57,8 +57,14 @@ const PEDIDO = [
   '- "total": número do VALOR TOTAL pago (ponto como decimal), ou null;',
   '- "data": a data da compra em AAAA-MM-DD (use a data de autorização, ou a do cabeçalho), ou null;',
   '- "parcelas": inteiro; 1 para à vista ou débito; o número quando o cupom disser parcelado, ou null;',
-  '- "estabelecimento": o nome da loja como um cliente a chamaria, sem CNPJ, sem endereço e sem número de loja, ou null.',
-  'Nunca inclua número de cartão, nem mascarado; nunca inclua nome de pessoa, lista de itens, CNPJ ou chave de acesso.',
+  '- "estabelecimento": QUEM RECEBEU o dinheiro. É a razão social ou o nome fantasia',
+  '  impresso junto do CNPJ/CPF, quase sempre no RODAPÉ do comprovante — e não a marca',
+  '  da maquininha ou do meio de pagamento no alto (Mercado Pago, Cielo, Stone, Rede,',
+  '  PagSeguro, PagBank, SumUp, GetNet, Ton, InfinitePay), que processa a cobrança e',
+  '  não vendeu nada. Muita loja brasileira se chama pelo nome do dono ("Salim',
+  '  Campolina", "Padaria do Zé"): esse nome É o estabelecimento. Sem CNPJ, sem',
+  '  endereço e sem número de loja. Null se não der para ler.',
+  'Nunca inclua o nome do PORTADOR do cartão, número de cartão nem mascarado, lista de itens, CNPJ ou chave de acesso.',
   'Campo ilegível vira null. Não invente.',
 ].join('\n');
 
@@ -123,6 +129,22 @@ export class CupomService {
   }
 
   /**
+   * As marcas que processam o pagamento e não vendem nada.
+   *
+   * O comprovante traz a maquininha em cima, grande, e a loja embaixo, miúda,
+   * junto do CNPJ. Pedir no texto que o leitor prefira a de baixo ajuda, mas
+   * não garante — e o estrago de errar aqui não é só a descrição: é a REGRA
+   * DE LOJISTA. Aprendida uma vez, toda compra paga em maquininha Mercado
+   * Pago, de qualquer loja, cairia na mesma categoria.
+   */
+  private static readonly MAQUININHAS = [
+    'mercado pago', 'mercadopago', 'mercado livre', 'mercadolivre',
+    'cielo', 'stone', 'pagseguro', 'pagbank', 'sumup', 'getnet', 'rede',
+    'ton', 'infinitepay', 'safrapay', 'vero', 'moderninha', 'point',
+    'maquininha', 'pix', 'visa', 'mastercard', 'elo', 'american express', 'amex',
+  ];
+
+  /**
    * O nome da loja, sem número nenhum.
    *
    * Apagar dígitos aqui é a garantia que a instrução em texto não dá: se o
@@ -140,7 +162,12 @@ export class CupomService {
       .replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '')
       .trim()
       .slice(0, 60);
-    return limpo.length >= 3 ? limpo : null;
+    if (limpo.length < 3) return null;
+    /* Comparação pelo nome INTEIRO, e não por conter: "Mercadinho do Pago"
+     * não é o Mercado Pago, e "Casa do Pão" tem "pão", não "pagseguro".
+     * Descartar demais aqui apagaria loja de verdade. */
+    const chave = limpo.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    return CupomService.MAQUININHAS.includes(chave) ? null : limpo;
   }
 
   private chave(): string | undefined {
