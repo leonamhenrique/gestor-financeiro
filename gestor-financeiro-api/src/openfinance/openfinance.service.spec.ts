@@ -64,8 +64,16 @@ describe('OpenFinance', () => {
         findFirst: jest.fn().mockResolvedValue(CONEXAO),
         update: jest.fn().mockImplementation(({ data }: any) => ({ ...CONEXAO, ...data })),
       },
-      bankAccount: { findFirst: jest.fn().mockResolvedValue(null) },
-      creditCard: { findFirst: jest.fn().mockResolvedValue(null) },
+      bankAccount: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      creditCard: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
       transaction: {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
@@ -205,6 +213,68 @@ describe('OpenFinance', () => {
     it('conexao de outra pessoa nao existe', async () => {
       prisma.openFinanceConnection.findFirst.mockResolvedValue(null);
       await expect(service.paraImportar('u2', 'cx1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  describe('vincular', () => {
+    it('liga o cartao de la ao cartao daqui', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue({ id: 'k-daqui' });
+
+      const r = await service.vincular('u1', 'cx1', {
+        providerAccountId: 'k-la',
+        destino: 'CARTAO',
+        destinoId: 'k-daqui',
+      });
+
+      expect(r.vinculado).toBe(true);
+      expect(prisma.creditCard.update).toHaveBeenCalledWith({
+        where: { id: 'k-daqui' },
+        data: { connectionId: 'cx1', providerAccountId: 'k-la' },
+      });
+    });
+
+    /* Um cartao de la corresponde a UM daqui. Trocar sem soltar o anterior
+     * esbarraria no indice unico da migracao -- e o erro apareceria como
+     * "nao consegui salvar", sem dizer que o problema era o vinculo velho. */
+    it('trocar o destino solta o anterior antes', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue({ id: 'k-novo' });
+
+      await service.vincular('u1', 'cx1', {
+        providerAccountId: 'k-la',
+        destino: 'CARTAO',
+        destinoId: 'k-novo',
+      });
+
+      expect(prisma.creditCard.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'u1', connectionId: 'cx1', providerAccountId: 'k-la' },
+        data: { connectionId: null, providerAccountId: null },
+      });
+    });
+
+    /* Desvincular e a volta para o estado de antes: a conta continua sendo a
+     * conta da pessoa, com o historico inteiro -- so deixa de ser alimentada. */
+    it('destino nulo solta o vinculo e nao apaga nada', async () => {
+      const r = await service.vincular('u1', 'cx1', {
+        providerAccountId: 'a-la',
+        destino: 'CONTA',
+        destinoId: null,
+      });
+
+      expect(r.vinculado).toBe(false);
+      expect(prisma.bankAccount.updateMany).toHaveBeenCalled();
+      expect(prisma.bankAccount.update).not.toHaveBeenCalled();
+    });
+
+    it('conta de outra pessoa nao se vincula', async () => {
+      prisma.bankAccount.findFirst.mockResolvedValue(null);
+      await expect(
+        service.vincular('u1', 'cx1', {
+          providerAccountId: 'a-la',
+          destino: 'CONTA',
+          destinoId: 'de-outro',
+        }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

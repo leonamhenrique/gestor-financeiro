@@ -344,6 +344,9 @@
   .imp-lote-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
   .imp-lote-txt b { font-weight: 500; color: var(--fg); }
   .imp-lote-meta { font-size: 11px; color: var(--fg-subtle); }
+  /* Duas ações na mesma linha do banco conectado. Sem isto elas quebram uma
+   * sob a outra e desalinham — medido em 375px. */
+  .of-botoes { display: flex; gap: 8px; flex-shrink: 0; }
   /* A caixa é o alvo de soltar e também o de clicar. Borda tracejada porque é
    * o desenho que a web inteira usa para "solte aqui" — inventar outro só
    * faria a pessoa ter que descobrir. */
@@ -2698,6 +2701,47 @@
         <div class="field-error" id="imp-erro"></div>
         <div class="acoes-linha">
           <button type="button" class="primary" id="imp-continuar" disabled>Conferir lançamentos</button>
+        </div>
+      </div>
+
+      <!-- ---- Open Finance: o banco no lugar do arquivo ----
+           CONVITE, nunca exigência. Sem a integração ligada no servidor este
+           bloco nem aparece, e a tela é exatamente a de sempre — quem não
+           quiser conectar banco nenhum segue exportando o arquivo.
+           E conectado ou não, a conferência é a mesma: o banco PROPÕE, a
+           pessoa marca o que entra. -->
+      <div class="blk" id="of-bloco" style="--i:2" hidden>
+        <div class="lbl">Ou conecte o banco</div>
+        <div class="field-help">Em vez de exportar o arquivo, o banco manda os lançamentos. Você continua conferindo um por um antes de importar.</div>
+
+        <div id="of-lista"></div>
+
+        <div class="field" id="of-form" hidden>
+          <label class="lbl" for="of-banco">Banco</label>
+          <select id="of-banco"></select>
+          <label class="lbl" for="of-cpf" style="margin-top:12px">CPF do titular</label>
+          <input type="text" id="of-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" autocomplete="off">
+          <div class="field-help">Ele vai para o banco e não fica guardado aqui.</div>
+          <div class="field-error" id="of-erro"></div>
+          <div class="acoes-linha" style="margin-top:12px">
+            <button type="button" class="ghost" id="of-cancelar">Cancelar</button>
+            <button type="button" class="primary" id="of-gerar">Gerar link</button>
+          </div>
+        </div>
+
+        <!-- O link é de uso Único e dura uma hora: reabrir o mesmo responde
+             um erro que parece recusa do banco, e não é. Por isso a tela diz
+             isso antes, e não depois. -->
+        <div class="field" id="of-autorizar" hidden>
+          <div class="field-help" id="of-autorizar-texto"></div>
+          <div class="acoes-linha" style="margin-top:12px">
+            <button type="button" class="primary" id="of-abrir">Autorizar no banco</button>
+            <button type="button" class="ghost" id="of-conferir">Já autorizei</button>
+          </div>
+        </div>
+
+        <div class="acoes-linha" id="of-acoes" style="margin-top:12px">
+          <button type="button" class="ghost" id="of-novo">Conectar um banco</button>
         </div>
       </div>
 
@@ -10824,6 +10868,10 @@
     document.getElementById("imp-lista").innerHTML = "";
     document.getElementById("imp-ctx").textContent = "Arquivo OFX do banco ou do cartão";
     pintarImportacoesRecentes();
+    /* Sem await: a tela abre na hora, e o bloco do banco aparece quando (e
+     * se) o servidor responder. Quem não tem a integração nunca o vê, e nada
+     * na tela fica esperando por ele. */
+    carregarOpenFinance();
   }
 
   /* Arrastar e soltar. O `preventDefault` nos dois eventos é obrigatório: sem
@@ -11168,6 +11216,379 @@
     state.transactions.forEach(function (t) { mapa[chaveDeLancamento(t)] = true; });
     return mapa;
   }
+
+  /* ---------- Open Finance: o banco como fonte do importador ----------
+   *
+   * A REGRA ACIMA DE TODAS: conectar é convite. Quem não conectar banco
+   * nenhum usa o app como sempre usou — este bloco nem aparece, porque a
+   * única coisa que o faz aparecer é o servidor responder que a integração
+   * existe. Desligada, a chamada falha, o bloco fica escondido, e a tela de
+   * importar é exatamente a de antes.
+   *
+   * POR QUE AQUI, E NÃO NUMA TELA PRÓPRIA
+   * O que o banco manda é o mesmo que um extrato manda: linhas para
+   * conferir. A tela de importar já sabe casar com o que existe, marcar o
+   * repetido, adivinhar categoria, criar as parcelas que faltam e DESFAZER
+   * o lote inteiro. Uma tela nova teria de aprender tudo isso de novo — e no
+   * dia em que as duas discordassem, a importação duplicaria.
+   *
+   * O CARTÃO VEM EM FATURAS, E NÃO EM UMA SÓ
+   * Um arquivo de cartão é de uma fatura; o Open Finance traz o histórico
+   * inteiro (medido: 483 lançamentos em 15 faturas). Por isso cada fatura
+   * vira uma linha aqui, importada separadamente — é o que o resto da tela
+   * já sabe tratar, e é o que deixa a pessoa parar onde quiser.
+   */
+  var of = { conexoes: [], bancos: [], pendente: null, proposta: null, fontes: [] };
+
+  function ofEl(id) { return document.getElementById(id); }
+
+  /** Mostra o bloco só se o servidor disser que a integração existe. */
+  async function carregarOpenFinance() {
+    var bloco = ofEl("of-bloco");
+    bloco.hidden = true;
+    of.proposta = null;
+    of.fontes = [];
+    of.pendente = null;
+    ofEl("of-form").hidden = true;
+    ofEl("of-autorizar").hidden = true;
+    if (!MODO_API) return;
+    try {
+      of.conexoes = await api("/openfinance/connections");
+    } catch (e) {
+      // 404 (desligada), sem rede, sessão: em todos os casos a tela segue
+      // sendo a de sempre. Isto não é erro que se mostre a ninguém.
+      return;
+    }
+    bloco.hidden = false;
+    pintarOpenFinance();
+  }
+
+  /* Reusa `.imp-lote` do desfazer logo abaixo: é a mesma coisa na tela — uma
+   * linha com nome, metadado e uma ação —, e dar a ela uma classe nova seria
+   * desenhar duas vezes a mesma lista. */
+  function pintarOpenFinance() {
+    var lista = ofEl("of-lista");
+    if (!of.conexoes.length) {
+      lista.innerHTML = '<div class="empty">Nenhum banco conectado.</div>';
+    } else {
+      lista.innerHTML = of.conexoes.map(function (c) {
+        var pronta = c.status === "AUTHORISED";
+        var quando = c.sincronizadaEm
+          ? "sincronizado em " + fmtDataBR(String(c.sincronizadaEm).slice(0, 10))
+          : "nunca sincronizado";
+        return '<div class="imp-lote" data-id="' + esc(c.id) + '">' +
+          '<span class="imp-lote-txt"><b>' + esc(c.instituicao || "Banco") + "</b>" +
+          '<span class="imp-lote-meta">' +
+            (pronta ? esc(quando) : "aguardando a sua autorização no banco") + "</span></span>" +
+          '<span class="of-botoes">' +
+            (pronta
+              ? '<button type="button" class="ghost" data-of="sincronizar">Buscar</button>'
+              : '<button type="button" class="ghost" data-of="conferir">Já autorizei</button>') +
+            '<button type="button" class="ghost danger" data-of="desconectar">Desconectar</button>' +
+          "</span></div>";
+      }).join("");
+    }
+    if (of.fontes.length) lista.innerHTML += ofFontesHTML();
+  }
+
+  /** O que veio do banco, uma linha por conta e por FATURA de cartão. */
+  function ofFontesHTML() {
+    return '<div class="lbl" style="margin-top:16px">O que o banco mandou</div>' +
+      of.fontes.map(function (f, i) {
+        return '<div class="imp-lote">' +
+          '<span class="imp-lote-txt"><b>' + esc(f.titulo) + "</b>" +
+          '<span class="imp-lote-meta">' + f.lancamentos.length +
+            (f.lancamentos.length === 1 ? " lançamento novo" : " lançamentos novos") +
+          "</span></span>" +
+          '<button type="button" class="ghost" data-of="usar" data-i="' + i + '">Conferir</button>' +
+          "</div>";
+      }).join("") +
+      '<div class="field-help">O que você já importou antes não volta: cada lançamento traz o id do banco, e o que já entrou fica de fora.</div>';
+  }
+
+  // ------------------------------------------------------------- conectar
+  async function ofAbrirFormulario() {
+    ofEl("of-erro").textContent = "";
+    ofEl("of-form").hidden = false;
+    ofEl("of-acoes").hidden = true;
+    var sel = ofEl("of-banco");
+    sel.innerHTML = '<option value="">Carregando…</option>';
+    try {
+      of.bancos = await api("/openfinance/institutions");
+    } catch (e) {
+      ofEl("of-erro").textContent = e.message;
+      return;
+    }
+    sel.innerHTML = of.bancos.map(function (b) {
+      return '<option value="' + esc(b.id) + '">' + esc(b.nome) + "</option>";
+    }).join("");
+  }
+
+  function ofFecharFormulario() {
+    ofEl("of-form").hidden = true;
+    ofEl("of-acoes").hidden = false;
+    ofEl("of-cpf").value = "";
+    ofEl("of-erro").textContent = "";
+  }
+
+  async function ofGerarLink() {
+    var cpf = ofEl("of-cpf").value.replace(/\D/g, "");
+    var erro = ofEl("of-erro");
+    erro.textContent = "";
+    if (cpf.length !== 11) { erro.textContent = "O CPF precisa ter 11 dígitos."; return; }
+    var banco = ofEl("of-banco").value;
+    if (!banco) { erro.textContent = "Escolha o banco."; return; }
+
+    var botao = ofEl("of-gerar");
+    botao.disabled = true;
+    try {
+      of.pendente = await api("/openfinance/connections", { institutionId: banco, cpf: cpf });
+    } catch (e) {
+      erro.textContent = e.message;
+      return;
+    } finally {
+      botao.disabled = false;
+      // O CPF sai da tela assim que serve: ele não é guardado em lugar
+      // nenhum, e deixá-lo no campo é guardá-lo onde qualquer um que pegue o
+      // aparelho vê.
+      ofEl("of-cpf").value = "";
+    }
+    ofFecharFormulario();
+    ofEl("of-autorizar").hidden = false;
+    ofEl("of-autorizar-texto").textContent =
+      "Autorize no " + (of.pendente.instituicao || "banco") +
+      ", com o seu login de lá. O link abre uma vez só e vale cerca de uma hora — " +
+      "se não der certo, volte aqui e gere outro.";
+    of.conexoes = await api("/openfinance/connections").catch(function () { return of.conexoes; });
+    pintarOpenFinance();
+  }
+
+  function ofAbrirBanco() {
+    if (!of.pendente || !of.pendente.urlParaAutorizar) return;
+    window.open(of.pendente.urlParaAutorizar, "_blank", "noopener");
+  }
+
+  /* Leitura não passa por `comServidor` de propósito: ele recarrega o estado
+   * inteiro e repinta o app a cada chamada, e aqui nada mudou no servidor —
+   * só perguntamos. O que ele dá de bom (o botão travado durante a espera)
+   * se faz aqui, no botão que foi tocado. */
+  async function ofPerguntar(botao, caminho, corpo, metodo) {
+    if (botao) { if (botao.disabled) return null; botao.disabled = true; botao.setAttribute("aria-busy", "true"); }
+    try {
+      return await api(caminho, corpo, metodo);
+    } catch (e) {
+      avisar("Não consegui falar com o banco", e.message);
+      return null;
+    } finally {
+      if (botao) { botao.disabled = false; botao.removeAttribute("aria-busy"); }
+    }
+  }
+
+  async function ofRecarregarLista() {
+    try { of.conexoes = await api("/openfinance/connections"); } catch (e) {}
+    pintarOpenFinance();
+  }
+
+  async function ofConferir(id, botao) {
+    var alvo = id || (of.pendente && of.pendente.id);
+    if (!alvo) return;
+    var r = await ofPerguntar(botao, "/openfinance/connections/" + alvo);
+    if (!r) return;
+    if (r.pronta) {
+      ofEl("of-autorizar").hidden = true;
+      of.pendente = null;
+    }
+    await ofRecarregarLista();
+    if (!r.pronta) {
+      avisar("Ainda não",
+        "O banco ainda não confirmou a autorização. Se a tela de lá deu erro, gere um link novo — o antigo não serve duas vezes.");
+    }
+  }
+
+  function ofDesconectar(id) {
+    var conexao = of.conexoes.filter(function (c) { return c.id === id; })[0];
+    pedirConfirmacao({
+      titulo: "Desconectar " + ((conexao && conexao.instituicao) || "o banco") + "?",
+      ctx: "Os lançamentos que já entraram ficam",
+      detalhe: "A conta volta a ser comum, com o histórico inteiro — o banco só para de mandar novidade. Desistir da conexão não apaga o seu dinheiro.",
+      acao: "Desconectar",
+      destrutivo: true
+    }, async function () {
+      var feito = await comServidor("desconectar o banco", async function () {
+        await api("/openfinance/connections/" + id, null, "DELETE");
+      });
+      if (!feito) return;
+      of.fontes = [];
+      of.proposta = null;
+      await ofRecarregarLista();
+    });
+  }
+
+  // ---------------------------------------------------------- sincronizar
+  async function ofSincronizar(id, botao) {
+    var proposta = await ofPerguntar(botao, "/openfinance/connections/" + id + "/sync", {});
+    if (!proposta) return;
+    of.proposta = proposta;
+    of.fontes = ofFontes(proposta);
+    await ofRecarregarLista();
+    if (!of.fontes.length) {
+      avisar("Nada novo", "O banco não mandou nenhum lançamento que você ainda não tenha.");
+    }
+  }
+
+  /**
+   * Quebra a proposta em fontes importáveis.
+   *
+   * Conta vira uma fonte. Cartão vira UMA POR FATURA — porque o resto da
+   * tela trabalha com "este extrato é de uma fatura", e porque 483
+   * lançamentos de quinze faturas numa lista só não se confere.
+   *
+   * O mês que agrupa é o `faturaPrevista` que o banco manda (medido: é o mês
+   * do VENCIMENTO, em 469 de 469 lançamentos). Ele agrupa; quem DECIDE a
+   * fatura continua sendo a regra do app, mais abaixo.
+   */
+  function ofFontes(p) {
+    var fora = [];
+    (p.contas || []).forEach(function (c) {
+      if (!c.lancamentos.length) return;
+      // O provedor manda conta sem nome, e aí `nome` já é "Conta": o sufixo
+      // viraria "Conta · conta".
+      var nome = /conta/i.test(c.nome) ? c.nome : c.nome + " · conta";
+      fora.push({ titulo: nome, ehCartao: false, destinoId: c.bankAccountId,
+                  providerAccountId: c.providerAccountId, lancamentos: c.lancamentos });
+    });
+    (p.cartoes || []).forEach(function (k) {
+      var porFatura = {};
+      k.lancamentos.forEach(function (l) {
+        var chave = l.faturaPrevista || String(l.data).slice(0, 7);
+        (porFatura[chave] = porFatura[chave] || []).push(l);
+      });
+      Object.keys(porFatura).sort().reverse().forEach(function (chave) {
+        fora.push({
+          titulo: k.nome + " · fatura " + chave.slice(5) + "/" + chave.slice(0, 4),
+          ehCartao: true, destinoId: k.creditCardId, providerAccountId: k.providerAccountId,
+          faturaPrevista: chave, lancamentos: porFatura[chave]
+        });
+      });
+    });
+    return fora;
+  }
+
+  /**
+   * A fonte escolhida vira a importação que a tela já sabe conferir.
+   *
+   * Daqui para a frente não há nada de Open Finance: são as mesmas linhas,
+   * o mesmo casamento, a mesma lista de marcar. O `providerTxId` viaja como
+   * `fitid` — o campo que o OFX já trazia e que ninguém usava — e é ele que
+   * sobe junto no lote, para a próxima sincronização não propor de novo.
+   */
+  function ofUsarFonte(i) {
+    var f = of.fontes[i];
+    if (!f) return;
+    var lancamentos = f.lancamentos.map(function (l, n) {
+      return { ordem: n, data: l.data, valor: l.valor, tipo: l.tipo,
+               desc: l.descricao || "Sem histórico", fitid: l.providerTxId };
+    });
+    // O fim do período é a data mais recente da fatura: é dela que a regra do
+    // app deriva qual fatura recebe tudo.
+    var fim = lancamentos.map(function (l) { return l.data; }).sort().slice(-1)[0] || "";
+
+    imp = {
+      ofx: { lancamentos: lancamentos, ehCartao: f.ehCartao, fimDoPeriodo: fim },
+      formato: "OPENFINANCE",
+      fatura: faturaDoArquivo({ fimDoPeriodo: fim }) || { y: HOJE.getFullYear(), m: HOJE.getMonth() },
+      linhas: [],
+      openFinance: { connectionId: of.proposta.connectionId,
+                     providerAccountId: f.providerAccountId,
+                     destino: f.ehCartao ? "CARTAO" : "CONTA",
+                     faturaPrevista: f.faturaPrevista || "" }
+    };
+
+    var sel = ofEl("imp-destino");
+    var destinos = destinosDeImportacao();
+    sel.innerHTML = destinos.map(function (d) {
+      return '<option value="' + esc(d.id) + '">' + esc(d.nome) + (d.cartao ? " · cartão" : " · conta") + "</option>";
+    }).join("");
+    // Já vinculado numa importação anterior: a pessoa não responde de novo.
+    var jaEscolhido = f.destinoId ? (f.ehCartao ? "k:" : "a:") + f.destinoId : "";
+    var provavel = destinos.filter(function (d) { return d.id === jaEscolhido; })[0] ||
+                   destinos.filter(function (d) { return d.cartao === f.ehCartao; })[0];
+    if (provavel) sel.value = provavel.id;
+
+    ofEl("imp-destino-ajuda").textContent = f.ehCartao
+      ? "O banco mandou uma fatura de cartão."
+      : "O banco mandou o extrato de uma conta.";
+    ofEl("imp-destino-campo").hidden = false;
+    ofEl("imp-sinal-campo").hidden = true;
+    ofEl("imp-erro").textContent = "";
+    ofEl("imp-continuar").disabled = false;
+    atualizarCampoDeFatura();
+    ofConferirFatura();
+    ofEl("imp-ctx").textContent = f.titulo + " · " + lancamentos.length +
+      (lancamentos.length === 1 ? " lançamento" : " lançamentos");
+    ofEl("imp-continuar").scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  /**
+   * A conferência do mês, que é o ÚNICO uso do que o banco previu.
+   *
+   * Quem decide em qual fatura a compra cai é a regra do app — a mesma do
+   * arquivo e a mesma da tela de lançar. O `faturaPrevista` do banco entra
+   * aqui só para discordar quando houver o que discordar: divergiram, a
+   * pessoa vê e escolhe, em vez de o app decidir calado.
+   */
+  function ofConferirFatura() {
+    var erro = ofEl("imp-erro");
+    if (!imp || !imp.openFinance || !imp.openFinance.faturaPrevista) return;
+    var k = cartaoDaImportacao();
+    if (!k) return;
+    var nossa = mesDaFatura(k, imp.fatura);
+    var nosso = nossa.y + "-" + String(nossa.m + 1).padStart(2, "0");
+    if (nosso === imp.openFinance.faturaPrevista) return;
+    erro.textContent = "O banco diz que estes lançamentos vencem em " +
+      imp.openFinance.faturaPrevista.slice(5) + "/" + imp.openFinance.faturaPrevista.slice(0, 4) +
+      ", e pelos dias deste cartão eles cairiam na fatura que vence em " +
+      String(nossa.m + 1).padStart(2, "0") + "/" + nossa.y +
+      ". Confira o fechamento e o vencimento do cartão antes de importar.";
+  }
+
+  /** Guarda a correspondência depois que a importação deu certo. */
+  async function ofVincular() {
+    if (!imp || !imp.openFinance || !MODO_API) return;
+    var alvo = ofEl("imp-destino").value;
+    var destino = alvo.slice(0, 1) === "k" ? "CARTAO" : "CONTA";
+    if (destino !== imp.openFinance.destino) return;
+    try {
+      await api("/openfinance/connections/" + imp.openFinance.connectionId + "/link", {
+        providerAccountId: imp.openFinance.providerAccountId,
+        destino: destino,
+        destinoId: alvo.slice(2)
+      });
+    } catch (e) {
+      // Não é motivo para alarmar: o vínculo é conveniência, e a importação
+      // já aconteceu. Sem ele, a próxima sincronização só pergunta o destino
+      // de novo.
+    }
+  }
+
+  ofEl("of-novo").addEventListener("click", ofAbrirFormulario);
+  ofEl("of-cancelar").addEventListener("click", ofFecharFormulario);
+  ofEl("of-gerar").addEventListener("click", ofGerarLink);
+  ofEl("of-abrir").addEventListener("click", ofAbrirBanco);
+  ofEl("of-conferir").addEventListener("click", function (e) { ofConferir(null, e.currentTarget); });
+
+  ofEl("of-lista").addEventListener("click", function (e) {
+    var botao = e.target.closest("button[data-of]");
+    if (!botao) return;
+    var acao = botao.getAttribute("data-of");
+    if (acao === "usar") return ofUsarFonte(Number(botao.getAttribute("data-i")));
+    var linha = botao.closest(".of-conexao");
+    var id = linha && linha.getAttribute("data-id");
+    if (!id) return;
+    if (acao === "sincronizar") ofSincronizar(id, botao);
+    else if (acao === "conferir") ofConferir(id, botao);
+    else if (acao === "desconectar") ofDesconectar(id);
+  });
 
   document.getElementById("imp-continuar").addEventListener("click", function () {
     if (!imp) return;

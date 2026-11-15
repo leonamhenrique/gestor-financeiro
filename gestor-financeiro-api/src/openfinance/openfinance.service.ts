@@ -246,6 +246,61 @@ export class OpenFinanceService {
     };
   }
 
+  // ------------------------------------------------------------ vincular
+  /**
+   * Diz qual conta/cartão DAQUI corresponde ao de lá.
+   *
+   * Sem isso a coluna da migração fica morta e toda sincronização pergunta
+   * de novo o destino. Quem responde é a própria importação: a pessoa
+   * escolheu "GOLD do Inter vai para o meu cartão X", e o app guarda.
+   *
+   * É opcional e reversível: desvincular é mandar `destinoId` nulo, e a conta
+   * volta a ser comum, com o histórico inteiro.
+   */
+  async vincular(
+    userId: string,
+    id: string,
+    dados: { providerAccountId: string; destino: 'CONTA' | 'CARTAO'; destinoId: string | null },
+  ) {
+    const conexao = await this.minha(userId, id);
+
+    if (dados.destino === 'CARTAO') {
+      /* Primeiro solta quem estava vinculado a este recurso de lá: um cartão
+       * de lá corresponde a UM daqui, e o índice único recusaria o segundo. */
+      await this.prisma.creditCard.updateMany({
+        where: { userId, connectionId: conexao.id, providerAccountId: dados.providerAccountId },
+        data: { connectionId: null, providerAccountId: null },
+      });
+      if (!dados.destinoId) return { vinculado: false };
+      const cartao = await this.prisma.creditCard.findFirst({
+        where: { id: dados.destinoId, userId },
+        select: { id: true },
+      });
+      if (!cartao) throw new NotFoundException('Cartão não encontrado.');
+      await this.prisma.creditCard.update({
+        where: { id: cartao.id },
+        data: { connectionId: conexao.id, providerAccountId: dados.providerAccountId },
+      });
+      return { vinculado: true };
+    }
+
+    await this.prisma.bankAccount.updateMany({
+      where: { userId, connectionId: conexao.id, providerAccountId: dados.providerAccountId },
+      data: { connectionId: null, providerAccountId: null },
+    });
+    if (!dados.destinoId) return { vinculado: false };
+    const conta = await this.prisma.bankAccount.findFirst({
+      where: { id: dados.destinoId, userId },
+      select: { id: true },
+    });
+    if (!conta) throw new NotFoundException('Conta não encontrada.');
+    await this.prisma.bankAccount.update({
+      where: { id: conta.id },
+      data: { connectionId: conexao.id, providerAccountId: dados.providerAccountId },
+    });
+    return { vinculado: true };
+  }
+
   // --------------------------------------------------------- desconectar
   /**
    * Revoga no provedor e marca a conexão como encerrada.

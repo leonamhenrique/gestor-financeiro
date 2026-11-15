@@ -65,6 +65,11 @@ export interface CreateTransactionInput {
   // O lote de importação, quando o lançamento vem de um extrato.
   importBatchId?: string;
   importedAt?: Date;
+  /* O id no provedor de Open Finance, quando veio de lá. Idempotência da
+   * sincronização, e também o que diz o que apagar se a conexão cair:
+   * lançamento COM ele veio do banco; sem ele é do usuário, e esse não se
+   * toca. */
+  providerTxId?: string;
   // A série a que ele pertence, quando quem cria já a montou.
   seriesId?: string;
   seriesIndex?: number;
@@ -1099,6 +1104,8 @@ export class TransactionsService {
       clientKey: input.clientKey ?? null,
       importBatchId: input.importBatchId ?? null,
       importedAt: input.importedAt ?? null,
+      providerTxId: input.providerTxId ?? null,
+      syncedAt: input.providerTxId ? new Date() : null,
       seriesId: input.seriesId ?? null,
       seriesIndex: input.seriesIndex ?? null,
     };

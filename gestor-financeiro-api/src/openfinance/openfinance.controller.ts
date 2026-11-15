@@ -21,7 +21,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsString, IsNotEmpty, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, Matches, IsIn, IsOptional } from 'class-validator';
 import { OpenFinanceService, openFinanceLigado } from './openfinance.service';
 
 /** A flag, como guard: desligada, o módulo inteiro desaparece. */
@@ -43,6 +43,20 @@ export class ConectarDto {
   @IsString()
   @Matches(/^\d{11}$/, { message: 'CPF deve ter 11 dígitos.' })
   cpf: string;
+}
+
+export class VincularDto {
+  @IsString()
+  @IsNotEmpty()
+  providerAccountId: string;
+
+  @IsIn(['CONTA', 'CARTAO'])
+  destino: 'CONTA' | 'CARTAO';
+
+  /** Nulo solta o vínculo: a conta volta a ser comum, com o histórico. */
+  @IsOptional()
+  @IsString()
+  destinoId?: string | null;
 }
 
 @UseGuards(OpenFinanceAtivo)
@@ -81,6 +95,16 @@ export class OpenFinanceController {
   @Post('connections/:id/sync')
   sincronizar(@Req() req: any, @Param('id') id: string) {
     return this.openFinance.paraImportar(req.user.id, id);
+  }
+
+  /** Liga um recurso de lá a uma conta/cartão daqui. `destinoId` nulo solta. */
+  @Post('connections/:id/link')
+  vincular(@Req() req: any, @Param('id') id: string, @Body() dto: VincularDto) {
+    return this.openFinance.vincular(req.user.id, id, {
+      providerAccountId: dto.providerAccountId,
+      destino: dto.destino,
+      destinoId: dto.destinoId ?? null,
+    });
   }
 
   /** Revoga no provedor (o que para a cobrança) e encerra a conexão. */
