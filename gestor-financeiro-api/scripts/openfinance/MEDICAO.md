@@ -132,3 +132,26 @@ previsto acompanha o vencimento, não o fechamento.
   **ids de transação** em produção. Ler o campo na ocorrência dá
   `undefined` — e `undefined` se disfarça de "campo ausente". A primeira
   leitura desta medição disse INCONCLUSIVO por isso, com o dado na mão.
+
+# O extrato de CONTA, 15/11/2026 — o envelope do valor muda
+
+Levantado pelo usuário: no app, clicar em **Conferir** numa conta corrente
+abria a lista **vazia**; no cartão, não. Reproduzido na bancada contra o
+consentimento real do Inter.
+
+- **O valor da transação de conta vem em `transaction_amount`**, e não em
+  `brazilian_amount`/`amount` como no cartão. Medido: **18 de 18**
+  lançamentos de conta num envelope, **483 de 483** de cartão no outro.
+- `Number(undefined)` é `NaN`; `JSON.stringify(NaN)` é `null`. O valor nulo
+  atravessou a API, o JSON e a tela sem ninguém reclamar, e só estourou na
+  pintura — `money(null)` — derrubando a lista INTEIRA antes do
+  `innerHTML`. Sintoma na tela: nada. Sem erro, sem aviso, sem linha.
+- Conferência independente do total, somado direto do payload cru:
+  saídas **10.628,34**, entradas **10.628,34** — igual ao que a tela passou
+  a mostrar.
+
+O que mudou por causa disso: o cliente lê o terceiro envelope e **recusa**
+devolver um valor que não consegue ler, em vez de entregar `NaN`; a tela de
+conferência deixa de fora o que não dá para ler **dizendo quais**; e o
+leitor de OFX, que descartava a linha ilegível em silêncio, passa a
+devolvê-las para o mesmo aviso.

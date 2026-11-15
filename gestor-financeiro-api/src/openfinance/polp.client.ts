@@ -23,6 +23,13 @@
 //    direção mora em `credit_debit_type`. Somar sem olhar esse campo
 //    inverte despesa e receita.
 //
+//    E o ENVELOPE MUDA conforme a origem: no cartão o valor chega em
+//    `brazilian_amount`/`amount`; no extrato de CONTA, em
+//    `transaction_amount` (medido em 15/11/2026: 18 de 18 lançamentos de
+//    conta, 483 de 483 de cartão). Ler só os dois primeiros devolvia
+//    `Number(undefined)` — NaN, que atravessa o JSON como `null` e chega
+//    à tela como um lançamento sem valor.
+//
 // 3. PARCELA FUTURA. Reconhece-se por `bill_id === null`, nunca pela
 //    data-sentinela `"0001-01-01"` que a documentação promete e que não
 //    apareceu em ambiente nenhum. `bill_forecast_date` existe e é o mês do
@@ -99,6 +106,24 @@ export class ConflitoDeConsentimento extends Error {
     super(motivo);
     this.name = 'ConflitoDeConsentimento';
   }
+}
+
+/**
+ * O valor, ou um erro — nunca um NaN.
+ *
+ * `Number(undefined)` é NaN, `JSON.stringify(NaN)` é `null`, e um lançamento
+ * sem valor chegou à tela sem que nada reclamasse no caminho. Um envelope que
+ * este cliente não conhece tem de PARAR aqui, com o id na mão, em vez de
+ * virar dinheiro nulo três camadas adiante.
+ */
+function valorLegivel(cru: unknown, id?: string): number {
+  const n = Math.abs(Number(cru));
+  if (!Number.isFinite(n)) {
+    throw new ServiceUnavailableException(
+      'O banco mandou um lançamento sem valor que eu saiba ler' + (id ? ' (' + id + ')' : '') + '.',
+    );
+  }
+  return n;
 }
 
 @Injectable()
@@ -319,7 +344,7 @@ export class PolpClient {
    * é decisão de outro lugar, com as regras que o app já tem.
    */
   private traduzir(t: any): LancamentoDoProvedor {
-    const bruto = t.brazilian_amount || t.amount || {};
+    const bruto = t.brazilian_amount || t.amount || t.transaction_amount || {};
     const numero = t.charge_identificator;
     const total = t.charge_number;
     const parcelada = Number(total) > 1 && Number(numero) >= 1;
@@ -328,7 +353,7 @@ export class PolpClient {
     return {
       providerTxId: t.id,
       data: soODia(t.transaction_date_time),
-      valor: Math.abs(Number(bruto.amount)),
+      valor: valorLegivel(bruto.amount, t.id),
       tipo: t.credit_debit_type === 'CREDITO' ? 'INCOME' : 'EXPENSE',
       descricao: parcelada ? nome + ' - Parcela ' + numero + '/' + total : nome,
       categoriaDoProvedor: t.category_ref ?? null,

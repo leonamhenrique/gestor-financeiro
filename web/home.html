@@ -2772,6 +2772,7 @@
 
       <div class="blk" id="imp-passo-2" style="--i:1" hidden>
         <div class="imp-resumo" id="imp-resumo"></div>
+      <div class="field-error" id="imp-ilegiveis" hidden></div>
       <div class="field-help" id="imp-aviso-pagamento" hidden></div>
       <!-- Só aparece quando há o que criar. Num extrato de parcelas já
            antecipadas — o caso medido — não falta nenhuma, e a linha some. -->
@@ -8914,10 +8915,21 @@
   function lerOFX(texto) {
     var blocos = String(texto || "").split(/<STMTTRN>/i).slice(1);
     var lancamentos = [];
+    /* O que o leitor NÃO conseguiu ler sai daqui junto com o resto. Antes
+     * ele era descartado em silêncio: o arquivo tinha três lançamentos, a
+     * tela mostrava dois, e nada no caminho dizia que um havia sumido.
+     * Descartar é certo — sem valor não há o que conferir —, calado é que
+     * não. Valor ZERO continua saindo sem aviso: aquilo é ruído conhecido
+     * de extrato, não lançamento perdido. */
+    var naoLidos = [];
     blocos.forEach(function (b, i) {
       var valor = Number(campoOFX(b, "TRNAMT"));
       var data = dataOFX(campoOFX(b, "DTPOSTED"));
-      if (!data || !isFinite(valor) || valor === 0) return;
+      if (!data || !isFinite(valor)) {
+        naoLidos.push(entidadesOFX(campoOFX(b, "MEMO")) || "Sem histórico");
+        return;
+      }
+      if (valor === 0) return;
       lancamentos.push({
         // A ordem no arquivo é o desempate final entre linhas idênticas.
         ordem: i,
@@ -8933,7 +8945,8 @@
     return {
       ehCartao: /<CCSTMTRS>|<CREDITCARDMSGSRSV1>/i.test(texto),
       fimDoPeriodo: fim ? dataOFX(fim[1]) : "",
-      lancamentos: lancamentos
+      lancamentos: lancamentos,
+      naoLidos: naoLidos
     };
   }
 
@@ -10887,6 +10900,7 @@
     document.getElementById("imp-passo-1").hidden = false;
     document.getElementById("imp-passo-2").hidden = true;
     document.getElementById("imp-lista").innerHTML = "";
+    document.getElementById("imp-ilegiveis").hidden = true;
     document.getElementById("imp-ctx").textContent = "Arquivo OFX do banco ou do cartão";
     pintarImportacoesRecentes();
     /* Sem await: a tela abre na hora, e o bloco do banco aparece quando (e
@@ -11657,7 +11671,7 @@
    *
    * Até aqui o contrato era de uma linha: a integração PROPÕE, nunca decide.
    * Isto abre uma exceção, pedida com a tela na mão — e uma exceção a uma
-   * regra de dinheiro só vale com as condições escritas. São seis, e todas
+   * regra de dinheiro só vale com as condições escritas. São sete, e todas
    * têm de valer ao mesmo tempo:
    *
    *  1. o lançamento NÃO casa com nada que o app já tem. Casou, mesmo que
@@ -11672,7 +11686,10 @@
    *  5. o destino é conhecido — a conta ou o cartão daqui já está ligado ao
    *     de lá. Sem isso não há para onde mandar;
    *  6. no cartão, a fatura que o app calcula CONCORDA com a que o banco
-   *     previu. Discordaram, a pessoa escolhe.
+   *     previu. Discordaram, a pessoa escolhe;
+   *  7. o valor é legível. Vale menos como condição e mais como recusa:
+   *     um lançamento cujo valor não se consegue ler é o máximo de dúvida
+   *     que existe, e gravá-lo sozinho seria inventar dinheiro.
    *
    * E o que entra assim entra como LOTE, aparecendo em "Importações
    * recentes" com o botão Desfazer — do mesmo jeito que uma importação de
@@ -11680,7 +11697,7 @@
    */
   function ofSemDuvida(l) {
     return !l.repetida && !l.pagamento && !l.base._parcelada &&
-           l.origem === "regra" && !!l.categoriaId;
+           l.origem === "regra" && !!l.categoriaId && isFinite(l.base.valor);
   }
 
   /** A fatura do app e a do banco dizem o mesmo? Só vale para cartão. */
@@ -11861,6 +11878,31 @@
     imp.ehCartao = destinoEhCartao();
     imp.destinoId = document.getElementById("imp-destino").value.slice(2);
     imp.linhas = linhasDaConferencia(imp.ofx.lancamentos);
+    /* Uma linha sem valor legível não pode ser conferida — e, pintada, mata
+     * a lista INTEIRA: `money(null)` estoura no meio do laço, o `innerHTML`
+     * nunca chega a ser escrito, e a tela abre vazia sem erro nenhum à
+     * vista. Foi assim que o extrato de conta pareceu não ter lançamentos.
+     * Agora ela fica de fora, mas DITA: sumir calado com dinheiro é o único
+     * desfecho pior que a tela vazia. */
+    var ilegiveis = imp.linhas.filter(function (l) { return !isFinite(l.base.valor); });
+    if (ilegiveis.length) {
+      imp.linhas = imp.linhas.filter(function (l) { return isFinite(l.base.valor); });
+    }
+    /* Dois lugares deixam lançamento para trás — o leitor do arquivo, que
+     * já descarta o que não dá para ler, e a conferência aqui — e os dois
+     * desembocam no MESMO aviso. Duas mensagens para a mesma perda seriam
+     * duas chances de a pessoa achar que são coisas diferentes. */
+    var naoLidos = (imp.ofx.naoLidos || []).concat(
+      ilegiveis.map(function (l) { return l.base.desc; }));
+    var fora = document.getElementById("imp-ilegiveis");
+    fora.hidden = !naoLidos.length;
+    fora.textContent = naoLidos.length
+      ? (naoLidos.length === 1
+          ? "1 lançamento veio sem valor que eu saiba ler e ficou de fora: "
+          : naoLidos.length + " lançamentos vieram sem valor que eu saiba ler e ficaram de fora: ") +
+        naoLidos.slice(0, 3).join(", ") + (naoLidos.length > 3 ? "…" : "") +
+        ". O resto está aqui."
+      : "";
     document.getElementById("imp-passo-1").hidden = true;
     document.getElementById("imp-passo-2").hidden = false;
     pintarImportacao();

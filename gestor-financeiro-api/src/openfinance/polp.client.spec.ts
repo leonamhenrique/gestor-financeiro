@@ -80,6 +80,41 @@ describe('PolpClient', () => {
     expect(receita.tipo).toBe('INCOME');
   });
 
+  /* O ENVELOPE do valor muda com a origem. No cartão vem em
+   * `brazilian_amount`; no extrato de CONTA, em `transaction_amount` — e
+   * foi assim em 18 de 18 lançamentos de conta, medidos em 15/11/2026. Ler
+   * só os dois primeiros devolvia NaN, que o JSON entrega como `null`: a
+   * tela de conferência abria VAZIA, sem erro nenhum à vista. */
+  it('le o valor do extrato de conta, que vem noutro envelope', async () => {
+    (global as any).fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          data: [
+            {
+              id: 'tx-conta',
+              transaction_date_time: '2026-08-26T22:48:45.000Z',
+              transaction_amount: { amount: '249.13', currency: 'BRL' },
+              credit_debit_type: 'DEBITO',
+              transaction_name: 'Pagamento efetuado',
+            },
+          ],
+        }),
+    });
+    const l = (await polp.transacoesDaConta('c1'))[0];
+    expect(l.valor).toBe(249.13);
+    expect(l.tipo).toBe('EXPENSE');
+  });
+
+  /* Um envelope que este cliente não conhece tem de PARAR aqui. NaN
+   * atravessa o JSON como null e só aparece na tela, três camadas adiante,
+   * como um lançamento sem valor — ou como uma tela que não pinta. */
+  it('envelope desconhecido falha na hora, em vez de virar valor nulo', async () => {
+    responder({ data: [{ id: 'tx-x', transaction_date_time: '2026-10-16T03:00:00.000000Z', credit_debit_type: 'DEBITO' }] });
+    await expect(polp.transacoesDaConta('c1')).rejects.toThrow(/sem valor/);
+  });
+
   // ----------------------------------------------------------- armadilha 3
   /* A documentação promete `bill_post_date = "0001-01-01"` para parcela
    * ainda não faturada. Medido: vem data REAL, nos dois ambientes. Seguir a
