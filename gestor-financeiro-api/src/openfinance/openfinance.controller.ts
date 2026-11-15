@@ -34,7 +34,15 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsString, IsNotEmpty, Matches, IsIn, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  Matches,
+  IsIn,
+  IsOptional,
+  IsArray,
+  ArrayMaxSize,
+} from 'class-validator';
 import { OpenFinanceService, openFinanceLigado } from './openfinance.service';
 
 /**
@@ -97,6 +105,13 @@ export class VincularDto {
   destinoId?: string | null;
 }
 
+export class RecusarDto {
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @IsString({ each: true })
+  providerTxIds: string[];
+}
+
 @UseGuards(OpenFinanceAtivo)
 @Controller('openfinance')
 export class OpenFinanceController {
@@ -145,6 +160,17 @@ export class OpenFinanceController {
   @Post('connections/:id/sync')
   sincronizar(@Req() req: any, @Param('id') id: string) {
     return this.openFinance.paraImportar(req.user.id, id);
+  }
+
+  /**
+   * "Estes eu não quero": os lançamentos de um lote desfeito.
+   *
+   * Sem isto, desfazer um lote que entrou sozinho dura até a próxima
+   * abertura da tela — medido.
+   */
+  @Post('recusados')
+  recusar(@Req() req: any, @Body() dto: RecusarDto) {
+    return this.openFinance.recusar(req.user.id, dto.providerTxIds);
   }
 
   /** Liga um recurso de lá a uma conta/cartão daqui. `destinoId` nulo solta. */

@@ -152,6 +152,24 @@ describe('TransactionsService — importar extrato', () => {
     expect(daMao.syncedAt).toBeNull();
   });
 
+  /* Quem desfaz um lote que entrou sozinho precisa poder dizer "estes eu nao
+   * quero" -- e para isso o desfazer tem de contar o que tirou. Sem esta
+   * lista, o desfazer durava ate a proxima abertura da tela: o lancamento
+   * some, volta a parecer novo, e entra de novo. */
+  it('desfazer diz quais vieram do Open Finance', async () => {
+    await service.criarEmLote('user-1', 'imp-abc123', [
+      linha(10, { providerTxId: 'tx-do-banco-1' }),
+      linha(20),
+      linha(30, { providerTxId: 'tx-do-banco-2' }),
+    ]);
+
+    const r: any = await service.desfazerImportacao('user-1', 'imp-abc123');
+
+    expect(r.removed).toBe(3);
+    // So os que vieram de la: o lancamento de arquivo nao tem o que recusar.
+    expect(r.providerTxIds.sort()).toEqual(['tx-do-banco-1', 'tx-do-banco-2']);
+  });
+
   it('o carimbo de hora e o MESMO em todas', async () => {
     // Uma hora por linha faria "importações recentes" listar 74 lotes de uma
     // linha cada, em vez de um lote de 74.
@@ -209,7 +227,7 @@ describe('TransactionsService — importar extrato', () => {
 
   it('desfazer apaga o lote e devolve o saldo', async () => {
     await service.criarEmLote('user-1', 'imp-abc123', [linha(10), linha(20), linha(30)]);
-    expect(await service.desfazerImportacao('user-1', 'imp-abc123')).toEqual({ removed: 3 });
+    expect(await service.desfazerImportacao('user-1', 'imp-abc123')).toEqual({ removed: 3, providerTxIds: [] });
     expect(transacoes.size).toBe(0);
     expect(saldo).toBe(1000);
   });

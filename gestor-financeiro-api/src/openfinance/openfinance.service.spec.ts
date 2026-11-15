@@ -76,6 +76,10 @@ describe('OpenFinance', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
       },
+      openFinanceRefusal: {
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       transaction: {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
@@ -315,6 +319,28 @@ describe('OpenFinance', () => {
       expect(r.jaSincronizados).toBe(1);
     });
 
+    /* O defeito que isto conserta foi medido: desfiz um lote que tinha
+     * entrado sozinho, reabri a tela, e os mesmos lancamentos entraram de
+     * novo. A condicao "nao casa com nada que voce ja tem" olha o que o app
+     * TEM -- e depois do desfazer ele nao tem mais. */
+    it('o que foi recusado nao volta a ser oferecido', async () => {
+      prisma.openFinanceRefusal.findMany.mockResolvedValue([{ providerTxId: 'tx-1' }]);
+
+      const r = await service.paraImportar('u1', 'cx1');
+
+      expect(r.cartoes[0].lancamentos.map((l: any) => l.providerTxId)).toEqual(['tx-2']);
+    });
+
+    it('recusado e ja importado contam juntos', async () => {
+      prisma.transaction.findMany.mockResolvedValue([{ providerTxId: 'tx-1' }]);
+      prisma.openFinanceRefusal.findMany.mockResolvedValue([{ providerTxId: 'tx-2' }]);
+
+      const r = await service.paraImportar('u1', 'cx1');
+
+      expect(r.cartoes[0].lancamentos).toHaveLength(0);
+      expect(r.jaSincronizados).toBe(2);
+    });
+
     it('os dias do cartao vem das faturas, para a tela poder comparar', async () => {
       const r = await service.paraImportar('u1', 'cx1');
       expect(r.cartoes[0]).toMatchObject({ fechamento: 30, vencimento: 7 });
@@ -399,6 +425,36 @@ describe('OpenFinance', () => {
           data: expect.objectContaining({ pendingCount: 2, pendingCheckedAt: expect.any(Date) }),
         }),
       );
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  describe('recusar', () => {
+    it('guarda so o id no provedor, e nada mais', async () => {
+      await service.recusar('u1', ['tx-1', 'tx-2']);
+
+      const chamada = prisma.openFinanceRefusal.createMany.mock.calls[0][0];
+      expect(chamada.data).toEqual([
+        { userId: 'u1', providerTxId: 'tx-1' },
+        { userId: 'u1', providerTxId: 'tx-2' },
+      ]);
+    });
+
+    /* Recusar duas vezes e a mesma recusa. Sem isto, desfazer um lote que
+     * repetisse um id morreria no indice unico -- e o desfazer ja tinha
+     * acontecido, entao o erro seria sobre nada. */
+    it('recusar de novo nao quebra', async () => {
+      await service.recusar('u1', ['tx-1', 'tx-1', '', null as any]);
+
+      const chamada = prisma.openFinanceRefusal.createMany.mock.calls[0][0];
+      expect(chamada.data).toHaveLength(1);
+      expect(chamada.skipDuplicates).toBe(true);
+    });
+
+    it('lista vazia nao vai ao banco', async () => {
+      const r = await service.recusar('u1', []);
+      expect(r.recusados).toBe(0);
+      expect(prisma.openFinanceRefusal.createMany).not.toHaveBeenCalled();
     });
   });
 

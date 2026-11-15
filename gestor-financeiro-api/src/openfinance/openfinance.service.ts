@@ -396,13 +396,28 @@ export class OpenFinanceService {
      * mesmas transações, e sem este corte a lista de conferência viria
      * cheia do que a pessoa já importou ontem. */
     const ids = todos.map((t) => t.providerTxId).filter(Boolean);
-    const existentes = ids.length
-      ? await this.prisma.transaction.findMany({
-          where: { userId, providerTxId: { in: ids } },
-          select: { providerTxId: true },
-        })
-      : [];
-    const jaTenho = new Set(existentes.map((t) => t.providerTxId));
+    const [existentes, recusados] = await Promise.all([
+      ids.length
+        ? this.prisma.transaction.findMany({
+            where: { userId, providerTxId: { in: ids } },
+            select: { providerTxId: true },
+          })
+        : Promise.resolve([]),
+      /* O que a pessoa desfez não volta a ser oferecido. Fica fora da
+       * proposta inteira, e não só da entrada automática: uma lista que
+       * oferece todo dia o que já foi dispensado uma vez ensina a pessoa a
+       * parar de ler a lista. */
+      ids.length
+        ? this.prisma.openFinanceRefusal.findMany({
+            where: { userId, providerTxId: { in: ids } },
+            select: { providerTxId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const jaTenho = new Set([
+      ...existentes.map((t) => t.providerTxId),
+      ...recusados.map((r) => r.providerTxId),
+    ]);
 
     const limpar = (lista: LancamentoDoProvedor[]) =>
       lista.filter((t) => !jaTenho.has(t.providerTxId));
@@ -423,6 +438,28 @@ export class OpenFinanceService {
       cartoes,
       jaSincronizados: jaTenho.size,
     };
+  }
+
+  // ------------------------------------------------------------- recusar
+  /**
+   * "Estes eu não quero" — dito desfazendo um lote.
+   *
+   * Guarda só o id no provedor. Para lembrar que alguém não quis, basta
+   * saber qual era; valor, data e descrição não acrescentam nada e seriam
+   * mais dado financeiro guardado sem necessidade.
+   */
+  async recusar(userId: string, providerTxIds: string[]) {
+    const limpos = [...new Set((providerTxIds || []).filter(Boolean))];
+    if (!limpos.length) return { recusados: 0 };
+
+    await this.prisma.openFinanceRefusal.createMany({
+      data: limpos.map((providerTxId) => ({ userId, providerTxId })),
+      /* Recusar duas vezes é a mesma recusa: o índice único recusaria o
+       * segundo, e o desfazer morreria por causa de um registro que já
+       * existia. */
+      skipDuplicates: true,
+    });
+    return { recusados: limpos.length };
   }
 
   // ------------------------------------------------------------ vincular

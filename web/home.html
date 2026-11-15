@@ -11208,11 +11208,21 @@
         // local: lá o desfazer remove um a um e precisa pular o que travaria;
         // o lote é atômico, e tirar parte dele deixaria o resto órfão.
         var removidos = 0;
+        var recusados = [];
         var ok = await comServidor("desfazer a importação", async function () {
           var r = await api("/transactions/import/" + encodeURIComponent(id), null, "DELETE");
           removidos = r ? r.removed : 0;
+          recusados = (r && r.providerTxIds) || [];
           await carregarDoServidor();
         });
+        /* Desfazer um lote que veio do banco quer dizer "estes eu não
+         * quero". Sem registrar isso, o desfazer durava até a próxima
+         * abertura da tela: o lançamento some, volta a parecer novo, e entra
+         * de novo — medido. Não bloqueia nem alarma: o lote já saiu. */
+        if (recusados.length) {
+          try { await api("/openfinance/recusados", { providerTxIds: recusados }); } catch (e) {}
+          ofContarPendentes();
+        }
         if (!ok) return;
         renderAll(); pintarImportacoesRecentes();
         avisar("Importação desfeita",
@@ -11517,6 +11527,38 @@
     for (var i = 0; i < prontas.length; i++) {
       await ofSincronizar(prontas[i].id, null, true);
     }
+
+    /* O que não tem dúvida nenhuma entra sozinho, e o resto continua
+     * esperando. As condições estão em `ofSemDuvida` — leia lá antes de
+     * afrouxar qualquer uma delas. */
+    /* UM lote para a passada inteira, e não um por fatura: foi uma ação só
+     * do app, e desfazê-la tem de ser uma ação só da pessoa. Cinco linhas de
+     * "Desfazer" para uma coisa que ela não pediu seria cobrar cinco vezes
+     * pelo mesmo arrependimento. */
+    var loteId = uid("imp");
+    var agora = new Date().toISOString();
+    var entraram = 0;
+    for (var j = 0; j < of.fontes.length; j++) {
+      entraram += await ofEntrarSozinho(of.fontes[j], loteId, agora);
+    }
+    if (!entraram) return;
+
+    /* Recarrega e busca de novo: os que entraram passam a ser "já tenho", e
+     * a lista tem de refletir isso — senão a pessoa veria, na tela, o que o
+     * app acabou de gravar. */
+    await carregarDoServidor();
+    renderAll();
+    of.fontes = [];
+    for (var k = 0; k < prontas.length; k++) {
+      await ofSincronizar(prontas[k].id, null, true);
+    }
+    pintarOpenFinance();
+
+    var faltam = of.fontes.reduce(function (n, f) { return n + f.lancamentos.length; }, 0);
+    avisar(entraram + (entraram === 1 ? " lançamento entrou sozinho" : " lançamentos entraram sozinhos"),
+      "São os que não casaram com nada que você já tinha e caíram numa categoria que VOCÊ ensinou. " +
+      (faltam ? faltam + (faltam === 1 ? " continua esperando você." : " continuam esperando você.") : "Não sobrou nada para conferir.") +
+      " Dá para desfazer o lote inteiro aqui mesmo, em Importações recentes.");
   }
 
   /**
@@ -11570,10 +11612,7 @@
   function ofUsarFonte(i) {
     var f = of.fontes[i];
     if (!f) return;
-    var lancamentos = f.lancamentos.map(function (l, n) {
-      return { ordem: n, data: l.data, valor: l.valor, tipo: l.tipo,
-               desc: l.descricao || "Sem histórico", fitid: l.providerTxId };
-    });
+    var lancamentos = ofLancamentosDaFonte(f);
     // O fim do período é a data mais recente da fatura: é dela que a regra do
     // app deriva qual fatura recebe tudo.
     var fim = lancamentos.map(function (l) { return l.data; }).sort().slice(-1)[0] || "";
@@ -11612,6 +11651,107 @@
     ofEl("imp-ctx").textContent = f.titulo + " · " + lancamentos.length +
       (lancamentos.length === 1 ? " lançamento" : " lançamentos");
     ofEl("imp-continuar").scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  /* ---------- o que entra sozinho ----------
+   *
+   * Até aqui o contrato era de uma linha: a integração PROPÕE, nunca decide.
+   * Isto abre uma exceção, pedida com a tela na mão — e uma exceção a uma
+   * regra de dinheiro só vale com as condições escritas. São seis, e todas
+   * têm de valer ao mesmo tempo:
+   *
+   *  1. o lançamento NÃO casa com nada que o app já tem. Casou, mesmo que
+   *     por aproximação, quem decide é a pessoa;
+   *  2. não é pagamento de fatura — a fatura já é a soma das compras, e
+   *     lançá-lo contaria o mesmo dinheiro duas vezes;
+   *  3. não é parcela. Compra parcelada cria série e projeta as que faltam:
+   *     decisão grande demais para acontecer sem ninguém olhando;
+   *  4. a categoria vem de uma REGRA QUE A PESSOA ENSINOU, nunca do palpite
+   *     de fábrica. O palpite é chute de quem escreveu o app; gravá-lo
+   *     sozinho transformaria um chute em dado permanente;
+   *  5. o destino é conhecido — a conta ou o cartão daqui já está ligado ao
+   *     de lá. Sem isso não há para onde mandar;
+   *  6. no cartão, a fatura que o app calcula CONCORDA com a que o banco
+   *     previu. Discordaram, a pessoa escolhe.
+   *
+   * E o que entra assim entra como LOTE, aparecendo em "Importações
+   * recentes" com o botão Desfazer — do mesmo jeito que uma importação de
+   * arquivo. Automático sem desfazer seria irreversível por omissão.
+   */
+  function ofSemDuvida(l) {
+    return !l.repetida && !l.pagamento && !l.base._parcelada &&
+           l.origem === "regra" && !!l.categoriaId;
+  }
+
+  /** A fatura do app e a do banco dizem o mesmo? Só vale para cartão. */
+  function ofFaturaConcorda(f, fatura) {
+    if (!f.ehCartao) return true;
+    if (!f.faturaPrevista) return false;
+    var k = byId(state.cards, f.destinoId);
+    if (!k) return false;
+    var nossa = mesDaFatura(k, fatura);
+    return nossa.y + "-" + String(nossa.m + 1).padStart(2, "0") === f.faturaPrevista;
+  }
+
+  /**
+   * Entra sozinho o que não tem dúvida nenhuma. Devolve quantos entraram.
+   *
+   * Mexe no `imp` porque o montador de linhas é o mesmo da tela — e ter um
+   * segundo montador aqui seria ter duas regras para a mesma coisa. Guarda
+   * e devolve o que estava lá: isto roda enquanto a pessoa pode estar no
+   * meio de uma conferência.
+   */
+  async function ofEntrarSozinho(f, loteId, agora) {
+    if (!MODO_API || !f.destinoId || !f.lancamentos.length) return 0;
+
+    var lancamentos = ofLancamentosDaFonte(f);
+    var fim = lancamentos.map(function (l) { return l.data; }).sort().slice(-1)[0] || "";
+    var fatura = faturaDoArquivo({ fimDoPeriodo: fim }) ||
+                 { y: HOJE.getFullYear(), m: HOJE.getMonth() };
+    if (!ofFaturaConcorda(f, fatura)) return 0;
+
+    var guardado = imp;
+    imp = {
+      ofx: { lancamentos: lancamentos, ehCartao: f.ehCartao, fimDoPeriodo: fim },
+      formato: "OPENFINANCE", fatura: fatura, linhas: [],
+      ehCartao: f.ehCartao, destinoId: f.destinoId,
+      openFinance: { connectionId: f.connectionId, providerAccountId: f.providerAccountId,
+                     destino: f.ehCartao ? "CARTAO" : "CONTA", faturaPrevista: f.faturaPrevista || "" }
+    };
+
+    var certas = linhasDaConferencia(lancamentos).filter(ofSemDuvida);
+    if (!certas.length) { imp = guardado; return 0; }
+
+    // Sem criar parcelas: nenhuma das certas é parcelada, por definição.
+    var montado = montarLinhasDaImportacao(certas, {}, loteId, agora, false);
+
+    var entraram = 0;
+    try {
+      await api("/transactions/import", {
+        batchId: loteId,
+        items: montado.linhas.map(linhaParaApi)
+      });
+      entraram = montado.linhas.length;
+    } catch (e) {
+      /* Falhar aqui não pode estragar a abertura da tela: o que não entrou
+       * continua na lista, esperando a pessoa. Automático que grita quando
+       * falha é pior que automático que não aconteceu. */
+      entraram = 0;
+    }
+    imp = guardado;
+    return entraram;
+  }
+
+  /** O que veio do banco, na forma que o importador entende. */
+  function ofLancamentosDaFonte(f) {
+    return f.lancamentos.map(function (l, n) {
+      return { ordem: n, data: l.data, valor: l.valor, tipo: l.tipo,
+               desc: l.descricao || "Sem histórico", fitid: l.providerTxId,
+               /* A parcela importa para a entrada automática: compra
+                * parcelada cria série e projeta as que faltam, e isso é
+                * decisão grande demais para acontecer sem ninguém olhando. */
+               _parcelada: !!l.parcela };
+    });
   }
 
   /**
@@ -11678,12 +11818,14 @@
     else if (acao === "desconectar") ofDesconectar(id);
   });
 
-  document.getElementById("imp-continuar").addEventListener("click", function () {
-    if (!imp) return;
+  /** As linhas da conferência, a partir dos lançamentos lidos.
+   *
+   * Separado do botão porque a entrada automática do Open Finance precisa
+   * das MESMAS linhas sem abrir tela nenhuma — e decidir de novo, lá, o que
+   * é repetido e de que categoria é, seria a segunda versão da regra. */
+  function linhasDaConferencia(lancamentos) {
     var jaTem = chavesExistentes();
-    imp.ehCartao = destinoEhCartao();
-    imp.destinoId = document.getElementById("imp-destino").value.slice(2);
-    imp.linhas = imp.ofx.lancamentos.map(function (l) {
+    return lancamentos.map(function (l) {
       var repetida = !!jaTem[chaveDeLancamento(l)];
       var pagamento = ehPagamentoDeFatura(l);
       /* A ordem é a regra: o que o USUÁRIO ensinou ganha da lista que vem de
@@ -11712,6 +11854,13 @@
         chaveRegra: ""
       };
     });
+  }
+
+  document.getElementById("imp-continuar").addEventListener("click", function () {
+    if (!imp) return;
+    imp.ehCartao = destinoEhCartao();
+    imp.destinoId = document.getElementById("imp-destino").value.slice(2);
+    imp.linhas = linhasDaConferencia(imp.ofx.lancamentos);
     document.getElementById("imp-passo-1").hidden = true;
     document.getElementById("imp-passo-2").hidden = false;
     pintarImportacao();

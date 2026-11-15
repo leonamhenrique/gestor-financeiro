@@ -282,7 +282,15 @@ export class TransactionsService {
           await this.reverseEffect(tx, this.efeitoDe(t));
           await tx.transaction.delete({ where: { id: t.id } });
         }
-        return { removed: alvo.length };
+        /* Quais vieram de Open Finance, para quem desfez poder dizer "este
+         * eu não quero". Sem isto, desfazer um lote que entrou sozinho dura
+         * até a próxima abertura da tela: o lançamento deixa de existir, volta
+         * a parecer novo, e entra de novo. Aqui só se INFORMA — registrar a
+         * recusa é do módulo de Open Finance, e este não conhece aquele. */
+        return {
+          removed: alvo.length,
+          providerTxIds: alvo.map((t) => t.providerTxId).filter(Boolean) as string[],
+        };
       },
       { timeout: 120_000, maxWait: 20_000 },
     );

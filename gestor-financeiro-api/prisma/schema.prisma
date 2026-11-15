@@ -139,6 +139,7 @@ model User {
   whatsappLink        WhatsappLink?
   whatsappPairings    WhatsappPairing[]
   openFinanceConnections OpenFinanceConnection[]
+  openFinanceRefusals    OpenFinanceRefusal[]
 
   @@map("users")
 }
@@ -1093,6 +1094,30 @@ model OpenFinanceConnection {
   @@unique([provider, consentId])
   @@index([userId])
   @@map("open_finance_connections")
+}
+
+/// O que a pessoa recusou não volta sozinho.
+///
+/// Nasceu de um defeito medido: desfiz um lote que tinha entrado
+/// automaticamente, reabri a tela, e os mesmos lançamentos entraram de
+/// novo. A condição "não casa com nada que você já tem" olha o que o app
+/// TEM — e depois do desfazer ele não tem mais. Nada registrava a recusa.
+///
+/// Guarda o id do lançamento NO PROVEDOR, e nada mais: para lembrar que
+/// alguém não quis, basta saber qual era. Vale para a entrada automática e
+/// para a proposta — recusado some das duas.
+model OpenFinanceRefusal {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  providerTxId String   @map("provider_tx_id")
+  refusedAt    DateTime @default(now()) @map("refused_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Recusar duas vezes é a mesma recusa.
+  @@unique([userId, providerTxId])
+  @@index([userId])
+  @@map("open_finance_refusals")
 }
 
 model WhatsappLink {

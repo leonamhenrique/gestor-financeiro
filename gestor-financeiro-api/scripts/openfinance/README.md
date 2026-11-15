@@ -136,6 +136,36 @@ existir), o `provider_tx_id` que não atravessava do navegador até o pedido
 — a idempotência existia só no papel — e o vínculo que nunca era gravado
 porque ninguém chamava a função.
 
+### O que entra sozinho — e a exceção ao contrato
+
+Até 15/11/2026 o contrato era de uma linha: a integração **propõe**, nunca
+decide. Isto abre uma exceção, pedida pelo dono do app com a tela na mão. E
+exceção a regra de dinheiro só vale com as condições escritas — **as seis
+valem ao mesmo tempo**, e estão em `ofSemDuvida`, em `web/home.html`:
+
+1. não casa com **nada** que o app já tem. Casou, mesmo por aproximação,
+   quem decide é a pessoa;
+2. não é pagamento de fatura;
+3. não é parcela — parcelada cria série e projeta as que faltam, decisão
+   grande demais para acontecer sem ninguém olhando;
+4. a categoria vem de uma **regra que a pessoa ensinou**, nunca do palpite de
+   fábrica. O palpite é chute de quem escreveu o app;
+5. o destino é conhecido (a conta/cartão daqui já está ligado ao de lá);
+6. no cartão, a fatura que o app calcula **concorda** com a que o banco
+   previu.
+
+O que entra assim entra como **um lote só**, visível em "Importações
+recentes" com Desfazer — um lote por passada, e não um por fatura: foi uma
+ação só do app, e desfazê-la tem de ser uma ação só da pessoa.
+
+**Desfazer tem de durar.** O primeiro desenho não durava: desfeito o lote, os
+mesmos lançamentos entravam de novo na abertura seguinte da tela, porque a
+condição 1 olha o que o app TEM — e depois do desfazer ele não tinha mais.
+Daí a tabela `open_finance_refusals`: desfazer um lote registra os
+`provider_tx_id` como recusados, e eles somem **da entrada automática e da
+proposta**. Medido: 11 entraram sozinhos, um lote foi desfeito, a tela
+reabriu — e o recusado não voltou.
+
 ### A cota, e por que a criação é v3
 
 Aprendido no dia 15/11/2026, do jeito caro. Pela documentação da Polp:
