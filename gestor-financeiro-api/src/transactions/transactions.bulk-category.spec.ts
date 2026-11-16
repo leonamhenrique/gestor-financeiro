@@ -13,6 +13,14 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 
+/* O lote pode trazer transferencia junto. Nestes testes nao traz, e o
+ * dublê existe só para o serviço poder ser construído — se algum dia
+ * for chamado sem que o teste espere, o jest.fn() denuncia. */
+const transferencias = {
+  criarEm: jest.fn(),
+  desfazerDoLote: jest.fn(async () => []),
+};
+
 describe('TransactionsService — reclassificar em lote', () => {
   let service: TransactionsService;
   let prisma: any;
@@ -69,7 +77,7 @@ describe('TransactionsService — reclassificar em lote', () => {
       bankAccount: { update: jest.fn(async () => { mexeuEmSaldo++; }) },
       creditCardInvoice: { upsert: jest.fn(async () => { mexeuEmFatura++; }), findMany: jest.fn(async () => []) },
     };
-    service = new TransactionsService(prisma);
+    service = new TransactionsService(prisma, transferencias as any);
   });
 
   const cat = (id: string) => transacoes.get(id)?.categoryId;

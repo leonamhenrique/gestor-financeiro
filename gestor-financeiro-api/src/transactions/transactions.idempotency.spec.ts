@@ -16,12 +16,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TransactionsService } from './transactions.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { TransfersService } from '../transfers/transfers.service';
 import { TransactionType, SeriesKind, SeriesFrequency } from '@prisma/client';
 
 /** Erro que o Prisma levanta quando um índice único é violado. */
 class ErroDeUnicidade extends Error {
   code = 'P2002';
 }
+
+const transferencias = { criarEm: jest.fn(), desfazerDoLote: jest.fn(async () => []) };
 
 describe('idempotência de create()', () => {
   let service: TransactionsService;
@@ -87,7 +90,7 @@ describe('idempotência de create()', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [TransactionsService, { provide: PrismaService, useValue: prisma }],
+      providers: [TransactionsService, { provide: PrismaService, useValue: prisma }, { provide: TransfersService, useValue: transferencias }],
     }).compile();
     service = module.get<TransactionsService>(TransactionsService);
   });

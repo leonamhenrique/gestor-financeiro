@@ -392,3 +392,46 @@ futura — e ali o caminho escolhido é não depender do campo: derivar a fatura
 com `faturaSugerida(data, cartão)`, a regra do próprio app, e usar
 `bill_forecast_date` apenas como conferência. Divergiu, o app pergunta em vez
 de decidir.
+
+## Transferência, a partir de 16/11/2026
+
+Levantado pelo usuário: "existe Pix recebido de mim mesmo, que são
+transferências de outras contas — como informo isso?". Não dava. O app tem
+o objeto certo desde sempre — a transferência, que **não entra no resultado
+do mês, nem nas categorias, nem no fluxo de caixa** —, mas a importação só
+sabia criar lançamento.
+
+Agora uma linha da conferência pode virar transferência. O que isso exige, e
+por quê:
+
+- **As duas contas precisam existir no app.** `fromAccountId` e
+  `toAccountId` são contas de verdade, não texto. Se o outro banco não está
+  cadastrado, não há origem — e por isso o botão só aparece quando existe
+  outra conta. Oferecer um caminho que termina em aviso é pior que não
+  oferecer.
+- **A direção sai do sinal da linha**, não de uma pergunta: entrou nesta
+  conta, saiu da outra; saiu daqui, foi para a outra. O extrato já disse.
+- **Só em extrato de CONTA.** Transferência é entre contas; fatura de cartão
+  não é conta.
+- **Entra no MESMO lote** dos lançamentos, com `import_batch_id`, e sai no
+  mesmo Desfazer. Um desfazer que devolvesse os lançamentos e deixasse o
+  dinheiro mexido entre duas contas seria pior que não ter botão.
+- **Guarda o `provider_tx_id`.** Sem isso a mesma linha voltaria amanhã como
+  novidade, e a pessoa teria de dizer "isto é transferência" todo dia.
+
+### O que o banco diz, e o que o app faz com isso
+
+O provedor manda a natureza da linha em `category_ref`:
+`TRANSFER_IN_ACCOUNT_TRANSFER`, `TRANSFER_OUT_TRANSFER_OUT_FROM_APPS`,
+`TRANSFER_IN`, `TRANSFER_IN_OTHER_TRANSFER_IN`. O app **ignora de propósito**
+a categoria que o provedor sugere — categoria é gosto, e palpite de fábrica
+não vira dado —, mas "é transferência ou não" é estrutura, não gosto. Então
+esse campo entra, e faz **uma coisa só**: levanta a mão na linha.
+
+Medido em 16/11/2026, e é o motivo de ele não decidir: no extrato real, cinco
+linhas de 11/2025 vieram marcadas como transferência pelo banco, e **todas
+eram Pix de outras pessoas** — receita de verdade. Se o app tivesse obedecido,
+teria apagado cinco receitas do mês.
+
+Pelo mesmo motivo, a entrada automática ganhou a **oitava** condição: o que o
+banco marcou como transferência nunca entra sozinho.

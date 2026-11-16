@@ -19,6 +19,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { TransfersService } from '../transfers/transfers.service';
 import { TransactionType, TransactionSource } from '@prisma/client';
 import { resolveInvoicePeriod, validateAmount, validateAccountXorCard } from './transaction.utils';
 
@@ -32,6 +33,14 @@ const CATEGORIA_FOLHA = () => ({
   findFirst: jest.fn(async () => ({ id: 'cat-1', name: 'Mercado' })),
   count: jest.fn(async () => 0),
 });
+
+/* O lote pode trazer transferencia junto. Nestes testes nao traz, e o
+ * dublê existe só para o serviço poder ser construído — se algum dia
+ * for chamado sem que o teste espere, o jest.fn() denuncia. */
+const transferencias = {
+  criarEm: jest.fn(),
+  desfazerDoLote: jest.fn(async () => []),
+};
 
 describe('resolveInvoicePeriod (função pura)', () => {
   it('compra antes do fechamento entra na fatura do mês corrente', () => {
@@ -136,7 +145,7 @@ describe('TransactionsService (fluxo com Prisma mockado)', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }],
+      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }, { provide: TransfersService, useValue: transferencias }],
     }).compile();
 
     service = module.get<TransactionsService>(TransactionsService);
@@ -309,7 +318,7 @@ describe('TransactionsService — fatura de cartão', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }],
+      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }, { provide: TransfersService, useValue: transferencias }],
     }).compile();
     service = module.get<TransactionsService>(TransactionsService);
   });
@@ -463,7 +472,7 @@ describe('TransactionsService — previsto × confirmado', () => {
       },
     };
     const modulo: TestingModule = await Test.createTestingModule({
-      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }],
+      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }, { provide: TransfersService, useValue: transferencias }],
     }).compile();
     service = modulo.get(TransactionsService);
   });
@@ -633,7 +642,7 @@ describe('TransactionsService — categoria e conta oculta', () => {
         count: jest.fn(async ({ where }: any) => (where.parentId === ALIMENTACAO.id ? 2 : 0)),
       },
     };
-    service = new TransactionsService(prismaMock);
+    service = new TransactionsService(prismaMock, transferencias as any);
   });
 
   it('conta de outro usuário é recusada — e o saldo dela não é tocado', async () => {
@@ -756,7 +765,7 @@ describe('TransactionsService — trocar destino e tipo na edição', () => {
     };
 
     const mod = await Test.createTestingModule({
-      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }],
+      providers: [TransactionsService, { provide: PrismaService, useValue: prismaMock }, { provide: TransfersService, useValue: transferencias }],
     }).compile();
     service = mod.get(TransactionsService);
   });

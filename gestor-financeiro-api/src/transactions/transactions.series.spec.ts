@@ -17,6 +17,14 @@ import { TransactionsService } from './transactions.service';
 const utc = (s: string) => new Date(s + 'T00:00:00.000Z');
 const CARTAO = { id: 'card-1', closingDay: 10, dueDay: 17 };
 
+/* O lote pode trazer transferencia junto. Nestes testes nao traz, e o
+ * dublê existe só para o serviço poder ser construído — se algum dia
+ * for chamado sem que o teste espere, o jest.fn() denuncia. */
+const transferencias = {
+  criarEm: jest.fn(),
+  desfazerDoLote: jest.fn(async () => []),
+};
+
 describe('TransactionsService — séries e fatura escolhida', () => {
   let service: TransactionsService;
   let transacoes: Map<string, any>;
@@ -141,7 +149,7 @@ describe('TransactionsService — séries e fatura escolhida', () => {
     saldo = 1000;
     seq = 0;
     jest.clearAllMocks();
-    service = new TransactionsService(prisma);
+    service = new TransactionsService(prisma, transferencias as any);
   });
 
   afterEach(() => jest.useRealTimers());

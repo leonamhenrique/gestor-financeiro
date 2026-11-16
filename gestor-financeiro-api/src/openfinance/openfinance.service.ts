@@ -396,7 +396,7 @@ export class OpenFinanceService {
      * mesmas transações, e sem este corte a lista de conferência viria
      * cheia do que a pessoa já importou ontem. */
     const ids = todos.map((t) => t.providerTxId).filter(Boolean);
-    const [existentes, recusados] = await Promise.all([
+    const [existentes, recusados, viraramTransferencia] = await Promise.all([
       ids.length
         ? this.prisma.transaction.findMany({
             where: { userId, providerTxId: { in: ids } },
@@ -413,10 +413,21 @@ export class OpenFinanceService {
             select: { providerTxId: true },
           })
         : Promise.resolve([]),
+      /* Linha que a pessoa marcou como TRANSFERÊNCIA não virou lançamento —
+       * virou outra coisa, noutra tabela. Olhar só os lançamentos faria o
+       * mesmo Pix voltar amanhã como novidade, e a pessoa teria de dizer
+       * "isto é transferência" todo dia, para sempre. */
+      ids.length
+        ? this.prisma.transfer.findMany({
+            where: { userId, providerTxId: { in: ids } },
+            select: { providerTxId: true },
+          })
+        : Promise.resolve([]),
     ]);
     const jaTenho = new Set([
       ...existentes.map((t) => t.providerTxId),
       ...recusados.map((r) => r.providerTxId),
+      ...viraramTransferencia.map((t) => t.providerTxId),
     ]);
 
     const limpar = (lista: LancamentoDoProvedor[]) =>

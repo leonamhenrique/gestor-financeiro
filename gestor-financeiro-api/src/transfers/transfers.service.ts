@@ -28,6 +28,11 @@ export interface CriarTransferencia {
   description?: string;
   transferDate: string;
   isConfirmed?: boolean;
+  /** Veio de um extrato: o lote que a trouxe, para o Desfazer alcançá-la. */
+  importBatchId?: string;
+  importedAt?: Date;
+  /** O id no provedor, para a linha não voltar como novidade amanhã. */
+  providerTxId?: string;
 }
 
 export interface AlterarTransferencia {
@@ -54,35 +59,68 @@ export class TransfersService {
     this.conferirContasDistintas(input.fromAccountId, input.toAccountId);
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const repetida = await this.jaGravada(tx, input.userId, input.clientKey);
-        if (repetida) return repetida;
-
-        await this.conferirContas(tx, input.userId, [input.fromAccountId, input.toAccountId]);
-
-        const transferencia = await tx.transfer.create({
-          data: {
-            userId: input.userId,
-            clientKey: input.clientKey ?? null,
-            fromAccountId: input.fromAccountId,
-            toAccountId: input.toAccountId,
-            amount: new Prisma.Decimal(input.amount),
-            description: input.description ?? null,
-            transferDate: new Date(input.transferDate),
-            isConfirmed: input.isConfirmed ?? true,
-          },
-        });
-
-        if (transferencia.isConfirmed) {
-          await this.mover(tx, transferencia.fromAccountId, transferencia.toAccountId, transferencia.amount);
-        }
-        return transferencia;
-      });
+      return await this.prisma.$transaction(async (tx) => this.criarEm(tx, input));
     } catch (e) {
       const existente = await this.perdeuACorrida(e, input.userId, input.clientKey);
       if (existente) return existente;
       throw e;
     }
+  }
+
+  /**
+   * A criação em si, dentro de uma transação que JÁ EXISTE.
+   *
+   * Separado de `create` por causa da importação: um extrato pode trazer
+   * lançamentos e transferências no mesmo lote, e lote é "ou tudo entra, ou
+   * nada entra". Chamar `create` lá de dentro abriria uma transação dentro
+   * de outra; reescrever a regra de saldo lá seria ter duas regras para a
+   * mesma conta — e duas regras divergem. Esta é a única.
+   */
+  async criarEm(tx: Prisma.TransactionClient, input: CriarTransferencia) {
+    this.conferirContasDistintas(input.fromAccountId, input.toAccountId);
+
+    const repetida = await this.jaGravada(tx, input.userId, input.clientKey);
+    if (repetida) return repetida;
+
+    await this.conferirContas(tx, input.userId, [input.fromAccountId, input.toAccountId]);
+
+    const transferencia = await tx.transfer.create({
+      data: {
+        userId: input.userId,
+        clientKey: input.clientKey ?? null,
+        fromAccountId: input.fromAccountId,
+        toAccountId: input.toAccountId,
+        amount: new Prisma.Decimal(input.amount),
+        description: input.description ?? null,
+        transferDate: new Date(input.transferDate),
+        isConfirmed: input.isConfirmed ?? true,
+        importBatchId: input.importBatchId ?? null,
+        importedAt: input.importedAt ?? null,
+        providerTxId: input.providerTxId ?? null,
+      },
+    });
+
+    if (transferencia.isConfirmed) {
+      await this.mover(tx, transferencia.fromAccountId, transferencia.toAccountId, transferencia.amount);
+    }
+    return transferencia;
+  }
+
+  /**
+   * Desfaz as transferências de um lote de importação, dentro da transação
+   * de quem está desfazendo. Devolve o que foi apagado, para quem desfez
+   * poder registrar a recusa.
+   *
+   * O dinheiro volta pelo caminho inverso — e só o das CONFIRMADAS, porque
+   * prevista nunca mexeu em saldo nenhum.
+   */
+  async desfazerDoLote(tx: Prisma.TransactionClient, userId: string, batchId: string) {
+    const alvo = await tx.transfer.findMany({ where: { userId, importBatchId: batchId } });
+    for (const t of alvo) {
+      if (t.isConfirmed) await this.mover(tx, t.toAccountId, t.fromAccountId, t.amount);
+      await tx.transfer.delete({ where: { id: t.id } });
+    }
+    return alvo;
   }
 
   async findAllByUser(userId: string, filtro: { from?: string; to?: string } = {}) {

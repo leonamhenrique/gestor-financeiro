@@ -80,6 +80,11 @@ describe('OpenFinance', () => {
         findMany: jest.fn().mockResolvedValue([]),
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      /* A linha que virou TRANSFERENCIA tambem ja esta resolvida: ela nao e
+       * lancamento, mas tambem nao e novidade. */
+      transfer: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       transaction: {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
@@ -325,6 +330,18 @@ describe('OpenFinance', () => {
      * TEM -- e depois do desfazer ele nao tem mais. */
     it('o que foi recusado nao volta a ser oferecido', async () => {
       prisma.openFinanceRefusal.findMany.mockResolvedValue([{ providerTxId: 'tx-1' }]);
+
+      const r = await service.paraImportar('u1', 'cx1');
+
+      expect(r.cartoes[0].lancamentos.map((l: any) => l.providerTxId)).toEqual(['tx-2']);
+    });
+
+    /* A linha que a pessoa marcou como TRANSFERENCIA nao virou lancamento --
+     * virou outra coisa, noutra tabela. Olhando so os lancamentos, o mesmo
+     * Pix voltava como novidade na sincronizacao seguinte, e a pessoa teria
+     * de dizer "isto e transferencia" todo dia, para sempre. */
+    it('o que virou transferencia tambem nao volta', async () => {
+      prisma.transfer.findMany.mockResolvedValue([{ providerTxId: 'tx-1' }]);
 
       const r = await service.paraImportar('u1', 'cx1');
 

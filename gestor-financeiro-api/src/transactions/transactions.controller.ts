@@ -7,6 +7,7 @@
 // ============================================================
 
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -91,7 +92,19 @@ export class TransactionsController {
   // delas, "import" seria lido como o id de um lançamento.
   @Post('import')
   importar(@Req() req: any, @Body() dto: ImportBatchDto) {
-    return this.transactionsService.criarEmLote(req.user.id, dto.batchId, dto.items.map(linhaDoExtrato));
+    const itens = dto.items || [];
+    const transferencias = dto.transferencias || [];
+    /* Nenhum dos dois lados: não é importação, é pedido vazio. Deixar passar
+     * criaria um lote que existe no botão Desfazer e não desfaz nada. */
+    if (!itens.length && !transferencias.length) {
+      throw new BadRequestException('A importação não trouxe nenhuma linha.');
+    }
+    return this.transactionsService.criarEmLote(
+      req.user.id,
+      dto.batchId,
+      itens.map(linhaDoExtrato),
+      transferencias,
+    );
   }
 
   // DELETE /transactions/import/:batchId — desfaz a importação inteira,

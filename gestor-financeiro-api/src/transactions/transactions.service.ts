@@ -30,6 +30,7 @@
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TransfersService } from '../transfers/transfers.service';
 import {
   Prisma,
   TransactionType,
@@ -115,7 +116,10 @@ interface Efeito {
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly transferencias: TransfersService,
+  ) {}
 
   // ----------------------------------------------------------
   // CREATE
@@ -211,6 +215,17 @@ export class TransactionsService {
        * maior que o número de linhas do arquivo. */
       seriesCount?: number;
     })[],
+    /* As linhas que a pessoa marcou como TRANSFERÊNCIA, e que por isso não
+     * são lançamento nenhum: dinheiro que mudou de conta não é receita nem
+     * despesa. Entram no MESMO lote, para o Desfazer ser um só. */
+    transferencias: {
+      fromAccountId: string;
+      toAccountId: string;
+      amount: number;
+      description?: string;
+      transferDate: string;
+      providerTxId?: string;
+    }[] = [],
   ) {
     const importedAt = new Date();
 
@@ -256,6 +271,21 @@ export class TransactionsService {
             }),
           );
         }
+        /* Depois dos lançamentos, e dentro da MESMA transação: ou o lote
+         * inteiro entra, ou nada entra. A chave de cliente segue o mesmo
+         * desenho — lote mais posição —, com prefixo próprio para não
+         * colidir com a dos lançamentos. */
+        for (let i = 0; i < transferencias.length; i++) {
+          const t = transferencias[i];
+          await this.transferencias.criarEm(tx, {
+            ...t,
+            userId,
+            clientKey: `${batchId}:tr:${i}`,
+            isConfirmed: true,
+            importBatchId: batchId,
+            importedAt,
+          });
+        }
         return criados;
       },
       // O padrão do Prisma é 5s, e um extrato grande passa disso com folga:
@@ -276,7 +306,13 @@ export class TransactionsService {
     return this.prisma.$transaction(
       async (tx) => {
         const alvo = await tx.transaction.findMany({ where: { userId, importBatchId: batchId } });
-        if (!alvo.length) throw new NotFoundException('Importação não encontrada');
+        /* As transferências do mesmo lote caem junto. Um lote pode ser SÓ
+         * de transferências — todas as linhas marcadas como dinheiro mudando
+         * de conta —, e nesse caso não há lançamento nenhum para achar. Por
+         * isso o "não encontrada" só vale quando os dois lados estão vazios:
+         * senão, desfazer esse lote responderia 404 com o dinheiro mexido. */
+        const movidas = await this.transferencias.desfazerDoLote(tx, userId, batchId);
+        if (!alvo.length && !movidas.length) throw new NotFoundException('Importação não encontrada');
 
         for (const t of alvo) {
           await this.reverseEffect(tx, this.efeitoDe(t));
@@ -288,8 +324,10 @@ export class TransactionsService {
          * a parecer novo, e entra de novo. Aqui só se INFORMA — registrar a
          * recusa é do módulo de Open Finance, e este não conhece aquele. */
         return {
-          removed: alvo.length,
-          providerTxIds: alvo.map((t) => t.providerTxId).filter(Boolean) as string[],
+          removed: alvo.length + movidas.length,
+          providerTxIds: [...alvo, ...movidas]
+            .map((t) => t.providerTxId)
+            .filter(Boolean) as string[],
         };
       },
       { timeout: 120_000, maxWait: 20_000 },

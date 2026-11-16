@@ -7560,7 +7560,10 @@
     return {
       id: t.id, valor: Number(t.amount), data: String(t.transferDate).slice(0, 10),
       deId: t.fromAccountId, paraId: t.toAccountId,
-      desc: t.description || "", confirmada: !!t.isConfirmed
+      desc: t.description || "", confirmada: !!t.isConfirmed,
+      /* De qual importação ela veio, quando veio de uma. É por isto que ela
+       * aparece em "Importações recentes" e cai junto no Desfazer. */
+      importacaoId: t.importBatchId || null, importadoEm: t.importedAt || ""
     };
   }
   function transferenciaDaFila(item) {
@@ -11153,6 +11156,20 @@
       g.valor += (t.tipo === "EXPENSE" ? t.valor : -t.valor);
       if (t.importadoEm && (!g.em || t.importadoEm < g.em)) g.em = t.importadoEm;
     });
+    /* As transferências do mesmo lote contam junto — e um lote pode ser SÓ
+     * de transferência, quando todas as linhas eram dinheiro mudando de
+     * conta. Sem isto esse lote não apareceria aqui, e o único jeito de
+     * desfazê-lo seria apagar transferência por transferência. Não entram
+     * no `valor`: transferência não é saída nem entrada. */
+    (state.transferencias || []).forEach(function (t) {
+      if (!t.importacaoId) return;
+      var g = por[t.importacaoId];
+      if (!g) g = por[t.importacaoId] = { id: t.importacaoId, em: t.importadoEm || "", n: 0, valor: 0,
+        cartaoId: null, contaId: t.paraId, fatura: null };
+      g.n++;
+      g.transferencias = (g.transferencias || 0) + 1;
+      if (t.importadoEm && (!g.em || t.importadoEm < g.em)) g.em = t.importadoEm;
+    });
     return Object.keys(por).map(function (k) { return por[k]; })
       .sort(function (a, b) { return String(b.em).localeCompare(String(a.em)); })
       .slice(0, 8);
@@ -11169,7 +11186,14 @@
       var quando = g.em ? fmtDataBR(g.em.slice(0, 10)) : "";
       return '<div class="imp-lote">' +
         '<span class="imp-lote-txt">' +
-          "<b>" + g.n + (g.n === 1 ? " lançamento" : " lançamentos") + "</b>" +
+          /* "5 lançamentos" num lote que tem quatro lançamentos e uma
+           * transferência seria contar certo e dizer errado. */
+          "<b>" + (g.transferencias
+            ? (g.n - g.transferencias
+                ? (g.n - g.transferencias) + (g.n - g.transferencias === 1 ? " lançamento e " : " lançamentos e ")
+                : "") +
+              g.transferencias + (g.transferencias === 1 ? " transferência" : " transferências")
+            : g.n + (g.n === 1 ? " lançamento" : " lançamentos")) + "</b>" +
           '<span class="imp-lote-meta">' + esc(onde || "destino removido") +
             (g.fatura
               ? " · fatura " + esc((function () {
@@ -11203,12 +11227,18 @@
    * alta em vez de remover em silêncio. */
   function desfazerImportacao(id) {
     var alvo = state.transactions.filter(function (t) { return t.importacaoId === id; });
-    if (!alvo.length) { pintarImportacoesRecentes(); return; }
+    /* As transferências do lote saem junto. Um lote pode ser SÓ delas — e
+     * antes disto esse lote caía no `return` abaixo: o botão existia e não
+     * fazia nada, com o dinheiro já movido entre as duas contas. */
+    var trAlvo = (state.transferencias || []).filter(function (t) { return t.importacaoId === id; });
+    if (!alvo.length && !trAlvo.length) { pintarImportacoesRecentes(); return; }
     var presos = alvo.filter(parcelaBloqueadaPorFaturaPaga);
     var podem = alvo.filter(function (t) { return !parcelaBloqueadaPorFaturaPaga(t); });
     pedirConfirmacao({
       titulo: "Desfazer esta importação?",
       ctx: podem.length + (podem.length === 1 ? " lançamento sai" : " lançamentos saem") +
+        (trAlvo.length ? ", " + trAlvo.length +
+          (trAlvo.length === 1 ? " transferência volta" : " transferências voltam") : "") +
         (presos.length ? ", " + presos.length + " ficam" : ""),
       detalhe: (presos.length
         ? "Os que ficam estão em fatura já paga: tirá-los deixaria o pagamento sem lastro. "
@@ -11239,16 +11269,33 @@
         }
         if (!ok) return;
         renderAll(); pintarImportacoesRecentes();
+        /* O servidor devolve o TOTAL; aqui ele se separa de novo. "5
+         * lançamentos removidos" num lote de quatro lançamentos e uma
+         * transferência conta certo e diz errado — e logo depois de mexer
+         * no saldo de duas contas não é hora de a frase estar torta. */
+        var lancRemovidos = removidos - trAlvo.length;
         avisar("Importação desfeita",
-          removidos + (removidos === 1 ? " lançamento removido" : " lançamentos removidos") +
+          (lancRemovidos > 0
+            ? lancRemovidos + (lancRemovidos === 1 ? " lançamento removido" : " lançamentos removidos")
+            : "") +
+          (trAlvo.length
+            ? (lancRemovidos > 0 ? " e " : "") + trAlvo.length +
+              (trAlvo.length === 1 ? " transferência desfeita" : " transferências desfeitas")
+            : "") +
           ". O saldo e a fatura voltaram ao que eram.");
         return;
       }
       podem.forEach(removerTransacao);
+      trAlvo.forEach(function (t) {
+        if (t.confirmada) aplicarEfeitoTransferencia(t, -1);
+        state.transferencias = state.transferencias.filter(function (x) { return x.id !== t.id; });
+      });
       persist(); renderAll();
       pintarImportacoesRecentes();
       avisar("Importação desfeita",
         podem.length + (podem.length === 1 ? " lançamento removido" : " lançamentos removidos") +
+        (trAlvo.length ? ", " + trAlvo.length +
+          (trAlvo.length === 1 ? " transferência desfeita" : " transferências desfeitas") : "") +
         (presos.length ? ". " + presos.length + " ficaram por estarem em fatura já paga." : "."));
     });
   }
@@ -11684,7 +11731,7 @@
    *
    * Até aqui o contrato era de uma linha: a integração PROPÕE, nunca decide.
    * Isto abre uma exceção, pedida com a tela na mão — e uma exceção a uma
-   * regra de dinheiro só vale com as condições escritas. São sete, e todas
+   * regra de dinheiro só vale com as condições escritas. São oito, e todas
    * têm de valer ao mesmo tempo:
    *
    *  1. o lançamento NÃO casa com nada que o app já tem. Casou, mesmo que
@@ -11702,7 +11749,10 @@
    *     previu. Discordaram, a pessoa escolhe;
    *  7. o valor é legível. Vale menos como condição e mais como recusa:
    *     um lançamento cujo valor não se consegue ler é o máximo de dúvida
-   *     que existe, e gravá-lo sozinho seria inventar dinheiro.
+   *     que existe, e gravá-lo sozinho seria inventar dinheiro;
+   *  8. o banco NÃO disse que é transferência. Dinheiro que mudou de conta
+   *     não é receita nem despesa, e entrar sozinho como receita inflaria o
+   *     mês inteiro. Quando o banco levanta a mão, a pessoa decide.
    *
    * E o que entra assim entra como LOTE, aparecendo em "Importações
    * recentes" com o botão Desfazer — do mesmo jeito que uma importação de
@@ -11710,7 +11760,8 @@
    */
   function ofSemDuvida(l) {
     return !l.repetida && !l.pagamento && !l.base._parcelada &&
-           l.origem === "regra" && !!l.categoriaId && isFinite(l.base.valor);
+           l.origem === "regra" && !!l.categoriaId && isFinite(l.base.valor) &&
+           !l.base._transferencia;
   }
 
   /** A fatura do app e a do banco dizem o mesmo? Só vale para cartão. */
@@ -11777,6 +11828,13 @@
     return f.lancamentos.map(function (l, n) {
       return { ordem: n, data: l.data, valor: l.valor, tipo: l.tipo,
                desc: l.descricao || "Sem histórico", fitid: l.providerTxId,
+               /* O banco diz a NATUREZA da linha, e "é transferência ou
+                * não" é estrutura, não gosto. Por isso este campo entra,
+                * enquanto a categoria que o provedor sugere continua
+                * ignorada de propósito: categoria é gosto, e o palpite de
+                * fábrica não vira dado. Aqui ele só levanta a mão — quem
+                * decide, e quem escolhe a outra conta, é a pessoa. */
+               _transferencia: /^TRANSFER/.test(String(l.categoriaDoProvedor || "")),
                /* A parcela importa para a entrada automática: compra
                 * parcelada cria série e projeta as que faltam, e isso é
                 * decisão grande demais para acontecer sem ninguém olhando. */
@@ -11949,25 +12007,71 @@
     return imp.linhas.map(function (l) { return chaveDeLojista(l.base.desc); });
   }
 
+  /** As OUTRAS contas: para onde o dinheiro pode ter ido, ou de onde veio.
+   *
+   * A conta do próprio extrato fica de fora — transferência de uma conta
+   * para ela mesma não é transferência, é nada. */
+  function outrasContasDaImportacao() {
+    return state.accounts.filter(function (a) {
+      return a.isActive && a.id !== imp.destinoId;
+    });
+  }
+
+  /** Esta linha pode virar transferência?
+   *
+   * Só no extrato de CONTA: transferência é entre duas contas, e fatura de
+   * cartão não é conta. E só quando existe outra conta cadastrada — sem ela
+   * não há de onde nem para onde, e oferecer o botão seria oferecer um
+   * caminho que termina em aviso. */
+  function podeSerTransferencia() {
+    return !imp.ehCartao && outrasContasDaImportacao().length > 0;
+  }
+
+  /** A linha vira transferência: o seletor de categoria dá lugar ao da outra
+   * conta, porque transferência não TEM categoria — ela não entra no
+   * resultado do mês, nem nas categorias, nem no fluxo de caixa. */
+  function campoDaTransferencia(l, i, b) {
+    var entrou = b.tipo === "INCOME";
+    return '<select class="imp-tr-conta" aria-label="' + (entrou ? "Saiu de" : "Entrou em") +
+        ', para ' + esc(b.desc) + '">' +
+        '<option value="">' + (entrou ? "Saiu de qual conta?" : "Entrou em qual conta?") + "</option>" +
+        outrasContasDaImportacao().map(function (a) {
+          return '<option value="' + esc(a.id) + '"' +
+            (l.transferencia === a.id ? " selected" : "") + ">" + esc(a.nome) + "</option>";
+        }).join("") +
+      "</select>" +
+      '<button type="button" class="pill imp-tr" data-i="' + i + '">Não é transferência</button>';
+  }
+
   function linhaImportacaoHTML(l, i, chaves) {
     var b = l.base;
     var g = grupoDeLojista(chaves, i);
     // O botão só aparece quando há o que ganhar: aplicar a uma linha sozinha
     // é o mesmo que escolher a categoria nela, que a pessoa acabou de fazer.
     var rotulo = g && g.quantos > 1 ? recortarPorChave(lojistaDoHistorico(b.desc), g.chave.length) : "";
+    var transferindo = l.transferencia !== undefined;
     return '<div class="imp-linha' + (l.repetida ? " repetida" : "") + '" data-i="' + i + '">' +
       '<input type="checkbox" class="imp-marca" ' + (l.marcada ? "checked" : "") +
         ' aria-label="Importar ' + esc(b.desc) + '">' +
       '<span class="imp-desc" title="' + esc(b.desc) + '">' + esc(b.desc) + "</span>" +
-      '<span class="imp-val num ' + (b.tipo === "EXPENSE" ? "sai" : "entra") + '">' +
-        (b.tipo === "EXPENSE" ? "−" : "+") + money(b.valor) + "</span>" +
+      '<span class="imp-val num ' + (transferindo ? "" : b.tipo === "EXPENSE" ? "sai" : "entra") + '">' +
+        (transferindo ? "" : b.tipo === "EXPENSE" ? "−" : "+") + money(b.valor) + "</span>" +
       '<span class="imp-meta">' +
         "<span>" + fmtDataBR(b.data) + "</span>" +
-        '<select class="imp-cat" aria-label="Categoria de ' + esc(b.desc) + '">' + opcoesDeCategoria(l) + "</select>" +
-        (l.origem === "regra" ? '<span class="imp-tag imp-tag--regra">você ensinou</span>' : "") +
+        (transferindo
+          ? campoDaTransferencia(l, i, b)
+          : '<select class="imp-cat" aria-label="Categoria de ' + esc(b.desc) + '">' + opcoesDeCategoria(l) + "</select>") +
+        (transferindo ? '<span class="imp-tag imp-tag--regra">transferência</span>' : "") +
+        (l.origem === "regra" && !transferindo ? '<span class="imp-tag imp-tag--regra">você ensinou</span>' : "") +
         (l.repetida ? '<span class="imp-tag">já existe</span>' : "") +
         (l.pagamento ? '<span class="imp-tag">pagamento da fatura</span>' : "") +
-        (rotulo ? '<button type="button" class="pill imp-grupo" data-i="' + i + '">Aplicar a ' +
+        /* O banco levantou a mão. É sugestão, e some assim que a pessoa
+         * decide — para os dois lados. */
+        (!transferindo && b._transferencia ? '<span class="imp-tag">o banco diz que é transferência</span>' : "") +
+        (!transferindo && podeSerTransferencia()
+          ? '<button type="button" class="pill imp-tr" data-i="' + i + '">É transferência</button>'
+          : "") +
+        (rotulo && !transferindo ? '<button type="button" class="pill imp-grupo" data-i="' + i + '">Aplicar a ' +
           g.quantos + " " + esc(rotulo) + "</button>" : "") +
       "</span>" +
       "</div>";
@@ -11987,7 +12091,11 @@
     var chaves = chavesDaImportacao();
     var pendentes = [], prontas = [];
     imp.linhas.forEach(function (l, i) {
-      (l.categoriaId || l.criar ? prontas : pendentes).push(i);
+      /* Transferência com a outra conta escolhida já está resolvida: ela
+       * não tem categoria para faltar. Sem a outra conta, continua
+       * pendente — é a pergunta que falta responder. */
+      var pronta = l.transferencia !== undefined ? !!l.transferencia : !!(l.categoriaId || l.criar);
+      (pronta ? prontas : pendentes).push(i);
     });
 
     var html = "";
@@ -12023,7 +12131,13 @@
   function atualizarResumoDaImportacao() {
     var marcadas = imp.linhas.filter(function (l) { return l.marcada; });
     var saidas = 0, entradas = 0, pago = 0;
-    marcadas.forEach(function (l) {
+    /* Transferência fica FORA das duas somas. Ela não é receita nem
+     * despesa: o dinheiro não entrou nem saiu da sua vida, só mudou de
+     * conta. Somá-la aqui faria o resumo desta tela discordar do resultado
+     * do mês que o app mostra depois — e a pessoa teria de escolher em qual
+     * dos dois acreditar. */
+    var transferidas = marcadas.filter(function (l) { return l.transferencia !== undefined; });
+    marcadas.filter(function (l) { return l.transferencia === undefined; }).forEach(function (l) {
       if (l.base.tipo === "EXPENSE") saidas += l.base.valor;
       else { entradas += l.base.valor; if (l.pagamento) pago += l.base.valor; }
     });
@@ -12035,10 +12149,15 @@
      * este contador é o que mostra o trabalho diminuindo. Conta só o que está
      * MARCADO: pedir categoria para uma linha que não vai entrar é pedir
      * trabalho que não serve para nada. */
-    var semCategoria = marcadas.filter(function (l) { return !l.categoriaId && !l.criar; }).length;
+    var semCategoria = marcadas.filter(function (l) {
+      return l.transferencia === undefined && !l.categoriaId && !l.criar;
+    }).length;
+    var semConta = transferidas.filter(function (l) { return !l.transferencia; }).length;
     document.getElementById("imp-resumo").innerHTML =
       "<span>marcados<b>" + marcadas.length + " de " + imp.linhas.length + "</b></span>" +
       (semCategoria ? "<span>sem categoria<b>" + semCategoria + "</b></span>" : "") +
+      (transferidas.length ? "<span>transferências<b>" + transferidas.length + "</b></span>" : "") +
+      (semConta ? "<span>sem a outra conta<b>" + semConta + "</b></span>" : "") +
       "<span>saídas<b class='num'>" + money(saidas) + "</b></span>" +
       (entradas ? "<span>entradas<b class='num'>" + money(entradas) + "</b></span>" : "") +
       "<span>" + (imp.ehCartao ? "fica na fatura" : "resultado") +
@@ -12052,7 +12171,9 @@
 
     /* As séries saem das linhas MARCADAS: desmarcar a compra e ainda assim
      * criar a continuidade dela seria inventar dívida que ninguém pediu. */
-    imp.series = seriesDeParcelas(marcadas.map(function (l) { return l.base; }));
+    imp.series = seriesDeParcelas(
+      marcadas.filter(function (l) { return l.transferencia === undefined; })
+        .map(function (l) { return l.base; }));
     imp.destinos = imp.ehCartao ? destinosDasParcelas(imp.series, imp.destinoId, imp.fatura) : [];
     var cabem = imp.destinos.filter(function (d) { return !d.encerrada; });
     var puladas = imp.destinos.filter(function (d) { return d.encerrada; });
@@ -12115,6 +12236,31 @@
       l.chaveRegra = chaveDeLojista(l.base.desc);
       l.origem = "";
     }
+    if (e.target.classList.contains("imp-tr-conta")) {
+      l.transferencia = e.target.value;
+      atualizarResumoDaImportacao();
+    }
+  });
+
+  /* "É transferência" / "Não é".
+   *
+   * Repinta a lista inteira porque a linha muda de forma — o seletor de
+   * categoria dá lugar ao da outra conta — e porque ela pode trocar de
+   * grupo. `l.transferencia` indefinido é "lançamento normal"; string vazia
+   * é "transferência, outra conta ainda não escolhida". */
+  document.getElementById("imp-lista").addEventListener("click", function (e) {
+    var b = e.target.closest(".imp-tr");
+    if (!b) return;
+    var l = imp.linhas[Number(b.getAttribute("data-i"))];
+    if (l.transferencia === undefined) {
+      l.transferencia = "";
+      // Transferência não tem categoria: a que estava escolhida sai, para
+      // não voltar sozinha se a pessoa desistir.
+      l.categoriaId = ""; l.criar = ""; l.origem = "";
+    } else {
+      delete l.transferencia;
+    }
+    pintarImportacao();
   });
 
   // A dobra dos já classificados. Alterna o `hidden` em vez de repintar: a
@@ -12405,9 +12551,48 @@
     return e;
   }
 
+  /** As linhas marcadas como transferência, na forma que a API espera.
+   *
+   * A direção sai do SINAL da linha, e não de uma pergunta: se o dinheiro
+   * entrou nesta conta, ele saiu da outra; se saiu, foi para a outra.
+   * Perguntar isso de novo seria pedir à pessoa que repetisse o que o
+   * extrato já diz. */
+  function transferenciasDaImportacao(marcadas) {
+    return marcadas
+      .filter(function (l) { return l.transferencia; })
+      .map(function (l) {
+        var entrou = l.base.tipo === "INCOME";
+        return {
+          fromAccountId: entrou ? l.transferencia : imp.destinoId,
+          toAccountId: entrou ? imp.destinoId : l.transferencia,
+          amount: l.base.valor,
+          description: l.base.desc,
+          transferDate: l.base.data,
+          providerTxId: imp.openFinance ? (l.base.fitid || undefined) : undefined
+        };
+      });
+  }
+
   document.getElementById("imp-confirmar").addEventListener("click", async function () {
-    var marcadas = imp.linhas.filter(function (l) { return l.marcada; });
-    if (!marcadas.length) return;
+    var todasMarcadas = imp.linhas.filter(function (l) { return l.marcada; });
+    if (!todasMarcadas.length) return;
+    /* Daqui para baixo "marcadas" são só os LANÇAMENTOS. A transferência
+     * segue por outro caminho: ela não tem categoria, não vira série, não
+     * entra em fatura e não é receita nem despesa. */
+    var marcadas = todasMarcadas.filter(function (l) { return l.transferencia === undefined; });
+    var transferencias = transferenciasDaImportacao(todasMarcadas);
+
+    /* Marcada como transferência e sem dizer de onde: é a pergunta que a
+     * pessoa abriu e não fechou. Entrar assim significaria escolher a conta
+     * por ela. */
+    var semConta = todasMarcadas.filter(function (l) { return l.transferencia === ""; });
+    if (semConta.length) {
+      avisar("Falta a outra conta",
+        semConta.length + (semConta.length === 1
+          ? " transferência está sem a outra conta. Escolha de onde o dinheiro veio, ou para onde foi."
+          : " transferências estão sem a outra conta. Escolha em cada uma de onde o dinheiro veio, ou para onde foi."));
+      return;
+    }
     // Sem categoria o servidor recusa a linha, e recusar no fim derrubaria o
     // extrato inteiro depois da espera. Melhor dizer antes.
     var semCat = marcadas.filter(function (l) { return !l.categoriaId && !l.criar; });
@@ -12444,7 +12629,10 @@
       var ok = await comServidor("importar o extrato", async function () {
         await api("/transactions/import", {
           batchId: loteId,
-          items: montado.linhas.map(linhaParaApi)
+          items: montado.linhas.map(linhaParaApi),
+          /* No MESMO lote: desfazer a importação é um clique só, e ele tem
+           * de alcançar o dinheiro que mudou de conta também. */
+          transferencias: transferencias
         });
         // Recarrega em vez de confiar na resposta: saldo da conta, total da
         // fatura e status dela mudaram todos juntos, e remontá-los aqui seria
@@ -12456,6 +12644,16 @@
       montado.linhas.forEach(function (t) {
         state.transactions.push(t);
         if (t.confirmada) aplicarEfeito(t, 1);
+      });
+      // Sem servidor, a transferência entra na lista dela, com o mesmo
+      // efeito de saldo que a tela de transferir aplica.
+      transferencias.forEach(function (t) {
+        var nova = { id: uid("tr"), valor: t.amount, data: t.transferDate,
+                     deId: t.fromAccountId, paraId: t.toAccountId,
+                     desc: t.description, confirmada: true,
+                     importacaoId: loteId, importadoEm: agora };
+        state.transferencias.push(nova);
+        aplicarEfeitoTransferencia(nova, 1);
       });
     }
 
@@ -12501,6 +12699,11 @@
     var quantas = Object.keys(criadas).length;
     avisar("Extrato importado",
       marcadas.length + (marcadas.length === 1 ? " lançamento importado" : " lançamentos importados") +
+      /* A transferência conta à parte, e não somada: a pessoa marcou cinco
+       * linhas e leria "4 importados" sem entender o que houve com a
+       * quinta. Ela entrou — só não como lançamento. */
+      (transferencias.length ? ", mais " + transferencias.length +
+        (transferencias.length === 1 ? " transferência" : " transferências") : "") +
       (projetadas ? ", mais " + projetadas + (projetadas === 1 ? " parcela criada nas faturas seguintes" : " parcelas criadas nas faturas seguintes") : "") +
       (quantas ? ", e " + quantas + (quantas === 1 ? " categoria criada" : " categorias criadas") : "") + ". " +
       (puladasPorFatura ? " " + puladasPorFatura + (puladasPorFatura === 1 ? " parcela não foi criada porque a fatura dela já está quitada ou transportada." : " parcelas não foram criadas porque as faturas delas já estão quitadas ou transportadas.") : "") +

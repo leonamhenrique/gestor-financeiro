@@ -497,6 +497,14 @@ model Transfer {
   /// item dela depois da resposta, e sem a chave um reenvio transferiria o
   /// mesmo dinheiro duas vezes.
   clientKey     String?  @map("client_key")
+  /// O lote de importação que a criou, quando veio de um extrato. É por ele
+  /// que "Desfazer esta importação" alcança a transferência: sem isso o
+  /// desfazer deixaria o dinheiro mexido entre as duas contas.
+  importBatchId String?   @map("import_batch_id")
+  importedAt    DateTime? @map("imported_at")
+  /// O id da transação NO PROVEDOR, como nos lançamentos. É o que impede a
+  /// linha de voltar como novidade na sincronização seguinte.
+  providerTxId  String?   @map("provider_tx_id")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -510,6 +518,7 @@ model Transfer {
 
   @@unique([userId, clientKey])
   @@index([userId, transferDate])
+  @@index([userId, importBatchId])
   @@index([fromAccountId])
   @@index([toAccountId])
   @@map("transfers")

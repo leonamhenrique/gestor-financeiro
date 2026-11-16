@@ -362,6 +362,40 @@ export class ImportItemDto {
   creditCardId?: string;
 }
 
+/**
+ * Uma linha do extrato que a pessoa marcou como TRANSFERÊNCIA.
+ *
+ * Não é lançamento: é dinheiro que mudou de conta. Por isso não tem
+ * categoria, não tem tipo e não tem cartão — tem duas contas, e as duas
+ * precisam existir no app. Qual é a de cá e qual a de lá o cliente já
+ * resolveu, porque é ele que sabe se a linha entrou ou saiu.
+ */
+export class ImportTransferDto {
+  @IsUUID()
+  fromAccountId!: string;
+
+  @IsUUID()
+  toAccountId!: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'O valor tem no máximo duas casas decimais.' })
+  @IsPositive({ message: 'O valor precisa ser maior que zero.' })
+  @Transform(({ value }) => (typeof value === 'string' ? Number(value) : value))
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  description?: string;
+
+  @IsDateString({}, { message: 'Use a data no formato AAAA-MM-DD.' })
+  transferDate!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 128)
+  providerTxId?: string;
+}
+
 export class ImportBatchDto {
   /**
    * O id do lote, gerado pelo app. Vem do cliente, e não do servidor, porque
@@ -374,10 +408,19 @@ export class ImportBatchDto {
   @Matches(/^[A-Za-z0-9_.:-]+$/, { message: 'batchId aceita letras, números e _ . : -' })
   batchId!: string;
 
+  /* Sem mínimo de 1: um lote pode ser só de transferências, quando TODAS as
+   * linhas marcadas eram dinheiro mudando de conta. Quem exige que o lote
+   * não venha vazio dos dois lados é o serviço, que enxerga os dois. */
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(MAX_LOTE_IMPORTACAO)
   @ValidateNested({ each: true })
   @Type(() => ImportItemDto)
   items!: ImportItemDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_LOTE_IMPORTACAO)
+  @ValidateNested({ each: true })
+  @Type(() => ImportTransferDto)
+  transferencias?: ImportTransferDto[];
 }

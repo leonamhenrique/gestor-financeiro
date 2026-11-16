@@ -14,6 +14,14 @@ import { TransactionsService } from './transactions.service';
 
 const utc = (s: string) => new Date(s + 'T00:00:00.000Z');
 
+/* O lote pode trazer transferencia junto. Nestes testes nao traz, e o
+ * dublê existe só para o serviço poder ser construído — se algum dia
+ * for chamado sem que o teste espere, o jest.fn() denuncia. */
+const transferencias = {
+  criarEm: jest.fn(),
+  desfazerDoLote: jest.fn(async () => []),
+};
+
 describe('TransactionsService — importar extrato', () => {
   let service: TransactionsService;
   let prisma: any;
@@ -98,7 +106,7 @@ describe('TransactionsService — importar extrato', () => {
         count: jest.fn(async () => 0),
       },
     };
-    service = new TransactionsService(prisma);
+    service = new TransactionsService(prisma, transferencias as any);
   });
 
   const linha = (amount: number, extra: any = {}) => ({
@@ -168,6 +176,73 @@ describe('TransactionsService — importar extrato', () => {
     expect(r.removed).toBe(3);
     // So os que vieram de la: o lancamento de arquivo nao tem o que recusar.
     expect(r.providerTxIds.sort()).toEqual(['tx-do-banco-1', 'tx-do-banco-2']);
+  });
+
+  // ------------------------------------------------------- transferencia
+  /* Um Pix que entrou numa conta e saiu de outra do mesmo dono nao e
+   * receita: e dinheiro mudando de lugar. Ele entra no MESMO lote dos
+   * lancamentos porque o botao Desfazer e um so -- e um desfazer que
+   * devolvesse os lancamentos e deixasse o dinheiro mexido entre as duas
+   * contas seria pior que nao ter botao. */
+  it('a linha marcada como transferencia nao vira lancamento', async () => {
+    await service.criarEmLote(
+      'user-1',
+      'imp-abc123',
+      [linha(10)],
+      [{ fromAccountId: 'acc-outra', toAccountId: 'acc-1', amount: 250, transferDate: '2026-08-26' }],
+    );
+
+    // Um lancamento, nao dois: a transferencia nao passou por aqui.
+    expect(transacoes.size).toBe(1);
+    expect((transferencias.criarEm as jest.Mock).mock.calls.at(-1)![1]).toMatchObject({
+      amount: 250,
+      fromAccountId: 'acc-outra',
+      toAccountId: 'acc-1',
+    });
+  });
+
+  it('a transferencia carrega o lote e a hora, para o desfazer alcancar', async () => {
+    await service.criarEmLote(
+      'user-1',
+      'imp-abc123',
+      [linha(10)],
+      [{ fromAccountId: 'acc-outra', toAccountId: 'acc-1', amount: 250, transferDate: '2026-08-26',
+         providerTxId: 'tx-pix-1' }],
+    );
+
+    // A ULTIMA chamada: o dublê é de módulo e guarda as dos testes anteriores.
+    const [, pedido] = (transferencias.criarEm as jest.Mock).mock.calls.at(-1)!;
+    expect(pedido).toMatchObject({
+      userId: 'user-1',
+      importBatchId: 'imp-abc123',
+      providerTxId: 'tx-pix-1',
+      isConfirmed: true,
+    });
+    expect(pedido.importedAt).toBeInstanceOf(Date);
+    // Mesma chave de idempotencia dos lancamentos, com prefixo proprio para
+    // nao colidir com a deles.
+    expect(pedido.clientKey).toBe('imp-abc123:tr:0');
+  });
+
+  /* Um lote pode ser SO de transferencia -- todas as linhas marcadas. Antes
+   * disto, desfazer esse lote respondia "importacao nao encontrada" porque a
+   * busca so olhava lancamento: 404 com o dinheiro ja mexido. */
+  it('lote so de transferencia tambem se desfaz', async () => {
+    (transferencias.desfazerDoLote as jest.Mock).mockResolvedValueOnce([
+      { providerTxId: 'tx-pix-1' },
+      { providerTxId: null },
+    ]);
+
+    const r: any = await service.desfazerImportacao('user-1', 'imp-so-tr');
+
+    expect(r.removed).toBe(2);
+    expect(r.providerTxIds).toEqual(['tx-pix-1']);
+  });
+
+  it('lote que nao existe em lado nenhum continua sendo 404', async () => {
+    await expect(service.desfazerImportacao('user-1', 'imp-nada')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('o carimbo de hora e o MESMO em todas', async () => {

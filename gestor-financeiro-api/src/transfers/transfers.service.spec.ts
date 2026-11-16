@@ -219,6 +219,79 @@ describe('TransfersService', () => {
     expect(soma(movimentos())).toBe(0);
   });
 
+  // ---------- vinda da importação ----------
+  /* Um Pix que entrou numa conta e saiu de outra do mesmo dono é
+   * transferência, não receita. Quando ela nasce de um extrato, precisa
+   * carregar DE ONDE veio: sem o lote, o botão "desfazer esta importação"
+   * devolveria os lançamentos e deixaria o dinheiro mexido entre as duas
+   * contas; sem o id do provedor, a mesma linha voltaria amanhã como
+   * novidade, para sempre. */
+  describe('nascida de uma importação', () => {
+    it('guarda o lote, a hora e o id do provedor', async () => {
+      const agora = new Date('2026-11-16T03:00:00.000Z');
+      await service.create(
+        entrada({ importBatchId: 'imp-1', importedAt: agora, providerTxId: 'tx-pix-1' }),
+      );
+      expect(prismaMock.transfer.create.mock.calls[0][0].data).toMatchObject({
+        importBatchId: 'imp-1',
+        importedAt: agora,
+        providerTxId: 'tx-pix-1',
+      });
+    });
+
+    it('transferência digitada à mão continua sem nada disso', async () => {
+      await service.create(entrada());
+      expect(prismaMock.transfer.create.mock.calls[0][0].data).toMatchObject({
+        importBatchId: null,
+        importedAt: null,
+        providerTxId: null,
+      });
+    });
+
+    it('desfazer o lote devolve o dinheiro pelo caminho inverso', async () => {
+      prismaMock.transfer.findMany.mockResolvedValueOnce([
+        { id: 'tr-1', fromAccountId: 'a1', toAccountId: 'a2', amount: d(250), isConfirmed: true },
+      ]);
+
+      const apagadas = await service.desfazerDoLote(prismaMock, 'u1', 'imp-1');
+
+      expect(apagadas).toHaveLength(1);
+      // Volta para a origem: credita a1 e debita a2, o contrário de criar.
+      expect(movimentos()).toEqual([
+        ['a2', '-', '250'],
+        ['a1', '+', '250'],
+      ]);
+      expect(prismaMock.transfer.delete).toHaveBeenCalledWith({ where: { id: 'tr-1' } });
+    });
+
+    /* Prevista nunca tirou dinheiro de lugar nenhum. "Devolver" o que não
+     * saiu criaria saldo do nada — e numa conta de verdade. */
+    it('prevista some sem mexer em saldo', async () => {
+      prismaMock.transfer.findMany.mockResolvedValueOnce([
+        { id: 'tr-2', fromAccountId: 'a1', toAccountId: 'a2', amount: d(90), isConfirmed: false },
+      ]);
+
+      await service.desfazerDoLote(prismaMock, 'u1', 'imp-1');
+
+      expect(movimentos()).toEqual([]);
+      expect(prismaMock.transfer.delete).toHaveBeenCalledWith({ where: { id: 'tr-2' } });
+    });
+
+    it('lote sem transferência nenhuma não mexe em nada', async () => {
+      const apagadas = await service.desfazerDoLote(prismaMock, 'u1', 'imp-vazio');
+      expect(apagadas).toEqual([]);
+      expect(movimentos()).toEqual([]);
+      expect(prismaMock.transfer.delete).not.toHaveBeenCalled();
+    });
+
+    it('só procura no lote e no dono certos', async () => {
+      await service.desfazerDoLote(prismaMock, 'u1', 'imp-1');
+      expect(prismaMock.transfer.findMany).toHaveBeenCalledWith({
+        where: { userId: 'u1', importBatchId: 'imp-1' },
+      });
+    });
+  });
+
   // ---------- listar ----------
   describe('findAllByUser', () => {
     it('filtra por período quando pedido', async () => {
