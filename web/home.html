@@ -11578,13 +11578,19 @@
   /**
    * Quebra a proposta em fontes importáveis.
    *
-   * Conta vira uma fonte. Cartão vira UMA POR FATURA — porque o resto da
-   * tela trabalha com "este extrato é de uma fatura", e porque 483
+   * Uma fonte por MÊS na conta e uma por FATURA no cartão — porque o resto
+   * da tela trabalha com "este extrato é de um período", e porque 483
    * lançamentos de quinze faturas numa lista só não se confere.
    *
-   * O mês que agrupa é o `faturaPrevista` que o banco manda (medido: é o mês
-   * do VENCIMENTO, em 469 de 469 lançamentos). Ele agrupa; quem DECIDE a
-   * fatura continua sendo a regra do app, mais abaixo.
+   * No cartão o mês que agrupa é o `faturaPrevista` que o banco manda
+   * (medido: é o mês do VENCIMENTO, em 469 de 469 lançamentos). Ele agrupa;
+   * quem DECIDE a fatura continua sendo a regra do app, mais abaixo.
+   *
+   * Na conta não há fatura, então agrupa a data do próprio lançamento — e
+   * os meses não são seguidos: no extrato medido vieram 11/2025, 03/2026 e
+   * 08/2026, com buracos entre eles. Por isso o mês vem do que CHEGOU, e
+   * não de um intervalo calculado: um mês vazio não é uma linha vazia na
+   * lista, é um mês que não existe.
    */
   function ofFontes(p) {
     var fora = [];
@@ -11593,9 +11599,16 @@
       // O provedor manda conta sem nome, e aí `nome` já é "Conta": o sufixo
       // viraria "Conta · conta".
       var nome = /conta/i.test(c.nome) ? c.nome : c.nome + " · conta";
-      fora.push({ titulo: nome, ehCartao: false, destinoId: c.bankAccountId,
-                  connectionId: p.connectionId,
-                  providerAccountId: c.providerAccountId, lancamentos: c.lancamentos });
+      var porMes = {};
+      c.lancamentos.forEach(function (l) {
+        (porMes[String(l.data).slice(0, 7)] = porMes[String(l.data).slice(0, 7)] || []).push(l);
+      });
+      Object.keys(porMes).sort().reverse().forEach(function (chave) {
+        fora.push({ titulo: nome + " · " + chave.slice(5) + "/" + chave.slice(0, 4),
+                    ehCartao: false, destinoId: c.bankAccountId,
+                    connectionId: p.connectionId, mes: chave,
+                    providerAccountId: c.providerAccountId, lancamentos: porMes[chave] });
+      });
     });
     (p.cartoes || []).forEach(function (k) {
       var porFatura = {};
