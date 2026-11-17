@@ -23,9 +23,9 @@
 // não em memória: duas instâncias da API acordando às 6h mandariam duas.
 // ============================================================
 
-import { Injectable, Logger } from '@nestjs/common';
-import * as webpush from 'web-push';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ENVIADOR_DE_PUSH, EnviadorDePush, FalhaDePush } from './push.port';
 
 /** Ligado só quando há as duas chaves. Sem elas não há o que assinar. */
 export function pushLigado(): boolean {
@@ -45,7 +45,13 @@ export interface InscricaoDoNavegador {
 export class PushService {
   private readonly logger = new Logger('Push');
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    /* Quem entrega fica atrás de uma porta: o serviço não conhece a
+     * biblioteca, e o teste injeta um dublê em vez de fingir que a
+     * carregou. Ver `push.port.ts` — ali está o motivo concreto. */
+    @Inject(ENVIADOR_DE_PUSH) private readonly enviador: EnviadorDePush,
+  ) {}
 
   /**
    * Guarda o aparelho. O mesmo endpoint duas vezes é o MESMO aparelho: o
@@ -101,12 +107,6 @@ export class PushService {
     });
     if (!aparelhos.length) return 0;
 
-    webpush.setVapidDetails(
-      'mailto:contato@saldonline.com.br',
-      chavePublicaDePush(),
-      (process.env.VAPID_PRIVATE_KEY || '').trim(),
-    );
-
     const corpo = JSON.stringify({
       titulo: total === 1 ? '1 lançamento esperando você' : total + ' lançamentos esperando você',
       texto: 'O banco mandou novidade. Confira antes de importar.',
@@ -116,7 +116,7 @@ export class PushService {
     let avisados = 0;
     for (const a of aparelhos) {
       try {
-        await webpush.sendNotification(
+        await this.enviador.enviar(
           { endpoint: a.endpoint, keys: { p256dh: a.p256dh, auth: a.auth } },
           corpo,
         );
@@ -130,7 +130,7 @@ export class PushService {
          * existe mais — app desinstalado, permissão revogada, navegador
          * limpo. Guardar uma inscrição morta é tentar de novo todo dia para
          * sempre. Qualquer outro erro é passageiro e a linha fica. */
-        const status = e?.statusCode;
+        const status = e instanceof FalhaDePush ? e.status : e?.statusCode;
         if (status === 404 || status === 410) {
           await this.prisma.pushSubscription.delete({ where: { id: a.id } }).catch(() => {});
         } else {

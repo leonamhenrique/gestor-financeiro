@@ -6,11 +6,6 @@
 // um problema maior do que o que resolve.
 // ============================================================
 
-/* `web-push` nao entra no caminho destes testes, mas entra no de import:
- * o trabalho diario conhece o servico de push, e o servico conhece a
- * biblioteca. Mocar aqui mantem este arquivo falando so do que ele testa. */
-jest.mock('web-push', () => ({ setVapidDetails: jest.fn(), sendNotification: jest.fn() }));
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { OpenFinanceScheduler } from './openfinance.scheduler';
 import { OpenFinanceService } from './openfinance.service';

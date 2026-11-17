@@ -6,17 +6,18 @@
 // para sempre, tentando entregar todo dia a um aparelho que não existe mais.
 // ============================================================
 
-jest.mock('web-push', () => ({
-  setVapidDetails: jest.fn(),
-  sendNotification: jest.fn().mockResolvedValue({}),
-}));
-
-import * as webpush from 'web-push';
 import { PushService } from './push.service';
+import { FalhaDePush } from './push.port';
 
 describe('PushService', () => {
   let service: PushService;
   let prisma: any;
+  /* Um dublê da PORTA, e não da biblioteca. A diferença importou de
+   * verdade: com `jest.mock('web-push')` o teste passava sem nunca
+   * carregar o módulo — e foi em produção, no Node mais velho do Render,
+   * que o `require()` dele estourou. O que esta suíte cobre é a REGRA;
+   * quem carrega a biblioteca é o `WebPushEnviador`, sozinho. */
+  let enviador: { enviar: jest.Mock };
   const antes = { ...process.env };
 
   const aparelho = (over: any = {}) => ({
@@ -42,9 +43,8 @@ describe('PushService', () => {
         count: jest.fn().mockResolvedValue(0),
       },
     };
-    service = new PushService(prisma);
-    (webpush.sendNotification as jest.Mock).mockClear();
-    (webpush.sendNotification as jest.Mock).mockResolvedValue({});
+    enviador = { enviar: jest.fn().mockResolvedValue(undefined) };
+    service = new PushService(prisma, enviador);
   });
 
   afterEach(() => {
@@ -82,7 +82,7 @@ describe('PushService', () => {
     prisma.pushSubscription.findMany.mockResolvedValue([aparelho()]);
 
     expect(await service.avisar('u1', 5)).toBe(0);
-    expect(webpush.sendNotification).not.toHaveBeenCalled();
+    expect(enviador.enviar).not.toHaveBeenCalled();
   });
 
   it('com zero esperando, não avisa', async () => {
@@ -97,7 +97,7 @@ describe('PushService', () => {
     ]);
 
     expect(await service.avisar('u1', 3)).toBe(2);
-    expect(webpush.sendNotification).toHaveBeenCalledTimes(2);
+    expect(enviador.enviar).toHaveBeenCalledTimes(2);
   });
 
   /* O carimbo é o que impede o segundo aviso do dia. Ele vai para o BANCO,
@@ -126,7 +126,7 @@ describe('PushService', () => {
     prisma.pushSubscription.findMany.mockResolvedValue([aparelho()]);
     await service.avisar('u1', 7);
 
-    const corpo = JSON.parse((webpush.sendNotification as jest.Mock).mock.calls[0][1]);
+    const corpo = JSON.parse(enviador.enviar.mock.calls[0][1]);
     expect(corpo.total).toBe(7);
     expect(corpo.titulo).toContain('7');
     expect(JSON.stringify(corpo)).not.toMatch(/R\$|\d+,\d{2}/);
@@ -135,7 +135,7 @@ describe('PushService', () => {
   it('um só fala no singular', async () => {
     prisma.pushSubscription.findMany.mockResolvedValue([aparelho()]);
     await service.avisar('u1', 1);
-    const corpo = JSON.parse((webpush.sendNotification as jest.Mock).mock.calls[0][1]);
+    const corpo = JSON.parse(enviador.enviar.mock.calls[0][1]);
     expect(corpo.titulo).toBe('1 lançamento esperando você');
   });
 
@@ -144,7 +144,7 @@ describe('PushService', () => {
    * Guardar a inscrição seria tentar de novo todo dia, para sempre. */
   it('aparelho que o serviço diz não existir mais é apagado', async () => {
     prisma.pushSubscription.findMany.mockResolvedValue([aparelho()]);
-    (webpush.sendNotification as jest.Mock).mockRejectedValue({ statusCode: 410 });
+    enviador.enviar.mockRejectedValue(new FalhaDePush('sumiu', 410));
 
     expect(await service.avisar('u1', 3)).toBe(0);
     expect(prisma.pushSubscription.delete).toHaveBeenCalledWith({ where: { id: 'ap-1' } });
@@ -154,7 +154,7 @@ describe('PushService', () => {
    * continua existindo e amanhã recebe. */
   it('erro passageiro não apaga a inscrição', async () => {
     prisma.pushSubscription.findMany.mockResolvedValue([aparelho()]);
-    (webpush.sendNotification as jest.Mock).mockRejectedValue({ statusCode: 500 });
+    enviador.enviar.mockRejectedValue(new FalhaDePush('provedor fora', 500));
 
     expect(await service.avisar('u1', 3)).toBe(0);
     expect(prisma.pushSubscription.delete).not.toHaveBeenCalled();
@@ -165,9 +165,9 @@ describe('PushService', () => {
       aparelho(),
       aparelho({ id: 'ap-2', endpoint: 'https://push.exemplo/def' }),
     ]);
-    (webpush.sendNotification as jest.Mock)
-      .mockRejectedValueOnce({ statusCode: 500 })
-      .mockResolvedValue({});
+    enviador.enviar
+      .mockRejectedValueOnce(new FalhaDePush('provedor fora', 500))
+      .mockResolvedValue(undefined);
 
     expect(await service.avisar('u1', 3)).toBe(1);
   });
