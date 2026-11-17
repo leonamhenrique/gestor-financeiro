@@ -20,6 +20,7 @@ import { SharedExpensesModule } from './shared-expenses/shared-expenses.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { BillingModule } from './billing/billing.module';
 import { OpenFinanceModule } from './openfinance/openfinance.module';
+import { PushModule } from './push/push.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
 
@@ -49,6 +50,7 @@ import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
      * todas as rotas dele respondem 404, e o app se comporta exatamente como
      * antes. Nenhum outro módulo depende dele. */
     OpenFinanceModule,
+    PushModule,
   ],
   controllers: [AppController],
   providers: [

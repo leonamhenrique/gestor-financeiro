@@ -60,3 +60,60 @@ self.addEventListener("fetch", function (e) {
       })
   );
 });
+
+// ---------------------------------------------------------------- avisos
+// O aviso que chega com o app FECHADO. O número no menu e no ícone só
+// alcança quem já abriu; isto alcança quem não abriu.
+//
+// O que chega aqui é um número e duas frases, e nada mais: nem valor, nem
+// lojista, nem banco. A notificação aparece na tela bloqueada, onde quem
+// está ao lado também lê — e "5 lançamentos esperando" não conta a ninguém
+// o que você gastou.
+
+self.addEventListener("push", function (e) {
+  var dados = {};
+  // Corpo ilegível não pode derrubar o aviso: melhor um texto genérico que
+  // nenhuma notificação.
+  try { dados = e.data ? e.data.json() : {}; } catch (err) { dados = {}; }
+
+  var titulo = dados.titulo || "Tem lançamento esperando você";
+  var texto = dados.texto || "O banco mandou novidade. Confira antes de importar.";
+
+  e.waitUntil(
+    Promise.all([
+      self.registration.showNotification(titulo, {
+        body: texto,
+        icon: "/icons/icone-192.png",
+        badge: "/icons/icone-192.png",
+        // Mesma tag sempre: o aviso de hoje SUBSTITUI o de ontem em vez de
+        // empilhar. Três avisos iguais na gaveta não dizem mais que um.
+        tag: "saldonline-pendentes",
+        renotify: false,
+        data: { ir: "/home" }
+      }),
+      // E o ícone atualiza mesmo com o app fechado — que é justamente o que
+      // o badge sozinho não consegue fazer.
+      dados.total && "setAppBadge" in self.navigator
+        ? self.navigator.setAppBadge(dados.total).catch(function () {})
+        : Promise.resolve()
+    ])
+  );
+});
+
+self.addEventListener("notificationclick", function (e) {
+  e.notification.close();
+  var destino = (e.notification.data && e.notification.data.ir) || "/home";
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (abertas) {
+      // Já tem o app aberto: traz para a frente em vez de abrir uma segunda
+      // janela da mesma coisa.
+      for (var i = 0; i < abertas.length; i++) {
+        if (abertas[i].url.indexOf(self.location.origin) === 0 && "focus" in abertas[i]) {
+          abertas[i].navigate(destino).catch(function () {});
+          return abertas[i].focus();
+        }
+      }
+      return self.clients.openWindow(destino);
+    })
+  );
+});

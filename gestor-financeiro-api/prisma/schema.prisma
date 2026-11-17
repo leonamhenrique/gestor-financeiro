@@ -133,6 +133,7 @@ model User {
   transactionSeries   TransactionSeries[]
   people              Person[]
   sharedExpenses      SharedExpense[]
+  pushSubscriptions   PushSubscription[]
   settlements         Settlement[]
   shareLinks          ShareLink[]
   categoryRules       CategoryRule[]
@@ -1061,6 +1062,32 @@ model CategoryRule {
 ///
 /// O conectar é sempre opcional: quem nunca conectar nada no app não tem
 /// nenhuma linha aqui, e nada no sistema se comporta diferente por isso.
+/// Um aparelho que pediu para ser avisado quando chegar lançamento novo.
+///
+/// Uma linha por APARELHO, não por pessoa: quem usa o app no telefone e no
+/// computador tem duas, e avisar só numa seria avisar onde ela talvez não
+/// esteja.
+model PushSubscription {
+  id       String @id @default(uuid())
+  userId   String @map("user_id")
+  /// A URL que o serviço de push do navegador deu. É ela que identifica o
+  /// aparelho, e por isso é única.
+  endpoint String @unique
+  /// As chaves que o PRÓPRIO navegador gerou para cifrar o aviso. Sem elas
+  /// o payload não se monta; fora deste endpoint elas não abrem nada.
+  p256dh   String
+  auth     String
+  /// Para a regra de no máximo um aviso por dia. No banco, e não em
+  /// memória: duas instâncias da API acordando às 6h mandariam dois.
+  ultimoAvisoEm DateTime? @map("ultimo_aviso_em")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
 model OpenFinanceConnection {
   id              String    @id @default(uuid())
   userId          String    @map("user_id")

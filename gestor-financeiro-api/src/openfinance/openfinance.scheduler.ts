@@ -26,6 +26,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { comUsuario } from '../prisma/contexto';
 import { FUSO_DO_APP } from '../credit-cards/invoice-statement';
 import { OpenFinanceService, openFinanceLigado } from './openfinance.service';
+import { PushService } from '../push/push.service';
 
 @Injectable()
 export class OpenFinanceScheduler {
@@ -34,6 +35,7 @@ export class OpenFinanceScheduler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openFinance: OpenFinanceService,
+    private readonly push: PushService,
   ) {}
 
   /* De manhã cedo, e não de madrugada: o banco publica a compra do dia
@@ -60,7 +62,18 @@ export class OpenFinanceScheduler {
         const total = await comUsuario(c.userId, () =>
           this.openFinance.recontarPendentes(c.userId, c.id),
         );
-        if (total > 0) comNovidade++;
+        if (total > 0) {
+          comNovidade++;
+          /* O aviso sai DAQUI e de lugar nenhum mais: é aqui que se sabe
+           * quantos esperam, e é uma vez por dia. O provedor sincroniza a
+           * cada 3 horas, e avisar a cada sincronização seriam oito avisos
+           * por dia — é assim que uma notificação útil vira uma que a
+           * pessoa desliga.
+           *
+           * Falhar em avisar não pode estragar a contagem, que é a parte
+           * que a tela usa: o número já está gravado quando se chega aqui. */
+          await comUsuario(c.userId, () => this.push.avisar(c.userId, total)).catch(() => {});
+        }
       } catch (e: any) {
         /* Sem id de usuário e sem nome de banco no log: isto roda para todo
          * mundo, e o log não é lugar de dizer quem banca com quem. */

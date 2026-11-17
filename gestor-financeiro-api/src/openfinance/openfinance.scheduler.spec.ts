@@ -6,15 +6,22 @@
 // um problema maior do que o que resolve.
 // ============================================================
 
+/* `web-push` nao entra no caminho destes testes, mas entra no de import:
+ * o trabalho diario conhece o servico de push, e o servico conhece a
+ * biblioteca. Mocar aqui mantem este arquivo falando so do que ele testa. */
+jest.mock('web-push', () => ({ setVapidDetails: jest.fn(), sendNotification: jest.fn() }));
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { OpenFinanceScheduler } from './openfinance.scheduler';
 import { OpenFinanceService } from './openfinance.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PushService } from '../push/push.service';
 
 describe('OpenFinanceScheduler', () => {
   let job: OpenFinanceScheduler;
   let prisma: any;
   let servico: any;
+  let avisos: any;
   const antes = { ...process.env };
 
   beforeEach(async () => {
@@ -25,12 +32,14 @@ describe('OpenFinanceScheduler', () => {
       transaction: { create: jest.fn(), createMany: jest.fn(), update: jest.fn() },
     };
     servico = { recontarPendentes: jest.fn().mockResolvedValue(0) };
+    avisos = { avisar: jest.fn().mockResolvedValue(1) };
 
     const modulo: TestingModule = await Test.createTestingModule({
       providers: [
         OpenFinanceScheduler,
         { provide: PrismaService, useValue: prisma },
         { provide: OpenFinanceService, useValue: servico },
+        { provide: PushService, useValue: avisos },
       ],
     }).compile();
 
@@ -99,6 +108,40 @@ describe('OpenFinanceScheduler', () => {
     expect(prisma.transaction.create).not.toHaveBeenCalled();
     expect(prisma.transaction.createMany).not.toHaveBeenCalled();
     expect(prisma.transaction.update).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------- aviso
+  /* O aviso sai DAQUI e de lugar nenhum mais. O provedor sincroniza a cada
+   * 3 horas; avisar a cada sincronizacao seriam oito por dia, e e assim que
+   * uma notificacao util vira uma que a pessoa desliga. */
+  it('avisa quem tem lancamento esperando', async () => {
+    conexoes('a');
+    servico.recontarPendentes.mockResolvedValue(4);
+
+    await job.contarPendentesDoDia();
+
+    expect(avisos.avisar).toHaveBeenCalledWith('u-a', 4);
+  });
+
+  it('com nada esperando, nao avisa', async () => {
+    conexoes('a');
+    servico.recontarPendentes.mockResolvedValue(0);
+
+    await job.contarPendentesDoDia();
+
+    expect(avisos.avisar).not.toHaveBeenCalled();
+  });
+
+  /* A contagem e a parte que a TELA usa, e ela ja esta gravada quando se
+   * chega ao aviso. Falhar em avisar nao pode derrubar o laco e deixar as
+   * conexoes seguintes sem conferencia. */
+  it('falha ao avisar nao derruba o trabalho', async () => {
+    conexoes('a', 'b');
+    servico.recontarPendentes.mockResolvedValue(2);
+    avisos.avisar.mockRejectedValue(new Error('push fora'));
+
+    await expect(job.contarPendentesDoDia()).resolves.toBeUndefined();
+    expect(servico.recontarPendentes).toHaveBeenCalledTimes(2);
   });
 
   it('sem conexao nenhuma, nao faz nada', async () => {

@@ -196,6 +196,23 @@ services:
       # o pior desfecho para um aviso que não se repete para sempre.
       - key: OPENFINANCE_SIGNATURE
         sync: false
+      # ---- Aviso no celular (push) ----
+      # O par VAPID que assina os avisos. Gere UMA vez e guarde:
+      #   node -e "console.log(require('web-push').generateVAPIDKeys())"
+      #
+      # Trocar a chave pública depois invalida TODAS as inscrições já feitas
+      # — cada aparelho se inscreveu com a chave de então, e o serviço de
+      # push recusa um aviso assinado por outra. Quem já tinha ligado o aviso
+      # pararia de receber, em silêncio, e só voltaria desligando e ligando
+      # de novo.
+      #
+      # Sem as duas, o recurso não existe: a rota responde `ligado: false` e
+      # a tela não mostra o interruptor, em vez de oferecer um caminho que
+      # termina em falha.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
       # Este não é segredo e fica versionado. O domínio precisa estar
       # verificado no Resend, e o endereço não precisa de caixa postal: o
       # Resend só envia, e quem responder cai em contato@saldonline.com.br

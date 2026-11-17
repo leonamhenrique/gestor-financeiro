@@ -2760,6 +2760,16 @@
         <div class="acoes-linha" id="of-acoes" style="margin-top:12px">
           <button type="button" class="ghost" id="of-novo">Conectar um banco</button>
         </div>
+
+        <!-- Só aparece onde o aviso é possível: navegador que suporta, app
+             instalado e chaves configuradas no servidor. Oferecer um botão
+             que termina em "seu aparelho não faz isso" é pior que não ter
+             botão. -->
+        <label class="check" id="of-avisos-campo" style="margin-top:16px" hidden>
+          <input type="checkbox" id="of-avisos">
+          <span>Avisar no celular quando chegar lançamento novo</span>
+        </label>
+        <div class="field-help" id="of-avisos-ajuda" hidden>Um aviso por dia, no máximo, e só quando houver algo esperando você. Ele mostra um número — nunca valor, lojista ou banco.</div>
       </div>
 
       <!-- O desfazer vive aqui, e não num aviso que some: o erro de uma
@@ -11386,6 +11396,9 @@
     }
     bloco.hidden = false;
     pintarOpenFinance();
+    /* Sem await: o interruptor de avisos aparece quando o servidor
+     * responder, e ninguém fica esperando por ele para conferir extrato. */
+    ofCarregarAvisos();
     await ofBuscarSozinho();
     ofContarPendentes();
   }
@@ -11945,6 +11958,94 @@
       // de novo.
     }
   }
+
+  /* ---------- avisar no celular ----------
+   *
+   * O número no menu e no ícone só alcança quem já abriu o app. Isto
+   * alcança quem não abriu — e é a única coisa aqui que depende de uma
+   * permissão do sistema.
+   *
+   * A permissão se pede quando a PESSOA pede, nunca ao abrir a tela. Pedir
+   * sem ela ter pedido é o caminho mais curto para um "bloquear" que não
+   * tem volta fácil, e aí o aviso fica impossível mesmo quando ela quiser.
+   */
+  function pushDisponivel() {
+    return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  }
+
+  /** A chave VAPID chega em base64url e o navegador quer bytes. */
+  function chaveEmBytes(base64url) {
+    var base64 = (base64url + "=".repeat((4 - (base64url.length % 4)) % 4))
+      .replace(/-/g, "+").replace(/_/g, "/");
+    var bruto = atob(base64);
+    var bytes = new Uint8Array(bruto.length);
+    for (var i = 0; i < bruto.length; i++) bytes[i] = bruto.charCodeAt(i);
+    return bytes;
+  }
+
+  var ofChavePush = "";
+
+  /** Mostra o interruptor só onde ele funciona, e no estado em que está. */
+  async function ofCarregarAvisos() {
+    var campo = ofEl("of-avisos-campo");
+    var ajuda = ofEl("of-avisos-ajuda");
+    campo.hidden = true; ajuda.hidden = true;
+    if (!MODO_API || !pushDisponivel()) return;
+    try {
+      var r = await api("/push/key");
+      if (!r || !r.ligado || !r.chave) return;
+      ofChavePush = r.chave;
+      var meu = await api("/push/me");
+      ofEl("of-avisos").checked = !!(meu && meu.inscrito);
+      campo.hidden = false; ajuda.hidden = false;
+    } catch (e) { /* sem avisos: a tela segue igual */ }
+  }
+
+  ofEl("of-avisos").addEventListener("change", async function () {
+    var caixa = this;
+    if (!caixa.checked) {
+      try {
+        var reg = await navigator.serviceWorker.ready;
+        var assinatura = await reg.pushManager.getSubscription();
+        if (assinatura) {
+          await api("/push/subscribe", { endpoint: assinatura.endpoint }, "DELETE");
+          await assinatura.unsubscribe();
+        }
+      } catch (e) { /* já estava desligado, ou o aparelho esqueceu */ }
+      return;
+    }
+
+    /* Ligar: permissão primeiro. Negada, a caixa volta sozinha — deixá-la
+     * marcada prometeria um aviso que nunca vem. */
+    try {
+      var permissao = await Notification.requestPermission();
+      if (permissao !== "granted") {
+        caixa.checked = false;
+        avisar("Avisos bloqueados", permissao === "denied"
+          ? "O navegador está bloqueando as notificações deste site. Dá para liberar nas permissões dele, ao lado do endereço."
+          : "Sem a permissão não dá para avisar.");
+        return;
+      }
+      var reg2 = await navigator.serviceWorker.ready;
+      var nova = await reg2.pushManager.getSubscription();
+      if (!nova) {
+        nova = await reg2.pushManager.subscribe({
+          // Obrigatório e verdadeiro: todo aviso que mandamos aparece. Push
+          // silencioso é justamente o que os navegadores não permitem.
+          userVisibleOnly: true,
+          applicationServerKey: chaveEmBytes(ofChavePush)
+        });
+      }
+      var bruta = nova.toJSON();
+      await api("/push/subscribe", {
+        endpoint: bruta.endpoint,
+        keys: { p256dh: bruta.keys.p256dh, auth: bruta.keys.auth }
+      });
+    } catch (e) {
+      caixa.checked = false;
+      avisar("Não consegui ligar os avisos", e.message || "Tente de novo mais tarde.");
+    }
+  });
 
   ofEl("of-novo").addEventListener("click", ofAbrirFormulario);
   ofEl("of-cancelar").addEventListener("click", ofFecharFormulario);
