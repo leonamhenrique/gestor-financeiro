@@ -172,6 +172,15 @@ services:
       # VAZIA quer dizer TODO MUNDO.
       - key: OPENFINANCE_USERS
         sync: false
+      # O segredo que o provedor apresenta ao nos avisar que chegou dado
+      # novo. O MESMO valor vai no cabeçalho customizado do painel da Polp.
+      #
+      # Sem ele a rota do webhook recusa TUDO, inclusive quem manda token —
+      # porque "sem segredo, aceita todo mundo" é a falha que se instala
+      # sozinha: basta esquecer a variável num ambiente novo e a porta fica
+      # aberta, em silêncio, funcionando.
+      - key: POLP_WEBHOOK_TOKEN
+        sync: false
       # Este não é segredo e fica versionado. O domínio precisa estar
       # verificado no Resend, e o endereço não precisa de caixa postal: o
       # Resend só envia, e quem responder cai em contato@saldonline.com.br

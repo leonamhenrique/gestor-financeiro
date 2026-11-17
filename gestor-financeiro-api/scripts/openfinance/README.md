@@ -435,3 +435,70 @@ teria apagado cinco receitas do mês.
 
 Pelo mesmo motivo, a entrada automática ganhou a **oitava** condição: o que o
 banco marcou como transferência nunca entra sozinho.
+
+## O webhook, a partir de 16/11/2026
+
+Medido no cronograma do próprio consentimento (`GET /consents/{id}/sync-schedules`,
+17/11 00:06 UTC):
+
+```
+credit_card.transactions   última 2026-11-16T23:56   próxima +3h
+account.transactions       última 2026-11-16T23:56   próxima +3h
+account.balance            última 2026-11-16T23:56   próxima +2h
+credit_card.bills          última 2026-11-15T17:56   próxima +2 dias
+credit_card / account      última 2026-11-15T17:56   próxima +7 dias
+```
+
+O provedor sincroniza sozinho a cada 3 horas. O app, até aqui, só perguntava
+às 6h e quando a pessoa abria a tela de Importar — então a novidade podia
+ficar meio dia parada. `POST /openfinance/webhook` inverte isso.
+
+### O que chega
+
+```json
+{ "event": "credit_cards.transactions",
+  "resource": "credit-cards",
+  "resource_id": "<uuid>",
+  "query_parameters": "fromCreatedAt=…&toUpdatedAt=…" }
+```
+
+`resource_id` tem **dois significados**, e os docs são claros: nos eventos de
+recurso (`accounts`, `credit_cards`, `consents`) é o id do CONSENTIMENTO; nos
+de transação (`*.transactions`) é o id da conta ou do cartão no provedor.
+Guardamos os dois — `consentId` na conexão, `providerAccountId` na conta e no
+cartão —, e a rota procura pelos dois em vez de confiar no nome do evento: um
+evento novo no catálogo deles não pode nos fazer ignorar um aviso.
+
+### Como ela se protege
+
+- **`@Public()`**, porque o app tem guard de JWT global. A marca é explícita
+  e aparece na revisão de propósito.
+- **Segredo combinado** no cabeçalho `X-Saldonline-Token`, conferido com
+  comparação de tempo constante contra `POLP_WEBHOOK_TOKEN`. **Sem a
+  variável configurada a rota recusa TUDO** — "sem segredo, aceita todo
+  mundo" é a falha que se instala sozinha.
+- **404, nunca 403**, para token ausente ou errado: 403 contaria que a porta
+  existe.
+- **Não grava lançamento.** Só recontra o que espera conferência. Chamada
+  vinda de fora não mexe no dinheiro de ninguém, e a regra das oito
+  condições continua valendo na tela.
+- **Responde 204 e sai**: a reconferência baixa o extrato e leva segundos, e
+  quem está do outro lado repete o aviso quando o tempo estoura.
+
+### A assinatura, ainda não conferida
+
+O painel oferece `ASSINATURA HMAC-SHA256` no header `X-Webhook-Signature`,
+mas a documentação pública não diz o que é assinado nem em que codificação.
+Conferir no escuro daria uma verificação que parece proteger e não protege.
+A rota registra os **nomes** dos cabeçalhos de assinatura que chegam, nunca
+os valores — medido na bancada: `x-webhook-signature`. Com uma entrega real
+em mãos, a verificação HMAC entra por cima do segredo, como segunda tranca.
+
+### Para ligar
+
+1. `POLP_WEBHOOK_TOKEN` no Render, valor aleatório e longo.
+2. No painel da Polp → Webhooks → Adicionar endpoint: produto **Celcoin**,
+   URL `https://api.saldonline.com.br/openfinance/webhook`, todos os eventos,
+   e um header customizado `X-Saldonline-Token` com **o mesmo valor**.
+3. Ligar o botão da assinatura HMAC — ela ainda não é exigida, mas passa a
+   ser registrada.

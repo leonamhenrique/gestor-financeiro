@@ -8,12 +8,16 @@
 
 import { Module } from '@nestjs/common';
 import { OpenFinanceController, OpenFinanceAtivo } from './openfinance.controller';
+import { OpenFinanceWebhookController } from './openfinance.webhook.controller';
 import { OpenFinanceService } from './openfinance.service';
 import { OpenFinanceScheduler } from './openfinance.scheduler';
 import { PolpClient } from './polp.client';
 
 @Module({
-  controllers: [OpenFinanceController],
+  /* O webhook fica em controller próprio porque não tem pessoa logada:
+   * quem bate é o provedor. Pôr a rota junto das outras obrigaria a
+   * afrouxar o guard que protege todas elas. */
+  controllers: [OpenFinanceController, OpenFinanceWebhookController],
   /* O trabalho diário entra aqui e em lugar nenhum mais: desistir do
    * experimento continua sendo apagar esta pasta. */
   providers: [OpenFinanceService, PolpClient, OpenFinanceAtivo, OpenFinanceScheduler],
