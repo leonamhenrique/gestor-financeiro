@@ -27,9 +27,46 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ENVIADOR_DE_PUSH, EnviadorDePush, FalhaDePush } from './push.port';
 
-/** Ligado só quando há as duas chaves. Sem elas não há o que assinar. */
+/**
+ * O que há de errado com a chave pública, em uma frase. Vazio = nada.
+ *
+ * Isto existe por um defeito real: as duas chaves foram trocadas no painel,
+ * e o navegador respondeu "The provided applicationServerKey is not valid"
+ * — uma frase que não diz a quem configurou o que fazer. Uma chave pública
+ * P-256 não comprimida tem 65 bytes e começa com o byte 4; a privada tem
+ * 32. Conferir aqui transforma um erro obscuro no celular num aviso claro
+ * no log de quem ligou o recurso.
+ */
+export function problemaNaChavePublica(): string {
+  const chave = (process.env.VAPID_PUBLIC_KEY || '').trim();
+  if (!chave) return 'VAPID_PUBLIC_KEY está vazia.';
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(chave, 'base64url');
+  } catch {
+    return 'VAPID_PUBLIC_KEY não é base64url.';
+  }
+  if (bytes.length === 32) {
+    return 'VAPID_PUBLIC_KEY tem 32 bytes: isso é uma chave PRIVADA. As duas devem estar trocadas.';
+  }
+  if (bytes.length !== 65) {
+    return 'VAPID_PUBLIC_KEY tem ' + bytes.length + ' bytes; uma chave pública tem 65.';
+  }
+  if (bytes[0] !== 4) {
+    return 'VAPID_PUBLIC_KEY não começa com o byte 4, que toda chave pública não comprimida tem.';
+  }
+  return '';
+}
+
+/**
+ * Ligado só com as duas chaves, e só com a pública VÁLIDA.
+ *
+ * Chave quebrada responde `ligado: false`, e a tela não mostra o
+ * interruptor — melhor não oferecer que oferecer um botão que termina em
+ * erro de navegador.
+ */
 export function pushLigado(): boolean {
-  return !!(process.env.VAPID_PUBLIC_KEY || '').trim() && !!(process.env.VAPID_PRIVATE_KEY || '').trim();
+  return !!(process.env.VAPID_PRIVATE_KEY || '').trim() && !problemaNaChavePublica();
 }
 
 export function chavePublicaDePush(): string {

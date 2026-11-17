@@ -6,7 +6,7 @@
 // para sempre, tentando entregar todo dia a um aparelho que não existe mais.
 // ============================================================
 
-import { PushService } from './push.service';
+import { PushService, problemaNaChavePublica, pushLigado } from './push.service';
 import { FalhaDePush } from './push.port';
 
 describe('PushService', () => {
@@ -30,8 +30,13 @@ describe('PushService', () => {
     ...over,
   });
 
+  /* Com a FORMA de uma chave de verdade: 65 bytes começando com 4. Uma
+   * string qualquer já não serve, e é de propósito — a validação que
+   * recusa chave torta é justamente o que faltava. */
+  const PUBLICA = Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 7)]).toString('base64url');
+
   beforeEach(() => {
-    process.env.VAPID_PUBLIC_KEY = 'publica-de-teste';
+    process.env.VAPID_PUBLIC_KEY = PUBLICA;
     process.env.VAPID_PRIVATE_KEY = 'privada-de-teste';
     prisma = {
       pushSubscription: {
@@ -49,6 +54,55 @@ describe('PushService', () => {
 
   afterEach(() => {
     process.env = { ...antes };
+  });
+
+  // ---------------------------------------------------------------- chaves
+  /* Isto nasceu de um defeito real: as duas chaves foram trocadas no
+   * painel, e o navegador respondeu "The provided applicationServerKey is
+   * not valid" -- frase que não diz a quem configurou o que fazer. */
+  describe('a chave pública', () => {
+    /* 65 bytes começando com 4: uma chave P-256 não comprimida de verdade. */
+    const publicaValida = PUBLICA;
+    const privada = Buffer.alloc(32, 9).toString('base64url');
+
+    it('válida não tem problema, e liga o recurso', () => {
+      process.env.VAPID_PUBLIC_KEY = publicaValida;
+      expect(problemaNaChavePublica()).toBe('');
+      expect(pushLigado()).toBe(true);
+    });
+
+    it('vazia diz que está vazia', () => {
+      delete process.env.VAPID_PUBLIC_KEY;
+      expect(problemaNaChavePublica()).toContain('vazia');
+      expect(pushLigado()).toBe(false);
+    });
+
+    /* O caso que aconteceu: 32 bytes é a PRIVADA no campo da pública. */
+    it('com 32 bytes, diz que as duas estão trocadas', () => {
+      process.env.VAPID_PUBLIC_KEY = privada;
+      expect(problemaNaChavePublica()).toContain('trocadas');
+      expect(pushLigado()).toBe(false);
+    });
+
+    it('com tamanho errado, diz o tamanho', () => {
+      process.env.VAPID_PUBLIC_KEY = Buffer.alloc(40, 1).toString('base64url');
+      expect(problemaNaChavePublica()).toContain('40 bytes');
+    });
+
+    it('com 65 bytes mas começo errado, recusa também', () => {
+      process.env.VAPID_PUBLIC_KEY = Buffer.alloc(65, 1).toString('base64url');
+      expect(problemaNaChavePublica()).toContain('byte 4');
+      expect(pushLigado()).toBe(false);
+    });
+
+    /* Chave quebrada não é "avisa errado": é "não avisa". */
+    it('chave quebrada não manda aviso nenhum', async () => {
+      process.env.VAPID_PUBLIC_KEY = privada;
+      prisma.pushSubscription.findMany.mockResolvedValue([aparelho()]);
+
+      expect(await service.avisar('u1', 5)).toBe(0);
+      expect(enviador.enviar).not.toHaveBeenCalled();
+    });
   });
 
   // ------------------------------------------------------------- inscrever

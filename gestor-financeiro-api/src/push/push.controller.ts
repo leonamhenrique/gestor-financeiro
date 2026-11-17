@@ -12,6 +12,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Logger,
   Post,
   Req,
   UseGuards,
@@ -19,7 +20,12 @@ import {
 import { IsString, IsNotEmpty, MaxLength, ValidateNested, IsDefined } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { PushService, chavePublicaDePush, pushLigado } from './push.service';
+import {
+  PushService,
+  chavePublicaDePush,
+  problemaNaChavePublica,
+  pushLigado,
+} from './push.service';
 
 class ChavesDoNavegadorDto {
   @IsString()
@@ -60,15 +66,24 @@ class DesinscreverDto {
 export class PushController {
   constructor(private readonly push: PushService) {}
 
+  private readonly logger = new Logger('Push');
+
   /**
    * A chave pública, que o navegador precisa para se inscrever.
    *
-   * `ligado: false` em vez de erro: sem as chaves no ambiente o recurso
-   * simplesmente não existe, e a tela some o botão em vez de oferecer um
-   * caminho que termina em falha.
+   * `ligado: false` em vez de erro: sem as chaves no ambiente — ou com a
+   * pública inválida — o recurso simplesmente não existe, e a tela some o
+   * botão em vez de oferecer um caminho que termina em erro de navegador.
    */
   @Get('key')
   chave() {
+    /* Configuração errada aparece no LOG de quem configurou, e não como um
+     * erro de navegador no celular de quem usa. Só o diagnóstico, nunca o
+     * valor da chave. */
+    const problema = problemaNaChavePublica();
+    if (problema && (process.env.VAPID_PRIVATE_KEY || '').trim()) {
+      this.logger.warn(problema);
+    }
     return { ligado: pushLigado(), chave: chavePublicaDePush() };
   }
 
