@@ -549,7 +549,11 @@ function lancamentoDaApi(j) {
       serieTotal: j.series ? j.series.count : null,
       // O lote de importação, para "importações recentes" e o desfazer.
       importacaoId: j.importBatchId || null,
-      importadoEm: j.importedAt || ""
+      importadoEm: j.importedAt || "",
+      /* Já dividido com alguém? Só o id, que é o bastante para a linha não
+       * oferecer dividir de novo. Quem já está dividido se edita pela tela
+       * de Compartilhadas, onde o valor e o rateio mudam juntos. */
+      divididaId: j.sharedExpense ? j.sharedExpense.id : null
     };
   }
 

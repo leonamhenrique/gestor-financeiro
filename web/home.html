@@ -5187,7 +5187,9 @@
       // botões quando eles estão lado a lado na mesma linha.
       aplicar: '<path d="M12 3.5v9.5M8.3 9.3 12 13l3.7-3.7M4.5 15.5v3A2 2 0 0 0 6.5 20.5h11a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
       resgatar: '<path d="M12 13V3.5M8.3 7.2 12 3.5l3.7 3.7M4.5 15.5v3A2 2 0 0 0 6.5 20.5h11a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
-      alvo: '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/>'
+      alvo: '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/>',
+      // Duas pessoas e o que fica entre elas: é o desenho de "dividir".
+      dividir: '<circle cx="8.5" cy="8" r="2.8" stroke="currentColor" stroke-width="1.7"/><circle cx="16.5" cy="8" r="2.8" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19a5 5 0 0 1 10 0M14 19a5 5 0 0 1 6.5-4.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>'
     };
     return '<svg viewBox="0 0 24 24" fill="none">' + d[nome] + '</svg>';
   }
@@ -5306,6 +5308,20 @@
         // o dia do débito, em vez da fatura. Ver `anteciparParcelas`.
         (t.serieId ? botaoIcone("antecipar", "antecipar", t.serieId, "Antecipar parcelas") : "") +
         botaoIcone(t.confirmada ? "undo" : "check", t.confirmada ? "desconfirmar" : "confirmar", t.id, t.confirmada ? "Desfazer confirmação" : "Confirmar") +
+        /* Dividir o que JÁ está lançado.
+         *
+         * O caminho existia no servidor desde sempre e não tinha porta na
+         * tela: só dava para dividir criando um gasto novo. E com a entrada
+         * automática do Open Finance isso virou um buraco de verdade — o que
+         * entra sozinho vai direto para o extrato, sem passar por tela
+         * nenhuma, e nunca poderia ser dividido.
+         *
+         * Some quando não cabe: receita não é gasto de ninguém, dividir
+         * precisa do servidor, e o que já está dividido se edita pela tela
+         * de Compartilhadas, onde o valor e o rateio mudam juntos. */
+        (t.tipo === "EXPENSE" && !t.divididaId && cpTemServidor()
+          ? botaoIcone("dividir", "dividir-lancamento", t.id, "Dividir com alguém")
+          : "") +
         botaoIcone("edit", "editar-lancamento", t.id, "Editar") +
         botaoIcone("trash", "excluir-lancamento", t.id, "Excluir", "danger") +
         '</span>' : "") +
@@ -7408,7 +7424,11 @@
       serieTotal: j.series ? j.series.count : null,
       // O lote de importação, para "importações recentes" e o desfazer.
       importacaoId: j.importBatchId || null,
-      importadoEm: j.importedAt || ""
+      importadoEm: j.importedAt || "",
+      /* Já dividido com alguém? Só o id, que é o bastante para a linha não
+       * oferecer dividir de novo. Quem já está dividido se edita pela tela
+       * de Compartilhadas, onde o valor e o rateio mudam juntos. */
+      divididaId: j.sharedExpense ? j.sharedExpense.id : null
     };
   }
   function pagamentoDaApi(p) {
@@ -16814,6 +16834,11 @@
     if ((el = e.target.closest("[data-confirmar]"))) return confirmarLancamento(el.dataset.confirmar);
     if ((el = e.target.closest("[data-desconfirmar]"))) return desconfirmarLancamento(el.dataset.desconfirmar);
     if ((el = e.target.closest("[data-editar-lancamento]"))) return abrirLancamento({ editar: el.dataset.editarLancamento });
+    if ((el = e.target.closest("[data-dividir-lancamento]"))) {
+      var oGasto = byId(state.transactions, el.dataset.dividirLancamento);
+      if (oGasto) abrirDialogoCompartilhada(null, null, oGasto);
+      return;
+    }
     // Na aba Compartilhadas do extrato o acerto também se apaga: a linha é a
     // mesma do extrato da pessoa, e o caminho para desfazer não pode depender
     // de qual tela você estava olhando.
@@ -18300,7 +18325,7 @@
     // `editandoDespesa` e não `despesa`: isto roda dentro de `cpdDesenhar`,
     // que é chamado a cada mudança do formulário — e é justamente isso que
     // faz o bloco sumir na hora em que "quem pagou" vira a outra pessoa.
-    var podeRepetir = !editandoDespesa && cpdEuPaguei();
+    var podeRepetir = !editandoDespesa && !cpdLancamento && cpdEuPaguei();
     document.getElementById("cpd-repetir-campo").hidden = !podeRepetir;
     if (!podeRepetir) document.getElementById("cpd-repetir").checked = false;
     document.getElementById("cpd-repetir-wrap").style.display =
@@ -18382,7 +18407,12 @@
     cpdDesenhar();
   }
 
-  function abrirDialogoCompartilhada(pessoaId, despesa) {
+  /* O lançamento que está sendo dividido, quando a divisão nasce de um que
+   * JÁ existe. Diferente de `editandoDespesa`: ali se edita uma divisão que
+   * existe; aqui se cria uma divisão para um gasto que já está lançado. */
+  var cpdLancamento = null;
+
+  function abrirDialogoCompartilhada(pessoaId, despesa, lancamento) {
     if (!cpTemServidor()) {
       avisar("Precisa do servidor", "Dividir gasto exige estar conectado: é lá que a conta entre vocês é somada.");
       return;
@@ -18393,11 +18423,13 @@
       return;
     }
     editandoDespesa = despesa ? despesa.id : null;
+    cpdLancamento = lancamento || null;
     if (!despesa) document.getElementById("cpd-repetir").checked = false;
     montarOpcoes("cpd-rep-tipo", [{ id: "FIXA", nome: "Fixa" }, { id: "PARCELADA", nome: "Parcelada" }],
       "FIXA", cpdRepetirHelp);
     var parte = despesa && despesa.shares && despesa.shares[0];
-    var total = despesa ? Number(despesa.transaction ? despesa.transaction.amount : despesa.amount) : 0;
+    var total = despesa ? Number(despesa.transaction ? despesa.transaction.amount : despesa.amount)
+      : lancamento ? Number(lancamento.valor) : 0;
 
     // O modo volta do que foi gravado: com percentual guardado, a tela
     // mostra "50%" de novo em vez de recalcular e exibir 49,99%.
@@ -18408,21 +18440,34 @@
     });
 
     document.getElementById("cpd-titulo").textContent =
-      despesa ? "Editar despesa compartilhada" : "Despesa compartilhada";
-    document.getElementById("cpd-submit").textContent = despesa ? "Salvar alterações" : "Salvar";
+      despesa ? "Editar despesa compartilhada"
+        : lancamento ? "Dividir este lançamento" : "Despesa compartilhada";
+    document.getElementById("cpd-submit").textContent =
+      despesa ? "Salvar alterações" : lancamento ? "Dividir" : "Salvar";
     document.getElementById("cpd-excluir").hidden = !despesa;
 
     document.getElementById("cpd-desc").value = despesa
       ? (despesa.transaction ? despesa.transaction.description : despesa.description) || ""
-      : "";
-    document.getElementById("cpd-valor").value = despesa ? total : "";
+      : lancamento ? (lancamento.desc || "") : "";
+    document.getElementById("cpd-valor").value = despesa || lancamento ? total : "";
     document.getElementById("cpd-parte").value = !parte ? ""
       : cpdModo === "PERCENTUAL" ? Number(parte.percent) : Number(parte.amount);
     document.getElementById("cpd-erro").textContent = "";
 
-    // Quem pagou e por onde não se editam: ver o comentário acima.
-    document.getElementById("cpd-quem").disabled = !!despesa;
+    /* Quem pagou e por onde não se editam: ver o comentário acima.
+     *
+     * Dividindo um lançamento que já existe, o que está travado é TODO o
+     * dinheiro — descrição, valor, data, categoria e destino já foram
+     * decididos quando ele entrou, e mudá-los aqui seria editar o
+     * lançamento por uma porta que não é a dele. Sobra o que a divisão
+     * realmente decide: com quem, e como. */
+    document.getElementById("cpd-quem").disabled = !!despesa || !!lancamento;
     document.getElementById("cpd-pessoa").disabled = !!despesa;
+    document.getElementById("cpd-desc").disabled = !!lancamento;
+    document.getElementById("cpd-valor").disabled = !!lancamento;
+    document.getElementById("cpd-categoria").disabled = !!despesa || !!lancamento;
+    // Repetir não cabe num gasto que já aconteceu: quem esconde é
+    // `cpdDesenhar`, que recalcula isso a cada mudança do formulário.
 
     // Só as ativas: dividir gasto novo com quem foi arquivada é justamente
     // o que arquivar impede. O histórico dela continua, intocado.
@@ -18462,13 +18507,19 @@
     var txEdit = despesa && despesa.transaction;
     var origemEdit = !txEdit ? "" : txEdit.creditCardId ? "cartao:" + txEdit.creditCardId
       : txEdit.bankAccountId ? "conta:" + txEdit.bankAccountId : "";
+    if (lancamento) {
+      origemEdit = lancamento.cartaoId ? "cartao:" + lancamento.cartaoId
+        : lancamento.contaId ? "conta:" + lancamento.contaId : "";
+      if (lancamento.categoriaId) document.getElementById("cpd-categoria").value = lancamento.categoriaId;
+    }
     if (origemEdit) document.getElementById("cpd-pago-com").value = origemEdit;
     if (txEdit && txEdit.categoryId) document.getElementById("cpd-categoria").value = txEdit.categoryId;
-    document.getElementById("cpd-pago-com").disabled = !!despesa;
-    document.getElementById("cpd-fatura").disabled = !!despesa;
+    document.getElementById("cpd-pago-com").disabled = !!despesa || !!lancamento;
+    document.getElementById("cpd-fatura").disabled = !!despesa || !!lancamento;
 
     if (!calCompartilhada) calCompartilhada = montarCalendario(document.getElementById("cpd-data-cal"), { aoMudar: cpdAtualizarFatura });
-    var quando = !despesa ? null
+    var quando = lancamento ? String(lancamento.data).slice(0, 10)
+      : !despesa ? null
       : String((despesa.transaction ? despesa.transaction.transactionDate : despesa.expenseDate) || "").slice(0, 10);
     calCompartilhada.definir(quando || isoDate(dataDeHoje()), true);
     // Formulário novo começa com as sugestões valendo.
@@ -18478,7 +18529,10 @@
     cpdDesenhar();
     // Descrição já preenchida (gasto vindo de outro lugar): a sugestão vale
     // desde o começo, sem esperar uma tecla.
-    if (!despesa) cpdSugerirCategoria();
+    if (!despesa && !lancamento) cpdSugerirCategoria();
+    /* O calendário é um componente, não um `input`: travá-lo é esconder o
+     * botão "Hoje", que é o único jeito de mudar a data por aqui. */
+    document.getElementById("cpd-hoje").hidden = !!lancamento;
     // Editando: a fatura que já está gravada é a verdade, não a sugestão.
     var mkGravado = despesa && despesa.transaction && despesa.transaction.invoiceMonthOverride
       ? String(despesa.transaction.invoiceMonthOverride).slice(0, 7) : "";
@@ -18873,7 +18927,17 @@
       }]
     };
 
-    if (editandoDespesa) {
+    /* Dividindo um lançamento que já existe, o corpo é OUTRO: vai o id dele
+     * e mais nada sobre o dinheiro. Mandar valor, data ou descrição junto
+     * seria mandar uma segunda versão de números que já existem — e o
+     * servidor, de propósito, tira o total do próprio lançamento. */
+    if (cpdLancamento) {
+      corpo = {
+        transactionId: cpdLancamento.id,
+        mode: cpdModo,
+        participants: corpo.participants
+      };
+    } else if (editandoDespesa) {
       // Na edição não vão conta, cartão nem quem pagou: esses campos estão
       // desligados no formulário e o servidor não os aceita aqui.
       corpo.categoryId = document.getElementById("cpd-categoria").value || undefined;
@@ -18889,7 +18953,8 @@
       corpo.paidByPersonId = document.getElementById("cpd-quem").value;
     }
 
-    var repetindo = !editandoDespesa && euPaguei && document.getElementById("cpd-repetir").checked;
+    var repetindo = !editandoDespesa && !cpdLancamento && euPaguei &&
+      document.getElementById("cpd-repetir").checked;
     if (repetindo) {
       var qtdRep = parseInt(document.getElementById("cpd-rep-qtd").value, 10) || 0;
       if (qtdRep < 2 || qtdRep > 60) { erro.textContent = "Informe de 2 a 60 ocorrências."; return; }
@@ -18904,6 +18969,11 @@
       if (editandoDespesa) await api("/shared/expenses/" + editandoDespesa, corpo, "PATCH");
       else await api("/shared/expenses", corpo);
       fechar("dlg-compartilhada");
+      /* O lançamento mudou de estado: ele passou a estar dividido, e a
+       * linha dele precisa parar de oferecer "Dividir". Por isso recarrega
+       * do servidor em vez de só atualizar a tela de Compartilhadas. */
+      if (cpdLancamento) { await carregarDoServidor(); renderAll(); }
+      cpdLancamento = null;
       await cpRecarregar();
     } catch (err) { erro.textContent = err.message; }
   });

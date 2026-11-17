@@ -514,7 +514,17 @@ export class TransactionsService {
           lte: filters.endDate ? new Date(filters.endDate) : undefined,
         },
       },
-      include: { category: true, bankAccount: true, creditCard: true, series: true },
+      /* `sharedExpense` entra só com o id: é o bastante para a tela saber
+       * que este gasto JÁ está dividido e não oferecer dividir de novo.
+       * Sem isso o botão aparecia e o servidor é que recusava — descobrir
+       * no erro o que dava para saber antes. */
+      include: {
+        category: true,
+        bankAccount: true,
+        creditCard: true,
+        series: true,
+        sharedExpense: { select: { id: true } },
+      },
       orderBy: { transactionDate: 'desc' },
     });
   }
@@ -522,7 +532,13 @@ export class TransactionsService {
   async findOneByUser(userId: string, transactionId: string) {
     const transaction = await this.prisma.transaction.findFirst({
       where: { id: transactionId, userId },
-      include: { category: true, bankAccount: true, creditCard: true, series: true },
+      include: {
+        category: true,
+        bankAccount: true,
+        creditCard: true,
+        series: true,
+        sharedExpense: { select: { id: true } },
+      },
     });
     if (!transaction) throw new NotFoundException('Transação não encontrada');
     return transaction;
