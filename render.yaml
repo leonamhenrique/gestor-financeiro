@@ -181,6 +181,21 @@ services:
       # aberta, em silêncio, funcionando.
       - key: POLP_WEBHOOK_TOKEN
         sync: false
+      # O segredo que a POLP gera ao ligar a assinatura HMAC-SHA256 (tela de
+      # webhooks, exibido uma vez só). Com ele a rota confere a assinatura —
+      # mas antes precisa descobrir COMO ela é feita, porque a documentação
+      # pública não diz o que é assinado nem em que codificação.
+      - key: POLP_WEBHOOK_SIGNING_SECRET
+        sync: false
+      # O nome do esquema de assinatura, depois de descoberto. VAZIO = fase
+      # de descoberta: a rota calcula as variantes conhecidas e registra no
+      # log o nome da que bate, sem recusar nada por causa disso. Preenchido
+      # (ex.: `corpo-hex`), a assinatura passa a ser EXIGIDA.
+      #
+      # Recusar antes de entender perderia entregas boas em silêncio, que é
+      # o pior desfecho para um aviso que não se repete para sempre.
+      - key: OPENFINANCE_SIGNATURE
+        sync: false
       # Este não é segredo e fica versionado. O domínio precisa estar
       # verificado no Resend, e o endereço não precisa de caixa postal: o
       # Resend só envia, e quem responder cai em contato@saldonline.com.br

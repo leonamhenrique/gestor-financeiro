@@ -33,12 +33,18 @@ import {
   Logger,
   NotFoundException,
   Post,
+  Req,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { Public } from '../auth/public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { comUsuario } from '../prisma/contexto';
 import { OpenFinanceService, openFinanceLigado } from './openfinance.service';
+import {
+  esquemaExigido,
+  segredoDeAssinatura,
+  varianteQueBate,
+} from './assinatura-do-webhook';
 
 /** O segredo combinado, que vai no painel do provedor e no nosso ambiente. */
 export function segredoDoWebhook(): string {
@@ -84,6 +90,7 @@ export class OpenFinanceWebhookController {
     @Headers('x-saldonline-token') token: string | undefined,
     @Headers() cabecalhos: Record<string, string>,
     @Body() corpo: any,
+    @Req() req: any,
   ): void {
     /* Desligado, esta rota não existe — como o resto do módulo. */
     if (!openFinanceLigado()) throw new NotFoundException();
@@ -95,14 +102,17 @@ export class OpenFinanceWebhookController {
     const segredo = segredoDoWebhook();
     if (!segredo || !token || !iguais(token, segredo)) throw new NotFoundException();
 
-    /* Os NOMES dos cabeçalhos de assinatura, nunca os valores. O provedor
-     * assina com HMAC-SHA256 em `X-Webhook-Signature`, mas a documentação
-     * pública não diz o que exatamente é assinado nem em que codificação.
-     * Implementar isso no escuro daria uma conferência que parece proteger
-     * e não protege. Com o nome em mãos e a primeira entrega real, a
-     * verificação entra por cima desta, como segunda tranca. */
-    const assinaturas = Object.keys(cabecalhos || {}).filter((h) => /signature|hmac/i.test(h));
-    if (assinaturas.length) this.logger.log('cabeçalhos de assinatura: ' + assinaturas.join(', '));
+    /* A assinatura, em duas fases.
+     *
+     * Enquanto `OPENFINANCE_SIGNATURE` estiver vazia não se sabe COMO o
+     * provedor assina — a documentação pública não diz o que é assinado nem
+     * em que codificação. Então aqui se calcula cada variante conhecida, se
+     * descobre qual bate, e se registra o NOME dela. A porta segue
+     * protegida pelo segredo do header, que já foi conferido acima.
+     *
+     * Com o nome na variável, a assinatura passa a ser EXIGIDA, e vira a
+     * segunda tranca. Nunca se registra o valor de assinatura nenhuma. */
+    this.conferirAssinatura(cabecalhos, req);
 
     const evento = typeof corpo?.event === 'string' ? corpo.event : '';
     const recurso = typeof corpo?.resource_id === 'string' ? corpo.resource_id : '';
@@ -113,6 +123,52 @@ export class OpenFinanceWebhookController {
     void this.conferir(evento, recurso).catch((e: any) =>
       this.logger.warn('não consegui conferir um aviso: ' + (e?.message || 'erro')),
     );
+  }
+
+  /**
+   * Confere — ou aprende — a assinatura do provedor.
+   *
+   * Lança `NotFoundException` só quando já se SABE o esquema e ele não
+   * bate: aí a entrega é mesmo suspeita. Enquanto não se sabe, nada é
+   * recusado por causa disto — recusar pelo que ainda não se entende
+   * perderia entregas boas em silêncio, que é o pior desfecho possível
+   * para um aviso que não se repete para sempre.
+   */
+  private conferirAssinatura(cabecalhos: Record<string, string>, req: any): void {
+    const segredo = segredoDeAssinatura();
+    const header = (cabecalhos || {})['x-webhook-signature'] || '';
+    const exigido = esquemaExigido();
+
+    if (!segredo) {
+      if (exigido) {
+        /* Exigir um esquema sem ter o segredo é uma configuração que não
+         * pode funcionar: melhor recusar alto do que aceitar achando que
+         * está conferindo. */
+        this.logger.warn('OPENFINANCE_SIGNATURE exigido sem POLP_WEBHOOK_SIGNING_SECRET');
+        throw new NotFoundException();
+      }
+      return;
+    }
+
+    /* `rawBody` são os BYTES exatos que chegaram. Reserializar o corpo já
+     * interpretado não serve: um espaço a mais e o HMAC não fecha. */
+    const cru: Buffer | undefined = req?.rawBody;
+    const carimbo = (cabecalhos || {})['x-webhook-timestamp'] || undefined;
+    const bateu = cru ? varianteQueBate(header, segredo, cru, carimbo) : null;
+
+    if (exigido) {
+      if (bateu !== exigido) throw new NotFoundException();
+      return;
+    }
+
+    /* Fase de descoberta. Só o nome vai para o log. */
+    if (!header) {
+      this.logger.log('entrega sem cabeçalho de assinatura');
+    } else if (bateu) {
+      this.logger.log('assinatura confere pelo esquema "' + bateu + '" — ponha-o em OPENFINANCE_SIGNATURE');
+    } else {
+      this.logger.log('assinatura presente, nenhuma variante conhecida bateu');
+    }
   }
 
   /**

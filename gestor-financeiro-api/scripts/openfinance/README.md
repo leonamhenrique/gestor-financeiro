@@ -485,14 +485,35 @@ evento novo no catálogo deles não pode nos fazer ignorar um aviso.
 - **Responde 204 e sai**: a reconferência baixa o extrato e leva segundos, e
   quem está do outro lado repete o aviso quando o tempo estoura.
 
-### A assinatura, ainda não conferida
+### A assinatura, em duas fases
 
-O painel oferece `ASSINATURA HMAC-SHA256` no header `X-Webhook-Signature`,
-mas a documentação pública não diz o que é assinado nem em que codificação.
-Conferir no escuro daria uma verificação que parece proteger e não protege.
-A rota registra os **nomes** dos cabeçalhos de assinatura que chegam, nunca
-os valores — medido na bancada: `x-webhook-signature`. Com uma entrega real
-em mãos, a verificação HMAC entra por cima do segredo, como segunda tranca.
+O painel oferece `ASSINATURA HMAC-SHA256` no header `X-Webhook-Signature` e
+gera um segredo, exibido uma vez só. O que a documentação pública **não**
+diz é o que exatamente é assinado nem em que codificação o resultado vem — e
+essas duas respostas são a diferença entre uma conferência que protege e uma
+que só parece proteger.
+
+Conferir no escuro tem dois jeitos de dar errado, e os dois são ruins:
+escolher o esquema errado e recusar TODAS as entregas reais em silêncio, ou
+escrever algo frouxo que aceita qualquer coisa. Por isso, duas fases:
+
+**Descoberta** (`OPENFINANCE_SIGNATURE` vazia). A rota calcula cada variante
+conhecida sobre os bytes crus e descobre qual bate, registrando só o **nome**
+— nunca o valor. As variantes são `corpo-hex`, `corpo-base64` e, quando vem
+carimbo de tempo, `carimbo.corpo-hex`, `carimbo.corpo-base64` e
+`carimbocorpo-hex`. O header é comparado inteiro e também em pedaços, porque
+ele vem de três formas no mundo real: valor puro, `sha256=valor` e
+`t=…,v1=valor`. Nesta fase **nada é recusado** por causa da assinatura: a
+porta segue protegida pelo segredo do header customizado.
+
+**Exigência** (`OPENFINANCE_SIGNATURE=<nome>`). Só aquele esquema passa.
+Assinatura errada, ausente, ou corpo cru indisponível: 404. E exigir um
+esquema sem ter o segredo recusa tudo, alto — melhor que aceitar achando que
+confere.
+
+O HMAC se calcula sobre `rawBody`, os bytes exatos que chegaram, e nunca
+sobre o JSON reserializado: um espaço a mais e a conta não fecha. `main.ts`
+já sobe com `rawBody: true`.
 
 ### Para ligar
 
@@ -500,5 +521,7 @@ em mãos, a verificação HMAC entra por cima do segredo, como segunda tranca.
 2. No painel da Polp → Webhooks → Adicionar endpoint: produto **Celcoin**,
    URL `https://api.saldonline.com.br/openfinance/webhook`, todos os eventos,
    e um header customizado `X-Saldonline-Token` com **o mesmo valor**.
-3. Ligar o botão da assinatura HMAC — ela ainda não é exigida, mas passa a
-   ser registrada.
+3. Ligar o botão da assinatura HMAC e guardar o segredo gerado em
+   `POLP_WEBHOOK_SIGNING_SECRET` — ele não é exibido de novo.
+4. Na primeira entrega real, ler no log do Render qual esquema bateu e pôr o
+   nome em `OPENFINANCE_SIGNATURE`. A partir daí a assinatura é exigida.
