@@ -8012,6 +8012,9 @@
       tokenAcesso = null;
     }
     state.sessao = { entrou: false };
+    /* O badge é do aparelho, não da sessão: sem isto o ícone continuaria
+     * com o número de quem saiu, inclusive para quem entrar depois. */
+    ofPintarPendentes(0);
     persist();
     limparSenhas();
     document.getElementById("ent-email").value = state.perfil.email || "";
@@ -11398,7 +11401,33 @@
   /* O aviso onde a pessoa já olha todo dia, e não numa tela que ela teria
    * de lembrar de abrir. Zero some: número que fica aceso sem querer dizer
    * nada é número que para de ser lido. */
+  /**
+   * O mesmo número, no ÍCONE do app instalado.
+   *
+   * O aviso no menu só alcança quem já abriu o app. O badge aparece na tela
+   * inicial do telefone, sem notificação, sem pedir permissão e sem custo
+   * por mensagem: é o navegador que o desenha.
+   *
+   * Zero LIMPA, e não desenha "0": ponto aceso sem querer dizer nada é
+   * ponto que a pessoa aprende a ignorar — a mesma regra do menu.
+   *
+   * Tudo protegido porque isto não existe em toda parte: no iOS só vale
+   * para quem instalou na tela de início, e num navegador comum a API
+   * simplesmente não está lá. Onde não houver, a tela segue igual — o
+   * badge é um acréscimo, nunca um requisito.
+   */
+  function badgeDoApp(total) {
+    try {
+      if (!("setAppBadge" in navigator)) return;
+      var p = total > 0 ? navigator.setAppBadge(total) : navigator.clearAppBadge();
+      // Ela devolve promessa, e a promessa pode recusar (app não instalado,
+      // permissão negada). Recusa aqui não é problema de ninguém.
+      if (p && p.catch) p.catch(function () {});
+    } catch (e) {}
+  }
+
   function ofPintarPendentes(total) {
+    badgeDoApp(Number(total) || 0);
     document.querySelectorAll('[data-ordem-id="importar"]').forEach(function (item) {
       var marca = item.querySelector(".of-pendentes");
       if (!total) { if (marca) marca.remove(); return; }
