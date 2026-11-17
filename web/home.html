@@ -9488,6 +9488,16 @@
     return melhor;
   }
 
+  /** Texto curto para caber numa etiqueta, sem cortar no meio da palavra
+   * quando dá para evitar. */
+  function encurtar(texto, n) {
+    var t = String(texto || "").trim();
+    if (t.length <= n) return t;
+    var corte = t.slice(0, n);
+    var espaco = corte.lastIndexOf(" ");
+    return (espaco > n - 8 ? corte.slice(0, espaco) : corte).trim() + "…";
+  }
+
   /** O texto original recortado no tamanho de uma chave — é como o prefixo
    * aparece no botão. A chave de "MercadolivreEritecha" cortada em 12 devolve
    * "Mercadolivre", e não "mercadolivre": quem lê reconhece o próprio extrato. */
@@ -11731,7 +11741,7 @@
    *
    * Até aqui o contrato era de uma linha: a integração PROPÕE, nunca decide.
    * Isto abre uma exceção, pedida com a tela na mão — e uma exceção a uma
-   * regra de dinheiro só vale com as condições escritas. São oito, e todas
+   * regra de dinheiro só vale com as condições escritas. São nove, e todas
    * têm de valer ao mesmo tempo:
    *
    *  1. o lançamento NÃO casa com nada que o app já tem. Casou, mesmo que
@@ -11752,7 +11762,10 @@
    *     que existe, e gravá-lo sozinho seria inventar dinheiro;
    *  8. o banco NÃO disse que é transferência. Dinheiro que mudou de conta
    *     não é receita nem despesa, e entrar sozinho como receita inflaria o
-   *     mês inteiro. Quando o banco levanta a mão, a pessoa decide.
+   *     mês inteiro. Quando o banco levanta a mão, a pessoa decide;
+   *  9. não PARECE um lançamento que já existe. Mesmo valor, mesmo destino
+   *     e data a três dias é dúvida demais para o app resolver sozinho —
+   *     e é justamente onde a duplicata nasce.
    *
    * E o que entra assim entra como LOTE, aparecendo em "Importações
    * recentes" com o botão Desfazer — do mesmo jeito que uma importação de
@@ -11761,7 +11774,7 @@
   function ofSemDuvida(l) {
     return !l.repetida && !l.pagamento && !l.base._parcelada &&
            l.origem === "regra" && !!l.categoriaId && isFinite(l.base.valor) &&
-           !l.base._transferencia;
+           !l.base._transferencia && !l.candidata;
   }
 
   /** A fatura do app e a do banco dizem o mesmo? Só vale para cartão. */
@@ -11906,6 +11919,69 @@
     else if (acao === "desconectar") ofDesconectar(id);
   });
 
+  /** Dias de diferença entre duas datas `AAAA-MM-DD`. */
+  function diasEntre(a, b) {
+    var x = Date.parse(a + "T12:00:00Z"), y = Date.parse(b + "T12:00:00Z");
+    if (!isFinite(x) || !isFinite(y)) return 999;
+    return Math.abs(x - y) / 86400000;
+  }
+
+  /* Quantos dias de folga a candidata aceita.
+   *
+   * A compra acontece num dia e o banco publica noutro — e quem lança à mão
+   * escreve a data que lembra. Três dias cobrem isso sem alcançar a
+   * mensalidade do mês seguinte, que é o falso positivo que mais assusta:
+   * mesmo valor, mesmo lojista, e legitimamente outra compra. */
+  var DIAS_DA_CANDIDATA = 3;
+
+  /**
+   * "Parece que você já lançou isto."
+   *
+   * O repetido EXATO — data, valor e texto iguais — a importação já pegava.
+   * O que escapava era o lançado à MÃO: a pessoa digita "Daiso Brasil" e o
+   * banco manda "DAISO BRASIL COMERCIO CONTAGEM". Medido: as chaves ficam
+   * `…|daisobrasil` e `…|daisobrasilcomerciocontagem`, e a linha voltava
+   * como novidade — pronta para virar duplicata.
+   *
+   * Esta função NÃO decide nada. Ela acha um candidato e a tela pergunta.
+   * Casar por valor e data sem perguntar seria palpite, e palpite silencioso
+   * em dinheiro vira saldo errado.
+   *
+   * O que ela exige, e por quê:
+   *
+   *  - mesmo VALOR, até os centavos. Valor aproximado não existe aqui;
+   *  - mesmo TIPO. Uma saída não "parece" uma entrada;
+   *  - mesmo DESTINO. O que está no cartão não é o que está na conta;
+   *  - data a até três dias;
+   *  - o lançamento de cá NÃO pode ter vindo do banco com outro id: se ele
+   *    já tem `providerTxId` e é outro, são duas compras diferentes — e o
+   *    caso do texto diferente, que é o que isto resolve, só existe para
+   *    quem digitou à mão;
+   *  - um lançamento serve a UMA linha só. Duas compras de R$ 37,48 no
+   *    mesmo dia são duas, e deixar as duas apontarem para o mesmo
+   *    lançamento esconderia uma delas.
+   */
+  function candidataDaLinha(l, usados) {
+    if (!imp || !imp.destinoId) return null;
+    var campo = imp.ehCartao ? "cartaoId" : "contaId";
+    var acha = null;
+    for (var i = 0; i < state.transactions.length; i++) {
+      var t = state.transactions[i];
+      if (usados[t.id]) continue;
+      if (t[campo] !== imp.destinoId) continue;
+      if (t.tipo !== l.tipo) continue;
+      if (Number(t.valor).toFixed(2) !== Number(l.valor).toFixed(2)) continue;
+      if (t.providerTxId && t.providerTxId !== l.fitid) continue;
+      if (diasEntre(String(t.data), String(l.data)) > DIAS_DA_CANDIDATA) continue;
+      /* Entre dois possíveis, o de data mais próxima. */
+      if (!acha || diasEntre(String(t.data), String(l.data)) < diasEntre(String(acha.data), String(l.data))) {
+        acha = t;
+      }
+    }
+    if (acha) usados[acha.id] = true;
+    return acha;
+  }
+
   /** As linhas da conferência, a partir dos lançamentos lidos.
    *
    * Separado do botão porque a entrada automática do Open Finance precisa
@@ -11913,9 +11989,14 @@
    * é repetido e de que categoria é, seria a segunda versão da regra. */
   function linhasDaConferencia(lancamentos) {
     var jaTem = chavesExistentes();
+    /* Um lançamento de cá só pode ser candidato de UMA linha de lá. */
+    var usados = {};
     return lancamentos.map(function (l) {
       var repetida = !!jaTem[chaveDeLancamento(l)];
       var pagamento = ehPagamentoDeFatura(l);
+      /* Só procura candidata quando NÃO é repetida exata: se já casou pelo
+       * texto, perguntar de novo seria perguntar duas vezes a mesma coisa. */
+      var candidata = repetida ? null : candidataDaLinha(l, usados);
       /* A ordem é a regra: o que o USUÁRIO ensinou ganha da lista que vem de
        * fábrica. A lista é um chute de quem escreveu o app; a regra é a
        * decisão de quem tem o extrato na mão. Deixar a lista por cima
@@ -11926,10 +12007,14 @@
       var cat = palpite ? categoriasLancaveis(l.tipo).filter(function (c) { return normalizarNome(c.nome) === normalizarNome(palpite); })[0] : null;
       return {
         base: l, repetida: repetida, pagamento: pagamento,
-        // Repetido e pagamento de fatura nascem DESMARCADOS: os dois levariam
-        // o mesmo dinheiro para dentro duas vezes. Continuam à vista e
-        // marcáveis — quem conhece o próprio extrato decide.
-        marcada: !repetida && !pagamento,
+        /* O que a linha PARECE ser, do que já existe aqui. Guarda o
+         * lançamento inteiro porque a tela mostra o texto e a data dele —
+         * "parece isto" sem dizer o que é obriga a pessoa a ir procurar. */
+        candidata: candidata || null,
+        // Repetido, pagamento de fatura e candidata nascem DESMARCADOS: os
+        // três levariam o mesmo dinheiro para dentro duas vezes. Continuam à
+        // vista e marcáveis — quem conhece o próprio extrato decide.
+        marcada: !repetida && !pagamento && !candidata,
         categoriaId: daRegra ? daRegra.id : (cat ? cat.id : ""),
         criar: daRegra ? "" : (cat ? "" : palpite),
         // De onde veio o palpite, para a tela poder dizer. "regra" é o que o
@@ -12064,6 +12149,14 @@
         (transferindo ? '<span class="imp-tag imp-tag--regra">transferência</span>' : "") +
         (l.origem === "regra" && !transferindo ? '<span class="imp-tag imp-tag--regra">você ensinou</span>' : "") +
         (l.repetida ? '<span class="imp-tag">já existe</span>' : "") +
+        /* Diz COM QUAL lançamento ela parece. "Parece que você já lançou"
+         * sem dizer o quê manda a pessoa procurar numa outra tela, com a
+         * conferência aberta no meio. */
+        (l.candidata
+          ? '<span class="imp-tag" title="' + esc(l.candidata.desc || "") + '">parece que você já lançou: ' +
+            esc(encurtar(l.candidata.desc || "sem histórico", 22)) + " · " +
+            fmtDataBR(l.candidata.data) + "</span>"
+          : "") +
         (l.pagamento ? '<span class="imp-tag">pagamento da fatura</span>' : "") +
         /* O banco levantou a mão. É sugestão, e some assim que a pessoa
          * decide — para os dois lados. */
@@ -12142,6 +12235,7 @@
       else { entradas += l.base.valor; if (l.pagamento) pago += l.base.valor; }
     });
     var repetidas = imp.linhas.filter(function (l) { return l.repetida; }).length;
+    var parecidas = imp.linhas.filter(function (l) { return l.candidata; }).length;
     /* Quanto falta classificar, contado ao vivo.
      *
      * É o número que move enquanto a pessoa trabalha. As linhas ficam no
@@ -12163,6 +12257,7 @@
       "<span>" + (imp.ehCartao ? "fica na fatura" : "resultado") +
         "<b class='num'>" + money(Math.abs(saidas - entradas)) + "</b></span>" +
       (repetidas ? "<span>já existem<b>" + repetidas + "</b></span>" : "") +
+      (parecidas ? "<span>parecem já lançados<b>" + parecidas + "</b></span>" : "") +
       (imp.ehCartao
         ? "<span>fatura<b>" +
           (function () { var k = cartaoDaImportacao(); return k ? rotuloFatura(k, imp.fatura) : rotuloMes(imp.fatura); })() +
