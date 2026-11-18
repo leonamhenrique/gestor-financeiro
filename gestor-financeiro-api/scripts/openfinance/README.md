@@ -525,3 +525,40 @@ já sobe com `rawBody: true`.
    `POLP_WEBHOOK_SIGNING_SECRET` — ele não é exibido de novo.
 4. Na primeira entrega real, ler no log do Render qual esquema bateu e pôr o
    nome em `OPENFINANCE_SIGNATURE`. A partir daí a assinatura é exigida.
+
+
+## O aviso, a partir de 18/11/2026
+
+Três perguntas do usuário, com o app em produção, e as três viraram regra.
+
+**"487 lançamentos" não é um aviso, é um número.** O provedor importa doze
+meses de uma vez, e quem decide não trazer o histórico ficaria com esse
+número aceso para sempre. Novidade passou a ser o que o provedor RECEBEU do
+banco depois de a pessoa ter visto a lista — `created_at`, não a data da
+compra: a compra de março chegou hoje, e para quem olha é novidade de hoje.
+
+Quem marca "eu vi" é a TELA, ao pintar a lista. Pedir a proposta não é ver,
+e o trabalho diário pede toda manhã.
+
+**O aviso agora sai quando a novidade chega**, e não só às 6h. O webhook
+chama o mesmo caminho. Isso só é seguro porque o limite de um por dia mora
+no SERVIÇO de push: o provedor sincroniza a cada 3 horas, e sem o limite
+seriam oito avisos por dia.
+
+**E o aviso aparece na primeira tela**, não só no menu Importar. Esperar que
+a pessoa lembre de abrir aquela tela é esperar que ela adivinhe que tem
+coisa lá.
+
+### Medido em 18/11/2026, contra o consentimento real do Inter
+
+O dado era perfeito para isto: o provedor recebeu **483 transações em
+15/11** e outras **5 em 17/11** — as compras do dia 15 que o banco só
+liberou depois.
+
+```
+lançamentos esperando             464
+com data de chegada               464 de 464
+novos depois de "olhei em 16/11"    5   ← exatamente as cinco
+webhook com o consentimento real  204, recontou, chamou o aviso
+depois de conferir na tela        novos 0, visto gravado
+```

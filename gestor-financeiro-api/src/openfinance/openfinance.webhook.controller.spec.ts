@@ -19,6 +19,7 @@ describe('OpenFinanceWebhookController', () => {
   let controller: OpenFinanceWebhookController;
   let prisma: any;
   let servico: any;
+  let avisos: any;
   const antes = { ...process.env };
 
   const SEGREDO = 'segredo-de-teste-bem-comprido-123456';
@@ -34,8 +35,11 @@ describe('OpenFinanceWebhookController', () => {
       transaction: { create: jest.fn(), createMany: jest.fn(), update: jest.fn() },
     };
     servico = { recontarPendentes: jest.fn().mockResolvedValue(3) };
+    /* O aviso sai daqui agora: a novidade chega a cada 3h, e esperar as 6h
+     * da manha seria guardar a noticia meio dia. */
+    avisos = { avisar: jest.fn().mockResolvedValue(1) };
 
-    controller = new OpenFinanceWebhookController(prisma, servico);
+    controller = new OpenFinanceWebhookController(prisma, servico, avisos);
   });
 
   afterEach(() => {
@@ -221,6 +225,47 @@ describe('OpenFinanceWebhookController', () => {
         controller.receber(SEGREDO, { 'x-webhook-signature': assinar(cru) }, corpo, {}),
       ).toThrow(NotFoundException);
     });
+  });
+
+  // ---------------------------------------------------------------- aviso
+  /* Avisar aqui so e seguro porque o limite de um por dia mora no SERVICO
+   * de push, e nao em quem chama. O provedor sincroniza a cada 3 horas:
+   * sem esse limite seriam oito avisos por dia, e e assim que uma
+   * notificacao util vira uma que a pessoa desliga. */
+  it('novidade avisa na hora, com o numero de novos', async () => {
+    prisma.openFinanceConnection.findFirst.mockResolvedValue({ id: 'cx1', userId: 'u1' });
+    servico.recontarPendentes.mockResolvedValue(4);
+
+    controller.receber(SEGREDO, {}, aviso({ resource_id: 'consent-1' }), pedido());
+    await esperar();
+    await esperar();
+
+    expect(avisos.avisar).toHaveBeenCalledWith('u1', 4);
+  });
+
+  /* Evento de mudanca de status, por exemplo, nao traz lancamento nenhum. */
+  it('sem nada novo, nao avisa', async () => {
+    prisma.openFinanceConnection.findFirst.mockResolvedValue({ id: 'cx1', userId: 'u1' });
+    servico.recontarPendentes.mockResolvedValue(0);
+
+    controller.receber(SEGREDO, {}, aviso({ resource_id: 'consent-1' }), pedido());
+    await esperar();
+    await esperar();
+
+    expect(avisos.avisar).not.toHaveBeenCalled();
+  });
+
+  /* A contagem e a parte que a tela usa, e ela ja esta gravada quando se
+   * chega ao aviso. */
+  it('falha ao avisar nao estoura', async () => {
+    prisma.openFinanceConnection.findFirst.mockResolvedValue({ id: 'cx1', userId: 'u1' });
+    avisos.avisar.mockRejectedValue(new Error('push fora'));
+
+    expect(() =>
+      controller.receber(SEGREDO, {}, aviso({ resource_id: 'consent-1' }), pedido()),
+    ).not.toThrow();
+    await esperar();
+    await esperar();
   });
 
   // ------------------------------------------------------------- o contrato

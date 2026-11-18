@@ -40,6 +40,7 @@ import { Public } from '../auth/public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { comUsuario } from '../prisma/contexto';
 import { OpenFinanceService, openFinanceLigado } from './openfinance.service';
+import { PushService } from '../push/push.service';
 import {
   esquemaExigido,
   segredoDeAssinatura,
@@ -66,6 +67,7 @@ export class OpenFinanceWebhookController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openFinance: OpenFinanceService,
+    private readonly push: PushService,
   ) {}
 
   /**
@@ -202,9 +204,24 @@ export class OpenFinanceWebhookController {
     /* `comUsuario` é obrigatório: fora de uma requisição autenticada não há
      * dono no contexto, e com RLS forçado a consulta não enxergaria
      * lançamento nenhum — o resultado seria "tudo novo", em silêncio. */
-    await comUsuario(conexao.userId, () =>
+    const novos = await comUsuario(conexao.userId, () =>
       this.openFinance.recontarPendentes(conexao.userId, conexao.id),
     );
+
+    /* E avisa na HORA, em vez de esperar as 6h da manhã.
+     *
+     * Isto só é seguro porque o limite de um aviso por dia mora no serviço
+     * de push, e não em quem chama: o provedor sincroniza a cada 3 horas, e
+     * sem esse limite aqui seriam oito avisos por dia. Com ele, o primeiro
+     * do dia sai quando a novidade chega, e os outros sete não viram nada.
+     *
+     * Falhar em avisar não pode estragar a contagem, que é a parte que a
+     * tela usa — ela já está gravada quando se chega aqui. */
+    if (novos > 0) {
+      await comUsuario(conexao.userId, () => this.push.avisar(conexao.userId, novos)).catch(
+        (e: any) => this.logger.warn('não consegui avisar: ' + (e?.message || 'erro')),
+      );
+    }
   }
 
   /** A conexão de uma conta ou de um cartão, pelo id que o provedor usa. */
