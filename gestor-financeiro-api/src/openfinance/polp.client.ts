@@ -59,6 +59,16 @@ export interface LancamentoDoProvedor {
   faturaPrevista?: string | null;
   /** Pagamento de fatura: o app tem caminho próprio e não lança de novo. */
   pagamentoDeFatura: boolean;
+  /**
+   * Quando o PROVEDOR recebeu esta transação do banco — não quando a
+   * compra aconteceu.
+   *
+   * É a única data que responde "isto é novidade?". A data da compra não
+   * serve: o provedor importa doze meses de uma vez, e no primeiro dia
+   * tudo seria antigo e nada seria novo. Medido: as 483 transações da
+   * primeira importação vieram com `created_at` do mesmo minuto.
+   */
+  recebidoEm?: string | null;
 }
 
 export interface ContaDoProvedor {
@@ -362,6 +372,7 @@ export class PolpClient {
       faturaPrevista: t.bill_forecast_date ? soOMes(t.bill_forecast_date) : null,
       pagamentoDeFatura:
         t.category_ref === PAGAMENTO_DE_FATURA || t.transaction_type === 'PAGAMENTO_FATURA',
+      recebidoEm: t.created_at ? String(t.created_at) : null,
     };
   }
 }

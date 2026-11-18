@@ -65,6 +65,7 @@ describe('OpenFinance', () => {
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue(CONEXAO),
         update: jest.fn().mockImplementation(({ data }: any) => ({ ...CONEXAO, ...data })),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       bankAccount: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -425,6 +426,77 @@ describe('OpenFinance', () => {
       expect(r.total).toBe(3);
       expect(r.conexoes[0].pendentes).toBeNull();
       expect(r.conexoes[1].pendentes).toBe(3);
+    });
+
+    /* O provedor importa DOZE MESES de uma vez, e o primeiro aviso falou em
+     * 487 lancamentos. Quem decide nao importar o historico ficaria com esse
+     * numero aceso para sempre -- e numero que nao desce para de ser lido.
+     * Novidade passa a ser o que chegou DEPOIS de a pessoa ter visto. */
+    describe('o que e novidade', () => {
+      const vindoEm = (id: string, recebidoEm: string | null) => ({
+        providerTxId: id, data: '2026-11-12', valor: 10, tipo: 'EXPENSE', descricao: id,
+        parcela: null, faturada: true, faturaPrevista: null, pagamentoDeFatura: false,
+        recebidoEm,
+      });
+
+      beforeEach(() => {
+        polp.cartoes.mockResolvedValue([{ providerAccountId: 'k-la', nome: 'GOLD' }]);
+        polp.transacoesDoCartao.mockResolvedValue([
+          vindoEm('velho', '2026-11-15T10:00:00Z'),
+          vindoEm('novo', '2026-11-17T09:00:00Z'),
+        ]);
+      });
+
+      /* A data da COMPRA nao serve: a compra de marco chegou hoje, e para
+       * quem olha ela e novidade de hoje. Quem responde e a data em que o
+       * provedor recebeu do banco. */
+      it('conta so o que o provedor recebeu depois de ela ter visto', async () => {
+        prisma.openFinanceConnection.findFirst.mockResolvedValue({
+          ...CONEXAO,
+          pendingSeenAt: new Date('2026-11-16T00:00:00Z'),
+        });
+
+        const novos = await service.recontarPendentes('u1', 'cx1');
+
+        expect(novos).toBe(1);
+        expect(prisma.openFinanceConnection.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            // O total continua guardado: e ele que a tela de Importar mostra.
+            data: expect.objectContaining({ pendingCount: 2, pendingNewCount: 1 }),
+          }),
+        );
+      });
+
+      /* Nunca olhou: tudo e novidade, e e verdade. O primeiro aviso e o
+       * unico que fala do historico inteiro, e e o unico em que isso e
+       * informacao. */
+      it('quem nunca olhou recebe tudo como novidade', async () => {
+        prisma.openFinanceConnection.findFirst.mockResolvedValue({ ...CONEXAO, pendingSeenAt: null });
+
+        expect(await service.recontarPendentes('u1', 'cx1')).toBe(2);
+      });
+
+      it('nada novo depois de ela ter visto da zero', async () => {
+        prisma.openFinanceConnection.findFirst.mockResolvedValue({
+          ...CONEXAO,
+          pendingSeenAt: new Date('2026-11-18T00:00:00Z'),
+        });
+
+        expect(await service.recontarPendentes('u1', 'cx1')).toBe(0);
+      });
+
+      /* Marcar visto e da TELA: pedir a proposta nao e ver. O trabalho
+       * diario pede toda manha, e se isso contasse, nada seria novidade. */
+      it('marcar visto zera a novidade de todas as conexoes vivas', async () => {
+        await service.marcarVisto('u1');
+
+        expect(prisma.openFinanceConnection.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { userId: 'u1', revokedAt: null },
+            data: expect.objectContaining({ pendingNewCount: 0, pendingSeenAt: expect.any(Date) }),
+          }),
+        );
+      });
     });
 
     it('recontar guarda o numero e a hora', async () => {

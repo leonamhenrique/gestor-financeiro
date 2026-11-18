@@ -27,6 +27,7 @@ import {
   NotFoundException,
   Get,
   Post,
+  HttpCode,
   Delete,
   Body,
   Param,
@@ -138,6 +139,19 @@ export class OpenFinanceController {
   @Get('pendentes')
   pendentes(@Req() req: any) {
     return this.openFinance.pendentes(req.user.id);
+  }
+
+  /**
+   * "Eu já vi esta lista."
+   *
+   * Quem marca é a TELA, depois de pintar — pedir a proposta não é ver. O
+   * trabalho diário pede toda manhã, e se isso contasse como visto, nada
+   * seria novidade nunca.
+   */
+  @Post('visto')
+  @HttpCode(200)
+  visto(@Req() req: any) {
+    return this.openFinance.marcarVisto(req.user.id);
   }
 
   /** Cria o consentimento e devolve o link que o DONO DA CONTA vai abrir. */

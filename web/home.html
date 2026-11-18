@@ -1809,6 +1809,28 @@
    * lugar próprio seria uma tela que ela teria de lembrar de abrir. Número
    * que não muda decisão nenhuma não entraria aqui; este manda abrir a
    * tela, e some sozinho quando chega a zero. */
+  /* O aviso de novidade no Resumo.
+   *
+   * É um `.blk` que virou botão: mesma caixa, mesma animação de entrada,
+   * mesmo lugar na coluna. O que o distingue é a borda de acento — o mesmo
+   * contorno que o app já usa para "isto pede a sua atenção" — e não uma
+   * cor de fundo nova, que seria um segundo jeito de dizer a mesma coisa.
+   *
+   * Fundo transparente e não um card cheio: ele divide a tela com o saldo,
+   * e dois blocos sólidos lado a lado brigariam pela primeira olhada. */
+  .of-novidade {
+    flex-direction: row; align-items: center; gap: 12px;
+    width: 100%; text-align: left; cursor: pointer;
+    padding: 14px 16px; border-radius: var(--r-lg);
+    border: 1px solid var(--accent-borda); background: transparent;
+    font: inherit; color: inherit;
+  }
+  .of-novidade:hover, .of-novidade:focus-visible { border-color: var(--accent); }
+  .of-novidade-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .of-novidade-txt b { font-size: 14px; color: var(--fg); }
+  .of-novidade-txt span { font-size: 12px; color: var(--fg-subtle); }
+  .of-novidade .pill { flex-shrink: 0; }
+
   .of-pendentes {
     min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
     background: var(--accent); color: var(--accent-ink);
@@ -2289,6 +2311,19 @@
             <div class="ob-ctx" id="ob-ctx"></div>
             <div class="list" id="ob-lista"></div>
           </div>
+
+          <!-- O banco mandou novidade.
+               Fica na PRIMEIRA tela, e não só no menu: esperar que a pessoa
+               lembre de abrir Importar é esperar que ela adivinhe que tem
+               coisa lá. Some sozinho quando não há novidade — aviso que fica
+               aceso sem querer dizer nada é aviso que ela aprende a pular. -->
+          <button class="blk of-novidade" id="r-novidade" style="--i:0" type="button" data-goto="importar" hidden>
+            <span class="of-novidade-txt">
+              <b id="r-novidade-titulo"></b>
+              <span id="r-novidade-meta">Confira antes de importar — você decide o que entra.</span>
+            </span>
+            <span class="pill">Conferir</span>
+          </button>
 
           <div class="blk" style="--i:1">
             <div class="lbl">Saldo geral</div>
@@ -11400,6 +11435,13 @@
      * responder, e ninguém fica esperando por ele para conferir extrato. */
     ofCarregarAvisos();
     await ofBuscarSozinho();
+    /* Agora ela VIU. Daqui para a frente, novidade é o que chegar depois
+     * deste instante — e o número do menu, do ícone e do Resumo zera.
+     *
+     * Marcado aqui, e não no servidor quando alguém pede a proposta: pedir
+     * não é ver. O trabalho diário pede toda manhã, e se isso contasse,
+     * nada seria novidade nunca. */
+    try { await api("/openfinance/visto", {}); } catch (e) { /* o número só demora mais a zerar */ }
     ofContarPendentes();
   }
 
@@ -11408,12 +11450,35 @@
     if (!MODO_API) return;
     var r;
     try { r = await api("/openfinance/pendentes"); } catch (e) { return; }
-    ofPintarPendentes(r && r.total);
+    /* `novos`, e não `total`: o provedor importa doze meses de uma vez, e
+     * quem decide não trazer o histórico ficaria com 487 aceso para
+     * sempre. Número que não desce para de ser lido. O total continua
+     * valendo na tela de Importar, que mostra a lista inteira. */
+    ofPintarPendentes(r ? (r.novos != null ? r.novos : r.total) : 0);
   }
 
   /* O aviso onde a pessoa já olha todo dia, e não numa tela que ela teria
    * de lembrar de abrir. Zero some: número que fica aceso sem querer dizer
    * nada é número que para de ser lido. */
+  /**
+   * O aviso na PRIMEIRA tela.
+   *
+   * Pedido com o caso na mão: esperar que a pessoa lembre de abrir
+   * Importar é esperar que ela adivinhe que tem coisa lá. Aqui ele está
+   * onde ela já olha todo dia.
+   *
+   * Some sozinho no zero, como o número do menu: aviso aceso sem querer
+   * dizer nada é aviso que ela aprende a pular.
+   */
+  function ofPintarNovidade(n) {
+    var bloco = document.getElementById("r-novidade");
+    if (!bloco) return;
+    bloco.hidden = !n;
+    if (!n) return;
+    document.getElementById("r-novidade-titulo").textContent =
+      n === 1 ? "O banco mandou 1 lançamento novo" : "O banco mandou " + n + " lançamentos novos";
+  }
+
   /**
    * O mesmo número, no ÍCONE do app instalado.
    *
@@ -11440,7 +11505,9 @@
   }
 
   function ofPintarPendentes(total) {
-    badgeDoApp(Number(total) || 0);
+    var n = Number(total) || 0;
+    badgeDoApp(n);
+    ofPintarNovidade(n);
     document.querySelectorAll('[data-ordem-id="importar"]').forEach(function (item) {
       var marca = item.querySelector(".of-pendentes");
       if (!total) { if (marca) marca.remove(); return; }

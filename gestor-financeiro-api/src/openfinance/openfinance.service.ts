@@ -278,11 +278,16 @@ export class OpenFinanceService {
         id: true,
         institutionName: true,
         pendingCount: true,
+        pendingNewCount: true,
         pendingCheckedAt: true,
       },
     });
     return {
       total: conexoes.reduce((soma, c) => soma + (c.pendingCount ?? 0), 0),
+      /* O que chegou depois de a pessoa ter visto. É este que acende o
+       * aviso e o número do menu; o total continua para a tela que mostra
+       * a lista inteira. */
+      novos: conexoes.reduce((soma, c) => soma + (c.pendingNewCount ?? c.pendingCount ?? 0), 0),
       conexoes: conexoes.map((c) => ({
         id: c.id,
         instituicao: c.institutionName,
@@ -295,22 +300,62 @@ export class OpenFinanceService {
   }
 
   /**
-   * Pergunta ao provedor e guarda o número. Para o trabalho diário.
+   * Pergunta ao provedor e guarda os dois números. Para o trabalho diário.
    *
-   * Devolve quantos esperam. Erro de uma conexão não pode derrubar as
-   * outras — quem chama trata uma a uma.
+   * Devolve quantos chegaram DEPOIS de a pessoa ter visto a lista — que é o
+   * número do aviso. O total continua guardado, porque é ele que a tela de
+   * Importar mostra.
+   *
+   * A diferença nasceu de um caso real: o provedor importa doze meses de
+   * uma vez, e o primeiro aviso falou em 487 lançamentos. Quem decide não
+   * importar o histórico fica com esse número para sempre — e número que
+   * não desce para de ser lido.
+   *
+   * Erro de uma conexão não pode derrubar as outras: quem chama trata uma
+   * a uma.
    */
   async recontarPendentes(userId: string, conexaoId: string): Promise<number> {
+    const conexao = await this.prisma.openFinanceConnection.findFirst({
+      where: { id: conexaoId, userId },
+      select: { pendingSeenAt: true },
+    });
     const proposta = await this.paraImportar(userId, conexaoId);
-    const total =
-      proposta.contas.reduce((n, c) => n + c.lancamentos.length, 0) +
-      proposta.cartoes.reduce((n, k) => n + k.lancamentos.length, 0);
+    const todos = [
+      ...proposta.contas.flatMap((c) => c.lancamentos),
+      ...proposta.cartoes.flatMap((k) => k.lancamentos),
+    ];
+    const total = todos.length;
+
+    /* Nunca olhou: TUDO é novidade, e é verdade — ela ainda não viu nada.
+     * O primeiro aviso é o único que fala do histórico inteiro, e é o
+     * único em que isso é informação. */
+    const visto = conexao?.pendingSeenAt;
+    const novos = !visto
+      ? total
+      : todos.filter((t) => t.recebidoEm && new Date(t.recebidoEm) > visto).length;
 
     await this.prisma.openFinanceConnection.update({
       where: { id: conexaoId },
-      data: { pendingCount: total, pendingCheckedAt: new Date() },
+      data: { pendingCount: total, pendingNewCount: novos, pendingCheckedAt: new Date() },
     });
-    return total;
+    return novos;
+  }
+
+  /**
+   * "Eu já vi esta lista."
+   *
+   * Marcado pela TELA, quando ela pinta a lista — e não pelo servidor
+   * quando alguém pede a proposta: pedir não é ver. O trabalho diário pede
+   * a proposta toda manhã, e se isso contasse como visto, nada seria
+   * novidade nunca.
+   */
+  async marcarVisto(userId: string) {
+    const agora = new Date();
+    await this.prisma.openFinanceConnection.updateMany({
+      where: { userId, revokedAt: null },
+      data: { pendingSeenAt: agora, pendingNewCount: 0 },
+    });
+    return { visto: agora.toISOString() };
   }
 
   /** Releva o status no provedor e guarda o que mudou. */

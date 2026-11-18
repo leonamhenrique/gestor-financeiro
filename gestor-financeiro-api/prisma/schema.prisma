@@ -1117,6 +1117,12 @@ model OpenFinanceConnection {
   /// havia nada". Só o zero autoriza a tela a ficar calada.
   pendingCount     Int?      @map("pending_count")
   pendingCheckedAt DateTime? @map("pending_checked_at")
+  /// Quando a pessoa VIU a lista pela última vez. Daí para a frente,
+  /// novidade é o que o provedor recebeu depois disso.
+  pendingSeenAt   DateTime? @map("pending_seen_at")
+  /// Quantos chegaram DEPOIS de ela ter visto. É este o número que o aviso
+  /// usa: o total inclui doze meses de histórico que ela pode nunca querer.
+  pendingNewCount Int?      @map("pending_new_count")
   revokedAt       DateTime? @map("revoked_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
