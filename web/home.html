@@ -11178,6 +11178,23 @@
    * nome do arquivo, que o usuário pode ter renomeado. */
   function faturaSugeridaDoArquivo() {
     if (!imp) return null;
+    /* Veio do banco e o banco DISSE a fatura: ela manda aqui.
+     *
+     * A lista agrupa a fonte por esse mês — "GOLD · fatura 12/2026" — e
+     * propor a importação para novembro era a tela dizer duas coisas
+     * diferentes sobre o mesmo extrato, com o aviso de divergência no
+     * meio. Quem olha o vencimento é o banco; a regra do app depende dos
+     * dias de fechamento que a pessoa cadastrou, e são eles que podem
+     * estar errados.
+     *
+     * Continua sendo PROPOSTA: o campo está à vista e ela troca. E a
+     * divergência continua sendo dita, logo abaixo, porque é o sintoma de
+     * um cartão com os dias errados. */
+    var k = cartaoDaImportacao();
+    if (k && imp.openFinance && imp.openFinance.faturaPrevista) {
+      var vence = parseMonthKey(imp.openFinance.faturaPrevista);
+      if (vence) return referenciaQueVenceEm(k, vence);
+    }
     if (imp.ofx.fimDoPeriodo) return faturaDoArquivo(imp.ofx);
     var card = byId(state.cards, (document.getElementById("imp-destino").value || "").slice(2));
     if (!card || !imp.ofx.lancamentos.length) return null;
@@ -11198,7 +11215,17 @@
     pintarMes("imp-fatura-label",
       (function () { var k = cartaoDaImportacao(); return k ? mesDaFatura(k, imp.fatura) : imp.fatura; })());
   }
-  document.getElementById("imp-destino").addEventListener("change", atualizarCampoDeFatura);
+  document.getElementById("imp-destino").addEventListener("change", function () {
+    atualizarCampoDeFatura();
+    /* Trocar o cartão muda os dias que decidem a fatura, então a
+     * conferência com o que o banco disse tem de ser refeita. Sem isto o
+     * aviso ficava congelado no cartão de antes — ou sumia para sempre,
+     * se o primeiro concordasse. */
+    if (imp && imp.openFinance) {
+      document.getElementById("imp-erro").textContent = "";
+      ofConferirFatura();
+    }
+  });
   ligarSeletorDeMes("imp-fatura-label",
     function () {
       if (!imp) return { y: HOJE.getFullYear(), m: HOJE.getMonth() };
@@ -11997,14 +12024,21 @@
     if (!imp || !imp.openFinance || !imp.openFinance.faturaPrevista) return;
     var k = cartaoDaImportacao();
     if (!k) return;
-    var nossa = mesDaFatura(k, imp.fatura);
+    /* Compara o que o banco disse com o que a REGRA DO APP diria — e não
+     * com o que está selecionado, que agora já vem do banco. Comparar com
+     * a seleção faria os dois sempre concordarem, e o aviso nunca
+     * apareceria: ele existe justamente para denunciar um cartão com o
+     * fechamento ou o vencimento errados. */
+    var daRegra = faturaDoArquivo(imp.ofx);
+    if (!daRegra) return;
+    var nossa = mesDaFatura(k, daRegra);
     var nosso = nossa.y + "-" + String(nossa.m + 1).padStart(2, "0");
     if (nosso === imp.openFinance.faturaPrevista) return;
-    erro.textContent = "O banco diz que estes lançamentos vencem em " +
+    erro.textContent = "Escolhi a fatura que o banco indica, " +
       imp.openFinance.faturaPrevista.slice(5) + "/" + imp.openFinance.faturaPrevista.slice(0, 4) +
-      ", e pelos dias deste cartão eles cairiam na fatura que vence em " +
+      ". Pelos dias cadastrados neste cartão eles cairiam na que vence em " +
       String(nossa.m + 1).padStart(2, "0") + "/" + nossa.y +
-      ". Confira o fechamento e o vencimento do cartão antes de importar.";
+      " — confira o fechamento e o vencimento do cartão.";
   }
 
   /** Guarda a correspondência depois que a importação deu certo. */
