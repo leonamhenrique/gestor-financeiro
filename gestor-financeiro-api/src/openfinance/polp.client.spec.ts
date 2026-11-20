@@ -171,12 +171,48 @@ describe('PolpClient', () => {
         { bill_closing_date: '2026-10-30', due_date: '2026-11-07' },
       ],
     });
-    expect(await polp.diasDoCartao('k1')).toEqual({ fechamento: 30, vencimento: 7 });
+    expect(await polp.diasDoCartao('k1')).toEqual({
+      fechamento: 30,
+      vencimento: 7,
+      // As duas faturas tem dias diferentes: o cartao MUDOU de datas.
+      sempreOsMesmos: false,
+    });
   });
 
   it('cartao sem fatura nenhuma nao inventa dia', async () => {
     responder({ data: [] });
-    expect(await polp.diasDoCartao('k1')).toEqual({ fechamento: null, vencimento: null });
+    expect(await polp.diasDoCartao('k1')).toEqual({
+      fechamento: null,
+      vencimento: null,
+      sempreOsMesmos: false,
+    });
+  });
+
+  /* A pergunta que separa historico de sujeira: o banco JA mudou as datas
+   * deste cartao alguma vez? Com todas as faturas iguais, nunca mudou --
+   * e entao qualquer periodo extra no cadastro e artefato. Medido num
+   * cartao real: 15 faturas, todas fechando 30 e vencendo 7. */
+  it('faturas todas iguais dizem que o cartao nunca mudou de datas', async () => {
+    responder({
+      data: [
+        { bill_closing_date: '2026-09-30', due_date: '2026-10-07' },
+        { bill_closing_date: '2026-10-30', due_date: '2026-11-07' },
+        { bill_closing_date: '2026-08-30', due_date: '2026-09-07' },
+      ],
+    });
+    expect(await polp.diasDoCartao('k1')).toEqual({
+      fechamento: 30,
+      vencimento: 7,
+      sempreOsMesmos: true,
+    });
+  });
+
+  /* Uma fatura so nao prova nada: afirmar "nunca mudou" a partir de um
+   * unico ponto e inventar historico, e o app agiria sozinho em cima
+   * disso. */
+  it('uma fatura so nao afirma que nunca mudou', async () => {
+    responder({ data: [{ bill_closing_date: '2026-10-30', due_date: '2026-11-07' }] });
+    expect((await polp.diasDoCartao('k1')).sempreOsMesmos).toBe(false);
   });
 
   // ------------------------------------------------- criar consentimento

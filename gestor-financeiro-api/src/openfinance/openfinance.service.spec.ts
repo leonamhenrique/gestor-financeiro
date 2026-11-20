@@ -54,7 +54,9 @@ describe('OpenFinance', () => {
       consentimento: jest.fn().mockResolvedValue({ status: 'AUTHORISED', execucao: 'SUCCESS' }),
       contas: jest.fn().mockResolvedValue([]),
       cartoes: jest.fn().mockResolvedValue([]),
-      diasDoCartao: jest.fn().mockResolvedValue({ fechamento: 30, vencimento: 7 }),
+      /* O padrao conservador: sem saber se o banco ja mudou de datas, o
+       * app nao achata historico nenhum. */
+      diasDoCartao: jest.fn().mockResolvedValue({ fechamento: 30, vencimento: 7, sempreOsMesmos: false }),
       transacoesDaConta: jest.fn().mockResolvedValue([]),
       transacoesDoCartao: jest.fn().mockResolvedValue([]),
       revogar: jest.fn().mockResolvedValue(undefined),
@@ -304,7 +306,7 @@ describe('OpenFinance', () => {
     beforeEach(() => {
       polp.cartoes.mockResolvedValue([{ providerAccountId: 'k-la', nome: 'GOLD' }]);
       polp.transacoesDoCartao.mockResolvedValue([]);
-      polp.diasDoCartao.mockResolvedValue({ fechamento: 30, vencimento: 7 });
+      polp.diasDoCartao.mockResolvedValue({ fechamento: 30, vencimento: 7, sempreOsMesmos: true });
       prisma.creditCard.findFirst.mockResolvedValue({ id: 'card-1' });
     });
 
@@ -367,8 +369,50 @@ describe('OpenFinance', () => {
       expect(cartoes.corrigirCiclo).not.toHaveBeenCalled();
     });
 
+    /* O caso real que trouxe este criterio: tres periodos empilhados, dias
+     * de hoje iguais aos do banco, e o banco dizendo em 15 faturas que
+     * nunca mudou de datas. A pilha nao e escolha de ninguem -- e o que
+     * sobra de editar o ciclo pela porta errada. */
+    it('pilha de periodos e achatada mesmo com o ciclo marcado como escolha', async () => {
+      polp.diasDoCartao.mockResolvedValue({ fechamento: 30, vencimento: 7, sempreOsMesmos: true });
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 30, dueDay: 7, cycleEditedByUser: true, cycles: [{}, {}, {}],
+      });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(cartoes.corrigirCiclo).toHaveBeenCalledWith('u1', 'card-1', 30, 7);
+    });
+
+    /* Mas se o BANCO tem historico -- as faturas dele mostram datas
+     * diferentes --, os periodos sao legitimos e achatar reescreveria o
+     * passado com os dias de hoje. */
+    it('banco que mudou de datas nao tem a pilha achatada', async () => {
+      polp.diasDoCartao.mockResolvedValue({ fechamento: 30, vencimento: 7, sempreOsMesmos: false });
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 30, dueDay: 7, cycleEditedByUser: true, cycles: [{}, {}],
+      });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(cartoes.corrigirCiclo).not.toHaveBeenCalled();
+    });
+
+    /* Dias que DISCORDAM do banco continuam sendo escolha, e intocados:
+     * pode ser o banco atrasado, ou alguem que conhece o cartao. */
+    it('dias que discordam do banco seguem respeitados, mesmo com pilha', async () => {
+      polp.diasDoCartao.mockResolvedValue({ fechamento: 30, vencimento: 7, sempreOsMesmos: true });
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 1, dueDay: 7, cycleEditedByUser: true, cycles: [{}, {}],
+      });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(cartoes.corrigirCiclo).not.toHaveBeenCalled();
+    });
+
     it('banco sem dias legiveis nao grava nem alinha', async () => {
-      polp.diasDoCartao.mockResolvedValue({ fechamento: null, vencimento: null });
+      polp.diasDoCartao.mockResolvedValue({ fechamento: null, vencimento: null, sempreOsMesmos: false });
 
       await service.paraImportar('u1', 'cx1');
 

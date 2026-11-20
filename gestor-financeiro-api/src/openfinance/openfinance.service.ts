@@ -101,6 +101,7 @@ export class OpenFinanceService {
     creditCardId: string,
     fechamento: number | null,
     vencimento: number | null,
+    sempreOsMesmos: boolean,
   ): Promise<void> {
     if (!fechamento || !vencimento) return;
 
@@ -113,12 +114,30 @@ export class OpenFinanceService {
       where: { id: creditCardId },
       select: { closingDay: true, dueDay: true, cycleEditedByUser: true, cycles: true },
     });
-    if (!card || card.cycleEditedByUser) return;
+    if (!card) return;
 
-    /* Já está alinhado quando os dias batem E existe um período só: um
-     * cartão com dois períodos tem as colunas certas e o histórico torto. */
+    const diasBatem = card.closingDay === fechamento && card.dueDay === vencimento;
     const umCicloSo = (card.cycles?.length ?? 0) <= 1;
-    if (card.closingDay === fechamento && card.dueDay === vencimento && umCicloSo) return;
+    if (diasBatem && umCicloSo) return;
+
+    /* PILHA DE PERÍODOS NÃO É ESCOLHA DE NINGUÉM.
+     *
+     * Este é o segundo critério, e ele nasceu de um caso real: o cartão
+     * tinha três períodos, os dias de hoje batiam com o banco, e o
+     * alinhamento se recusou a agir porque `cycleEditedByUser` estava
+     * marcado — marcado por edições que criaram a pilha, não por alguém
+     * querer aquela pilha.
+     *
+     * A diferença entre um histórico legítimo e um artefato quem responde é
+     * o banco: `sempreOsMesmos` olha TODAS as faturas dele. Se elas sempre
+     * tiveram as mesmas datas, o cartão nunca mudou de ciclo, e qualquer
+     * período extra aqui é sujeira. Achatá-la não contraria decisão nenhuma
+     * — os dias continuam os que estão, e são os do banco.
+     *
+     * O que continua respeitado: dias que DISCORDAM do banco. Aí pode ser o
+     * banco atrasado, e a escolha da pessoa vale. */
+    const sujeiraDeHistorico = card.cycleEditedByUser && diasBatem && !umCicloSo && sempreOsMesmos;
+    if (card.cycleEditedByUser && !sujeiraDeHistorico) return;
 
     try {
       await this.cartoes.corrigirCiclo(userId, creditCardId, fechamento, vencimento);
@@ -496,7 +515,9 @@ export class OpenFinanceService {
       /* O banco acabou de dizer os dias: grava, e alinha o ciclo quando não
        * há escolha de ninguém para respeitar. */
       if (daqui?.id) {
-        await this.alinharCicloComOBanco(userId, daqui.id, dias.fechamento, dias.vencimento);
+        await this.alinharCicloComOBanco(
+          userId, daqui.id, dias.fechamento, dias.vencimento, dias.sempreOsMesmos,
+        );
       }
 
       cartoes.push({

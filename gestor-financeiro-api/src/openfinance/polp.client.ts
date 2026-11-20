@@ -318,12 +318,23 @@ export class PolpClient {
    * cada uma com as suas duas datas. O dia se lê delas — e lê-se da mais
    * recente, porque banco deixa mudar vencimento, e a fatura velha guarda o
    * dia que ela teve, não o de agora.
+   *
+   * `sempreOsMesmos` olha TODAS, e é o que faltava: ele responde se o cartão
+   * alguma vez mudou de datas. Sem essa resposta o app não sabia distinguir
+   * um histórico de ciclos legítimo — o banco mudou o vencimento de verdade
+   * — de uma pilha de períodos criada sem querer pelo formulário. Medido num
+   * cartão real: 15 faturas, todas fechando dia 30 e vencendo dia 7, e um
+   * cadastro com três períodos. Os três eram artefato.
+   *
+   * Com uma fatura só não dá para afirmar que nunca mudou: `sempreOsMesmos`
+   * é falso, e o app não age sozinho. Afirmar o contrário a partir de um
+   * único ponto é inventar histórico.
    */
   async diasDoCartao(
     cartaoId: string,
-  ): Promise<{ fechamento: number | null; vencimento: number | null }> {
+  ): Promise<{ fechamento: number | null; vencimento: number | null; sempreOsMesmos: boolean }> {
     const faturas = (await this.pedir<any[]>('/credit-cards/' + cartaoId + '/bills')) || [];
-    if (!faturas.length) return { fechamento: null, vencimento: null };
+    if (!faturas.length) return { fechamento: null, vencimento: null, sempreOsMesmos: false };
     const recente = faturas
       .slice()
       .sort((a, b) =>
@@ -333,7 +344,19 @@ export class PolpClient {
       const d = soODia(iso).slice(8, 10);
       return d ? Number(d) : null;
     };
-    return { fechamento: dia(recente.bill_closing_date), vencimento: dia(recente.due_date) };
+    const fechamento = dia(recente.bill_closing_date);
+    const vencimento = dia(recente.due_date);
+
+    /* Fatura sem uma das datas não conta a favor nem contra: ela não diz
+     * nada sobre ter mudado. Mas se sobrar só uma legível, cai na mesma
+     * regra do cartão com uma fatura só. */
+    const pares = faturas
+      .map((b: any) => [dia(b.bill_closing_date), dia(b.due_date)] as const)
+      .filter(([f, v]) => f != null && v != null);
+    const sempreOsMesmos =
+      pares.length > 1 && pares.every(([f, v]) => f === fechamento && v === vencimento);
+
+    return { fechamento, vencimento, sempreOsMesmos };
   }
 
   // ---------------------------------------------------------- transações
