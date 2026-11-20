@@ -12101,12 +12101,25 @@
    *
    * Sem data de autorização não entra nada sozinho: conexão que ainda
    * espera o banco não tem fluxo, só retrovisor.
+   *
+   * A DATA VEM DE `l.base`, e não de `l`. A linha que `linhasDaConferencia`
+   * monta carrega o palpite de categoria; o lançamento do banco fica
+   * inteiro em `base`. Ler `l.data` não dava erro nenhum: valia
+   * `undefined`, e `"undefined" >= "2026-11-15"` é VERDADE em comparação de
+   * texto — a condição deixava passar tudo, exatamente o contrário do que
+   * ela existe para fazer. Medido em produção: compras da fatura de
+   * julho/2026 entraram sozinhas com a trava no ar.
+   *
+   * Por isso a data é EXIGIDA no formato antes de comparar: um campo vazio
+   * ou escrito de outro jeito faz a linha esperar, e não passar.
    */
   function ofDepoisDeAutorizar(f, l) {
     var cx = byId(of.conexoes, f.connectionId);
     var desde = cx && cx.autorizadaEm ? String(cx.autorizadaEm).slice(0, 10) : null;
     if (!desde) return false;
-    return String(l.data).slice(0, 10) >= desde;
+    var quando = l && l.base ? String(l.base.data || "").slice(0, 10) : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(quando)) return false;
+    return quando >= desde;
   }
 
   function ofSemDuvida(l) {
