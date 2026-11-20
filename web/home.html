@@ -14160,6 +14160,33 @@
       : "Compra no cartão já entra confirmada. Desmarque se ela ainda vai acontecer.";
     if (!conta) atualizarFatura();
   }
+  /** Rótulos de fatura que não se repetem na mesma lista.
+   *
+   * Cada opção é uma REFERÊNCIA — o mês em que a fatura fecha — e o rótulo é
+   * o mês em que ela vence. Num cartão com mais de um ciclo, duas
+   * referências podem vencer no mesmo mês, e a lista mostrava "Novembro
+   * 2026" duas vezes, idênticas: impossível saber qual é qual, e impossível
+   * desfazer a escolha errada depois.
+   *
+   * Quando isso acontece, o que separa as duas é a data de fechamento, e é
+   * ela que entra no rótulo. Só nas repetidas: acrescentar isso em toda
+   * opção encheria de ruído a lista de um cartão normal, que é a maioria.
+   *
+   * Isto NÃO conserta o calendário — um mês sem referência continua sem
+   * poder ser escolhido, porque não existe fatura para guardar nele. Conserta
+   * a lista, que precisa ser legível mesmo quando o ciclo é legítimo e o
+   * banco mudou as datas de verdade.
+   */
+  function semRotulosRepetidos(card, opcoes) {
+    var vezes = {};
+    opcoes.forEach(function (o) { vezes[o.nome] = (vezes[o.nome] || 0) + 1; });
+    return opcoes.map(function (o) {
+      if (vezes[o.nome] < 2) return o;
+      var vm = parseMonthKey(o.id);
+      return { id: o.id, nome: o.nome + " · fecha " + fmtDia(isoDate(fechamentoDaFatura(card, vm.y, vm.m))) };
+    });
+  }
+
   /** Monta as faturas candidatas do cartão e sugere a que a data indica.
    * Lançar exatamente no dia do fechamento cai na fatura seguinte, então a
    * sugestão já vem apontando para ela. */
@@ -14175,6 +14202,7 @@
       var vmOpcao = { y: d.getFullYear(), m: d.getMonth() };
       opcoes.push({ id: monthKey(vmOpcao), nome: rotuloFatura(card, vmOpcao) });
     }
+    opcoes = semRotulosRepetidos(card, opcoes);
     var atual = faturaTocada ? document.getElementById("l-fatura").value : monthKey(sugerido);
     preencherSelect(document.getElementById("l-fatura"), opcoes, atual);
     document.getElementById("l-fatura-help").textContent = ajudaDaFatura(dataIso, card, sugerido);
@@ -14191,9 +14219,15 @@
       valores.push(mk);
       valores.sort();
       var kSel = byId(state.cards, document.getElementById("l-cartao").value);
-      sel.innerHTML = valores.map(function (v) {
-        return '<option value="' + v + '">' +
-          (kSel ? rotuloFatura(kSel, parseMonthKey(v)) : rotuloMes(parseMonthKey(v))) + "</option>";
+      /* Pela MESMA regra de `atualizarFatura`, incluindo a desambiguação:
+       * refazer a lista aqui com os rótulos crus devolvia as repetidas que
+       * a outra tinha acabado de separar — dois "Novembro 2026" idênticos. */
+      var refeitas = valores.map(function (v) {
+        return { id: v, nome: kSel ? rotuloFatura(kSel, parseMonthKey(v)) : rotuloMes(parseMonthKey(v)) };
+      });
+      if (kSel) refeitas = semRotulosRepetidos(kSel, refeitas);
+      sel.innerHTML = refeitas.map(function (o) {
+        return '<option value="' + o.id + '">' + o.nome + "</option>";
       }).join("");
     }
     sel.value = mk;
@@ -15109,6 +15143,10 @@
         h = adicionarMeses(h, 1);
       }
     }
+
+    /* No cartão as opções são referências, e duas podem vencer no mesmo
+     * mês quando o ciclo tem mais de um período. */
+    if (card) opcoes = semRotulosRepetidos(card, opcoes);
 
     var erro = document.getElementById("ant-erro");
     var submit = document.getElementById("ant-submit");
@@ -18925,6 +18963,7 @@
       var vmOpcao = { y: d.getFullYear(), m: d.getMonth() };
       opcoes.push({ id: monthKey(vmOpcao), nome: rotuloFatura(card, vmOpcao) });
     }
+    opcoes = semRotulosRepetidos(card, opcoes);
     var atual = cpdFaturaTocada ? document.getElementById("cpd-fatura").value : monthKey(sugerido);
     preencherSelect(document.getElementById("cpd-fatura"), opcoes, atual);
 
