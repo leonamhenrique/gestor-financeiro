@@ -2911,6 +2911,15 @@
             </div>
             <div class="field-help" id="k-det-transporte" hidden></div>
             <div class="field-help" id="k-det-virada" hidden></div>
+            <!-- A linha do tempo do ciclo, quando o cartão tem mais de um
+                 período. Ela existia só no banco: a tela não dizia que o
+                 cartão tinha mudado de datas, e cada edição empilhava mais um
+                 período em silêncio — medido, três períodos fizeram duas
+                 faturas de novembro e nenhuma de dezembro. -->
+            <div class="field-help" id="k-det-ciclos" hidden></div>
+            <div class="pills" id="k-ciclos-acao" hidden>
+              <button class="ghost" type="button" id="k-achatar">Usar um ciclo só</button>
+            </div>
             <div class="pills" id="k-acoes">
               <button class="ghost" type="button" id="k-pagar">Pagar fatura</button>
               <button class="ghost" type="button" id="k-add-lancamento">Adicionar lançamento</button>
@@ -10630,6 +10639,30 @@
      * "Novembro 2026 · fecha dia 30" numa fatura que fechou no dia 1 — e foi
      * essa mentira que escondeu uma fronteira de ciclo durante dias: os
      * números na tela não batiam com nenhuma conta possível. */
+    /* A linha do tempo do ciclo, dita em voz alta.
+     *
+     * Ela sempre existiu no banco e nunca na tela. O resultado medido: três
+     * períodos empilhados por três edições deram DUAS faturas de novembro e
+     * NENHUMA de dezembro, e não havia nada na tela que explicasse — nem que
+     * dissesse que o cartão tinha mais de um ciclo. */
+    var ciclos = (card.ciclos || []).slice().sort(function (a, b) { return a.inicio < b.inicio ? -1 : 1; });
+    var aviso = document.getElementById("k-det-ciclos");
+    var acaoCiclos = document.getElementById("k-ciclos-acao");
+    if (ciclos.length > 1) {
+      var trechos = ciclos.map(function (c, i) {
+        var dias = "fecha dia " + c.fechamento + ", vence dia " + c.vencimento;
+        if (i === 0) return "até " + rotuloMes(mesDoIndice(indiceMes(parseMonthKey(ciclos[1].inicio)) - 1)) + ": " + dias;
+        return "de " + rotuloMes(parseMonthKey(c.inicio)) + " em diante: " + dias;
+      });
+      aviso.textContent = "Este cartão tem " + ciclos.length + " ciclos — " + trechos.join("; ") +
+        ". Cada troca feita \u201ca partir de uma fatura\u201d cria um ciclo novo, e é isso que faz um mês " +
+        "ficar sem fatura ou aparecer duas vezes. Se os dias sempre foram os de hoje, use um ciclo só.";
+      aviso.hidden = false;
+      acaoCiclos.hidden = false;
+    } else {
+      aviso.hidden = true;
+      acaoCiclos.hidden = true;
+    }
     var diasDesta = diasDaFatura(card, faturaMes.y, faturaMes.m);
     document.getElementById("k-det-fecha").textContent = "dia " + diasDesta.fechamento;
     document.getElementById("k-det-vence").textContent = "dia " + diasDesta.vencimento;
@@ -15646,6 +15679,36 @@
       if (desfazer) delete card.viradas[key];
       else card.viradas[key] = hojeIso;
       persist(); renderAll();
+    });
+  });
+
+
+  /* "Usar um ciclo só": o cadastro estava errado, e os dias de hoje valem
+   * para o histórico inteiro.
+   *
+   * Existe porque a mesma coisa pelo diálogo de edição depende de escolher
+   * "Desde sempre" num campo que reabre sempre com uma fatura específica —
+   * e errar esse campo é o que empilha ciclo. Aqui não há o que escolher.
+   *
+   * Nada muda de fatura: o servidor preserva o NOME de cada uma e renumera
+   * as referências por baixo. */
+  document.getElementById("k-achatar").addEventListener("click", function (e) {
+    var card = byId(state.cards, cartaoSel);
+    if (!card) return;
+    botaoDaAcao = e.currentTarget;
+    pedirConfirmacao({
+      titulo: "Usar um ciclo só, com fechamento dia " + card.fechamento + " e vencimento dia " + card.vencimento + "?",
+      ctx: card.nome,
+      detalhe: "Os ciclos antigos são apagados e estes dias passam a valer para todas as faturas. " +
+        "Nenhum lançamento muda de fatura — as faturas continuam com os nomes que têm hoje. " +
+        "Use isto quando os dias sempre foram estes e o errado era o cadastro.",
+      acao: "Usar um ciclo só"
+    }, async function () {
+      if (!MODO_API) return;
+      await comServidor("ajustar o ciclo", function () {
+        return api("/credit-cards/" + card.id + "/billing-cycle/corrigir",
+          { closingDay: card.fechamento, dueDay: card.vencimento }, "PATCH");
+      });
     });
   });
 
