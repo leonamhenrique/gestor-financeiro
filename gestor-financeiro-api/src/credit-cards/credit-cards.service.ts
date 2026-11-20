@@ -412,6 +412,8 @@ export class CreditCardsService {
    */
   async corrigirCiclo(userId: string, creditCardId: string, closingDay: number, dueDay: number) {
     const card = await this.findOneByUser(userId, creditCardId);
+    const mes = (d: Date, passo = 0) =>
+      new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + passo, 1));
 
     /* O nome que uma fatura tem HOJE, pela régua antiga — com a linha do
      * tempo inteira, porque meses diferentes podem estar em períodos
@@ -443,27 +445,50 @@ export class CreditCardsService {
         select: { id: true, referenceMonth: true },
         orderBy: { referenceMonth: 'asc' },
       });
+      const lancamentos = await tx.transaction.findMany({
+        where: { userId, creditCardId },
+        select: { id: true, transactionDate: true, invoiceMonthOverride: true },
+      });
 
-      /* Para onde cada fatura vai, mantendo o nome. */
-      const destinos = faturas.map((f) => ({ id: f.id, de: f.referenceMonth, para: paraOnde(nomeDeHoje(f.referenceMonth)) }));
-
-      /* Duas faturas no mesmo destino significaria juntar duas faturas numa
-       * — e, com elas, os pagamentos de ambas.
+      /* UM mapa só, de referência antiga para referência nova, e tudo anda
+       * por ele: faturas e lançamentos. Traduzir cada um por conta própria
+       * foi o que quase separou um lançamento da fatura dele — com duas
+       * faturas de mesmo nome, o lançamento da segunda ia parar na primeira.
        *
-       * Varridos os 961 pares de dias, nenhum chega aqui hoje: a distância
-       * entre fechamento e vencimento é de zero ou um mês, e isso mantém o
-       * mapeamento um-para-um. Fica como tranca, e não como caso previsto —
-       * é uma linha, e o que ela evita é um estrago que não se desfaz. */
-      const vistos = new Set<number>();
-      for (const d of destinos) {
-        const chave = d.para.getTime();
-        if (vistos.has(chave)) {
-          throw new BadRequestException(
-            'Com estes dias, duas faturas do histórico passariam a ser a mesma. Confira os dias com o banco.',
-          );
-        }
-        vistos.add(chave);
+       * O conjunto inclui as referências dos LANÇAMENTOS, e não só as das
+       * faturas: um lançamento pode estar preso num mês sem fatura gravada. */
+      const refs = new Map<number, Date>();
+      const anotar = (d: Date) => refs.set(mes(d).getTime(), mes(d));
+      for (const f of faturas) anotar(f.referenceMonth);
+      for (const t of lancamentos) {
+        anotar(t.invoiceMonthOverride ?? resolveInvoicePeriod(t.transactionDate, card).referenceMonth);
       }
+      const ordenadas = [...refs.values()].sort((a, b) => a.getTime() - b.getTime());
+
+      /* DUAS FATURAS COM O MESMO NOME: uma delas é renomeada, e tem de ser.
+       *
+       * Acontece de verdade, e o caso veio da tela: um cartão com três
+       * períodos tinha duas faturas de novembro/2026 — uma fechando 30/10,
+       * outra 01/11 — e nenhuma de dezembro. Com um ciclo só, cada
+       * referência tem um nome diferente, então as duas não cabem no mesmo.
+       *
+       * Antes isto era uma RECUSA, e estava errado: recusar deixava a pessoa
+       * trancada justamente no estado que a correção existe para desfazer.
+       *
+       * A saída é a ordem. As referências andam na ordem em que estão, e
+       * nenhuma passa na frente da anterior; quem quiser um lugar já tomado
+       * fica com o seguinte. A primeira novembro continua novembro, a
+       * segunda vira dezembro, e NADA muda de fatura — o que muda é o nome
+       * da fatura, que é o que desfaz a duplicata. */
+      const mapa = new Map<number, Date>();
+      let anterior: Date | null = null;
+      for (const ref of ordenadas) {
+        let destino = paraOnde(nomeDeHoje(ref));
+        if (anterior && destino.getTime() <= anterior.getTime()) destino = mes(anterior, 1);
+        mapa.set(ref.getTime(), destino);
+        anterior = destino;
+      }
+      const levar = (ref: Date) => mapa.get(mes(ref).getTime()) ?? mes(ref);
 
       /* ANTES da régua nova, cada lançamento recebe gravada a fatura em que
        * está AGORA — já traduzida para a referência nova.
@@ -473,14 +498,10 @@ export class CreditCardsService {
        * precisa ser renumerado como as faturas. O digitado à mão não guardava
        * nada — a fatura dele é recalculada a cada leitura — e sem um valor
        * gravado a troca de régua o levaria embora. */
-      const lancamentos = await tx.transaction.findMany({
-        where: { userId, creditCardId },
-        select: { id: true, transactionDate: true, invoiceMonthOverride: true },
-      });
       let presos = 0;
       for (const t of lancamentos) {
         const refAtual = t.invoiceMonthOverride ?? resolveInvoicePeriod(t.transactionDate, card).referenceMonth;
-        const destino = paraOnde(nomeDeHoje(refAtual));
+        const destino = levar(refAtual);
         if (!t.invoiceMonthOverride || destino.getTime() !== t.invoiceMonthOverride.getTime()) {
           await tx.transaction.update({ where: { id: t.id }, data: { invoiceMonthOverride: destino } });
         }
@@ -492,15 +513,16 @@ export class CreditCardsService {
        * índice no meio do caminho. O desvio por um século à frente é um lugar
        * onde nenhuma fatura de verdade mora. */
       const DESVIO = 1200; // meses
-      for (const d of destinos) {
-        const longe = new Date(Date.UTC(d.de.getUTCFullYear(), d.de.getUTCMonth() + DESVIO, 1));
-        await tx.creditCardInvoice.update({ where: { id: d.id }, data: { referenceMonth: longe } });
+      for (const f of faturas) {
+        const longe = new Date(Date.UTC(f.referenceMonth.getUTCFullYear(), f.referenceMonth.getUTCMonth() + DESVIO, 1));
+        await tx.creditCardInvoice.update({ where: { id: f.id }, data: { referenceMonth: longe } });
       }
-      for (const d of destinos) {
-        const datas = datasDoMesChave(chaveDoMes(d.para), { closingDay, dueDay });
+      for (const f of faturas) {
+        const para = levar(f.referenceMonth);
+        const datas = datasDoMesChave(chaveDoMes(para), { closingDay, dueDay });
         await tx.creditCardInvoice.update({
-          where: { id: d.id },
-          data: { referenceMonth: d.para, closingDate: datas.closingDate, dueDate: datas.dueDate },
+          where: { id: f.id },
+          data: { referenceMonth: para, closingDate: datas.closingDate, dueDate: datas.dueDate },
         });
       }
 

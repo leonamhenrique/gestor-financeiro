@@ -333,6 +333,87 @@ describe('CreditCardsService', () => {
       expect(nome(final.data.dueDate)).toBe('2026-10');
     });
 
+    // ------------------------------------------- duas faturas, mesmo nome
+    /* O caso veio da tela: um cartao com tres periodos tinha DUAS faturas
+     * de novembro/2026 -- uma fechando 30/10, outra 01/11 -- e nenhuma de
+     * dezembro. Antes isto era recusado, e a recusa trancava a pessoa no
+     * estado que a correcao existe para desfazer. */
+    describe('duas faturas com o mesmo nome', () => {
+      const empilhado = {
+        id: 'card-1',
+        userId: 'user-1',
+        closingDay: 30,
+        dueDay: 7,
+        cycles: [
+          { validFrom: new Date(Date.UTC(1900, 0, 1)), closingDay: 30, dueDay: 7 },
+          { validFrom: new Date(Date.UTC(2026, 10, 1)), closingDay: 1, dueDay: 7 },
+          { validFrom: new Date(Date.UTC(2026, 11, 1)), closingDay: 30, dueDay: 7 },
+        ],
+      };
+      const mes = (d: Date) => d.toISOString().slice(0, 7);
+
+      beforeEach(() => {
+        prismaMock.creditCard.findFirst.mockResolvedValue(empilhado);
+        prismaMock.creditCard.update.mockResolvedValue(empilhado);
+        /* Com essa pilha, as duas se chamam novembro/2026 hoje. */
+        prismaMock.creditCardInvoice.findMany.mockResolvedValue([
+          { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 9, 1)) },
+          { id: 'f2', referenceMonth: new Date(Date.UTC(2026, 10, 1)) },
+        ]);
+      });
+
+      it('nao recusa mais: a correcao passa', async () => {
+        await expect(service.corrigirCiclo('user-1', 'card-1', 30, 7)).resolves.toBeDefined();
+      });
+
+      /* A primeira continua novembro; a segunda vira dezembro. Renomear uma
+       * delas e obrigatorio -- com um ciclo so, cada referencia tem um nome
+       * diferente, e as duas nao cabem no mesmo. */
+      it('a primeira fica, a segunda anda um mes', async () => {
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+        const finais = prismaMock.creditCardInvoice.update.mock.calls
+          .slice(2)
+          .map((c) => c[0].where.id + ':' + mes(c[0].data.referenceMonth));
+        expect(finais).toEqual(['f1:2026-10', 'f2:2026-11']);
+      });
+
+      /* Nenhuma das duas some dentro da outra: pagamento de uma nao pode
+       * virar pagamento da outra. */
+      it('as duas continuam existindo, em referencias distintas', async () => {
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+        const destinos = prismaMock.creditCardInvoice.update.mock.calls
+          .slice(2)
+          .map((c) => c[0].data.referenceMonth.getTime());
+        expect(new Set(destinos).size).toBe(2);
+      });
+
+      /* O lancamento acompanha a FATURA dele, e nao o nome. Traduzindo por
+       * nome, o da segunda novembro ia parar na primeira -- dois lancamentos
+       * numa fatura so, e uma fatura conferida mudando de conteudo. */
+      it('o lancamento da segunda vai junto com ela', async () => {
+        prismaMock.transaction.findMany.mockResolvedValue([
+          {
+            id: 't1',
+            transactionDate: new Date(Date.UTC(2026, 10, 15)),
+            invoiceMonthOverride: new Date(Date.UTC(2026, 10, 1)), // na segunda
+          },
+        ]);
+
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+        /* Sem chamada de update ele nao foi movido, que e o melhor
+         * desfecho: a segunda novembro fica na referencia em que ja estava
+         * e so muda de nome, entao o lancamento dela nao precisa sair do
+         * lugar. O que esta sendo provado e que ele NAO foi arrastado para
+         * a primeira novembro, que e onde a traducao por nome o poria. */
+        const movido = prismaMock.transaction.update.mock.calls.find((c) => c[0].where.id === 't1');
+        const destino = movido ? mes(movido[0].data.invoiceMonthOverride) : '2026-11';
+        expect(destino).toBe('2026-11');
+      });
+    });
+
     // --------------------------------------------------- as faturas em bloco
     /* TODAS, e nao so a corrente: o historico inteiro mudou de regua. E a
      * renumeracao vai em duas voltas porque `(cartao, referencia)` e unico
