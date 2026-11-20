@@ -2751,6 +2751,13 @@
           <div class="field-help">O extrato é de uma fatura só: todos os lançamentos entram nela, mesmo os de datas anteriores. O mês vem do fim do período do arquivo.</div>
         </div>
         <div class="field-error" id="imp-erro"></div>
+        <!-- Só aparece quando o banco informa dias diferentes dos
+             cadastrados. É a correção a um toque do aviso logo acima: sem
+             ela, a pessoa teria de sair daqui, ir em Cartões, editar e
+             voltar — com a conferência aberta no meio. -->
+        <div class="acoes-linha" id="imp-dias-campo" hidden>
+          <button type="button" class="ghost" id="imp-usar-dias">Usar os dias do banco</button>
+        </div>
         <div class="acoes-linha">
           <button type="button" class="primary" id="imp-continuar" disabled>Conferir lançamentos</button>
         </div>
@@ -10982,6 +10989,7 @@
     document.getElementById("imp-passo-2").hidden = true;
     document.getElementById("imp-lista").innerHTML = "";
     document.getElementById("imp-ilegiveis").hidden = true;
+    document.getElementById("imp-dias-campo").hidden = true;
     document.getElementById("imp-ctx").textContent = "Arquivo OFX do banco ou do cartão";
     pintarImportacoesRecentes();
     /* Sem await: a tela abre na hora, e o bloco do banco aparece quando (e
@@ -11838,6 +11846,11 @@
           titulo: k.nome + " · fatura " + rotuloMes(parseMonthKey(chave)),
           ehCartao: true, destinoId: k.creditCardId, providerAccountId: k.providerAccountId,
           connectionId: p.connectionId,
+          /* Os dias que o BANCO informa para este cartão, tirados das
+           * faturas que ele mandou. O servidor já os buscava e a tela os
+           * ignorava — e era ela que mandava "confira o fechamento e o
+           * vencimento" sabendo exatamente quais eram os certos. */
+          fechamentoLa: k.fechamento || null, vencimentoLa: k.vencimento || null,
           faturaPrevista: chave, lancamentos: porFatura[chave]
         });
       });
@@ -11869,7 +11882,9 @@
       openFinance: { connectionId: f.connectionId,
                      providerAccountId: f.providerAccountId,
                      destino: f.ehCartao ? "CARTAO" : "CONTA",
-                     faturaPrevista: f.faturaPrevista || "" }
+                     faturaPrevista: f.faturaPrevista || "",
+                     fechamentoLa: f.fechamentoLa || null,
+                     vencimentoLa: f.vencimentoLa || null }
     };
 
     var sel = ofEl("imp-destino");
@@ -12025,6 +12040,9 @@
    */
   function ofConferirFatura() {
     var erro = ofEl("imp-erro");
+    /* Esconde antes de decidir: toda saída daqui para baixo deixaria o
+     * botão aceso do cartão anterior, oferecendo dias que não são dele. */
+    ofEl("imp-dias-campo").hidden = true;
     if (!imp || !imp.openFinance || !imp.openFinance.faturaPrevista) return;
     var k = cartaoDaImportacao();
     if (!k) return;
@@ -12038,12 +12056,72 @@
     var nossa = mesDaFatura(k, daRegra);
     var nosso = nossa.y + "-" + String(nossa.m + 1).padStart(2, "0");
     if (nosso === imp.openFinance.faturaPrevista) return;
+
+    /* Diz os NÚMEROS, e não "confira o cartão".
+     *
+     * O servidor já mandava o fechamento e o vencimento que o banco
+     * informa — tirados das faturas de verdade — e a tela os ignorava.
+     * Era ela mandando conferir sabendo exatamente quais eram os certos. */
+    var la = imp.openFinance;
+    var sabeDias = la.fechamentoLa && la.vencimentoLa;
+    var difere = sabeDias && (la.fechamentoLa !== k.fechamento || la.vencimentoLa !== k.vencimento);
+
     erro.textContent = "Escolhi a fatura que o banco indica, " +
-      imp.openFinance.faturaPrevista.slice(5) + "/" + imp.openFinance.faturaPrevista.slice(0, 4) +
-      ". Pelos dias cadastrados neste cartão eles cairiam na que vence em " +
-      String(nossa.m + 1).padStart(2, "0") + "/" + nossa.y +
-      " — confira o fechamento e o vencimento do cartão.";
+      rotuloMes(parseMonthKey(la.faturaPrevista)) +
+      ". Pelos dias cadastrados aqui eles cairiam em " + rotuloMes(nossa) + ". " +
+      (difere
+        ? "O banco diz que este cartão fecha dia " + la.fechamentoLa + " e vence dia " +
+          la.vencimentoLa + "; aqui está " + k.fechamento + " e " + k.vencimento + "."
+        : "Confira o fechamento e o vencimento do cartão.");
+
+    ofEl("imp-dias-campo").hidden = !difere;
   }
+
+  /* "Usar os dias do banco".
+   *
+   * Muda a regra que decide em qual fatura cai TODO lançamento futuro
+   * deste cartão — então pergunta antes, dizendo o que muda. Nunca
+   * automático: o banco informa, a pessoa decide.
+   *
+   * O app guarda histórico de ciclos, então as faturas antigas continuam
+   * calculadas com os dias de antes. A troca vale daqui para a frente, e
+   * é isso que a confirmação promete. */
+  ofEl("imp-usar-dias").addEventListener("click", function () {
+    if (!imp || !imp.openFinance) return;
+    var k = cartaoDaImportacao();
+    var la = imp.openFinance;
+    if (!k || !la.fechamentoLa || !la.vencimentoLa) return;
+
+    pedirConfirmacao({
+      titulo: "Usar os dias que o banco informa?",
+      ctx: "Fecha dia " + la.fechamentoLa + ", vence dia " + la.vencimentoLa,
+      detalhe: "Hoje este cartão está como fecha dia " + k.fechamento + " e vence dia " +
+        k.vencimento + ". A troca vale da fatura aberta em diante; as que já fecharam " +
+        "continuam com as datas que tinham.",
+      acao: "Usar os dias do banco"
+    }, async function () {
+      var feito = await comServidor("ajustar os dias do cartão", async function () {
+        /* `billing-cycle`, e não o PATCH comum do cartão: aquele aceita o
+         * pedido e IGNORA os dias — medido, devolve 200 e não muda nada.
+         * Mudar fechamento e vencimento é o que decide em qual fatura cada
+         * compra cai, e por isso tem porta própria, que grava um ciclo
+         * novo em vez de reescrever o passado. Sem `validFrom`, vale da
+         * fatura aberta em diante. */
+        await api("/credit-cards/" + k.id + "/billing-cycle",
+          { closingDay: la.fechamentoLa, dueDay: la.vencimentoLa }, "PATCH");
+        await carregarDoServidor();
+      });
+      if (!feito) return;
+      renderAll();
+      /* Refaz a conferência com os dias novos: se agora concordam, o aviso
+       * e este botão somem sozinhos. */
+      ofEl("imp-erro").textContent = "";
+      ofEl("imp-dias-campo").hidden = true;
+      imp.faturaEscolhida = false;
+      atualizarCampoDeFatura();
+      ofConferirFatura();
+    });
+  });
 
   /** Guarda a correspondência depois que a importação deu certo. */
   async function ofVincular() {
