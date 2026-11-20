@@ -5129,6 +5129,62 @@
     acaoPendente = aoConfirmar || null;
     abrir("dlg-confirmar");
   }
+  /* Uma confirmação que dá para esperar. `pedirConfirmacao` avisa por
+   * callback; quem está no meio de um `await` precisa do sim ou do não como
+   * valor. Fechar pelo X, pelo Escape ou pelo fundo é não.
+   *
+   * O `setTimeout` existe por causa da ordem: o botão de confirmar fecha o
+   * diálogo ANTES de chamar a ação, então o evento `close` chegaria primeiro
+   * e resolveria "não" mesmo quando a pessoa disse sim. Adiando o não por um
+   * tique, o sim ganha — ele roda no mesmo passo. */
+  function confirmarEsperando(opcoes) {
+    return new Promise(function (resolve) {
+      var dlg = document.getElementById("dlg-confirmar");
+      var pronto = false;
+      function fim(v) {
+        if (pronto) return;
+        pronto = true;
+        dlg.removeEventListener("close", aoFechar);
+        resolve(v);
+      }
+      function aoFechar() { setTimeout(function () { fim(false); }, 0); }
+      dlg.addEventListener("close", aoFechar);
+      pedirConfirmacao(opcoes, function () { fim(true); });
+    });
+  }
+
+  /* O que uma fronteira de ciclo faz com o CALENDÁRIO.
+   *
+   * O nome de uma fatura é o mês em que ela vence, e a régua decide a
+   * distância entre fechar e vencer: fecha 1/vence 7 vencem no mesmo mês;
+   * fecha 30/vence 7 vence no seguinte. Trocar a régua a partir de uma
+   * fatura muda essa distância no meio do caminho — e aí um mês deixa de
+   * ter fatura, ou passa a ter duas.
+   *
+   * Medido: trocar 1/7 para 30/7 a partir de dezembro/2026 apagou
+   * dezembro/2026 do calendário, e a tela pulava de novembro para janeiro.
+   * Durante dias isso pareceu defeito de conta, porque nada avisava.
+   *
+   * Isto não é proibido: quando o banco MESMO muda o vencimento de um mês
+   * para o outro, um mês sem fatura é a verdade. O que não pode é acontecer
+   * calado. */
+  function buracoDaFronteira(card, fecha, vence, vfChave) {
+    var vf = parseMonthKey(vfChave);
+    if (!vf) return null;
+    var anterior = mesDoIndice(indiceMes(vf) - 1);
+    var nomeAnterior = mesDaFatura(card, anterior);
+    var nomeAqui = mesDaFatura({ fechamento: fecha, vencimento: vence, ciclos: [] }, vf);
+    var salto = indiceMes(nomeAqui) - indiceMes(nomeAnterior);
+    if (salto === 1) return null;
+    var meses = [];
+    if (salto > 1) {
+      for (var i = indiceMes(nomeAnterior) + 1; i < indiceMes(nomeAqui); i++) meses.push(mesDoIndice(i));
+      return { somem: meses };
+    }
+    for (var k = indiceMes(nomeAqui); k <= indiceMes(nomeAnterior); k++) meses.push(mesDoIndice(k));
+    return { repetem: meses };
+  }
+
   function avisar(titulo, detalhe) {
     pedirConfirmacao({ titulo: titulo, detalhe: detalhe, acao: "Entendi" }, null);
   }
@@ -10567,8 +10623,16 @@
     document.getElementById("k-det-aberto").textContent = money(f.emAberto || 0);
     document.getElementById("k-fixa-mes").textContent = rotuloFatura(card, faturaMes);
     document.getElementById("k-fixa-aberto").textContent = money(f.emAberto || 0);
-    document.getElementById("k-det-fecha").textContent = "dia " + card.fechamento;
-    document.getElementById("k-det-vence").textContent = "dia " + card.vencimento;
+    /* Os dias DESTA fatura, e não os de hoje.
+     *
+     * O ciclo é uma linha do tempo: um cartão que mudou de datas tem faturas
+     * antigas que fecharam noutro dia. Mostrar `card.fechamento` aqui dizia
+     * "Novembro 2026 · fecha dia 30" numa fatura que fechou no dia 1 — e foi
+     * essa mentira que escondeu uma fronteira de ciclo durante dias: os
+     * números na tela não batiam com nenhuma conta possível. */
+    var diasDesta = diasDaFatura(card, faturaMes.y, faturaMes.m);
+    document.getElementById("k-det-fecha").textContent = "dia " + diasDesta.fechamento;
+    document.getElementById("k-det-vence").textContent = "dia " + diasDesta.vencimento;
     // Com pagamento parcial o botão continua vivo: a mesma fatura aceita
     // quantos pagamentos o usuário precisar até o vencimento.
     var botaoPagar = document.getElementById("k-pagar");
@@ -15199,6 +15263,36 @@
        * de 2026 e, ao salvar, pulou para janeiro de 2027 — dezembro parecia
        * ter sumido, quando na verdade era a tela que tinha andado. */
       var nomeNaTela = kAtual && cartaoSel === alvoK && faturaMes ? mesDaFatura(kAtual, faturaMes) : null;
+
+      /* Antes de gravar uma fronteira, diz em voz alta o que ela faz com o
+       * calendário — e oferece a outra porta, que é a que a pessoa quer na
+       * maioria das vezes: o cadastro estava errado, os dias sempre foram
+       * estes. O campo vem com uma fatura específica já escolhida, então
+       * trocar só o dia e salvar cria a fronteira sem querer. */
+      if (!corrigindoDesdeSempre && mudouOCiclo && kAtual && validFromDoCiclo) {
+        var buraco = buracoDaFronteira(kAtual, fecha, vence, validFromDoCiclo);
+        if (buraco) {
+          var quais = (buraco.somem || buraco.repetem).map(rotuloMes).join(", ");
+          var seguir = await confirmarEsperando(buraco.somem ? {
+            titulo: quais + (buraco.somem.length > 1 ? " ficam" : " fica") + " sem fatura",
+            ctx: "Fechamento dia " + fecha + ", vencimento dia " + vence +
+              ", a partir da fatura de " + rotuloMes(parseMonthKey(validFromDoCiclo)) + ".",
+            detalhe: "Com estes dias o vencimento muda de mês, e nenhuma fatura passa a vencer em " +
+              quais + ". Se o banco mudou mesmo as datas, isso é o certo e pode seguir. " +
+              "Se os dias sempre foram estes e o errado era o cadastro, cancele e escolha \u201cDesde sempre\u201d.",
+            acao: "Mudar assim mesmo"
+          } : {
+            titulo: quais + (buraco.repetem.length > 1 ? " ganham duas faturas" : " ganha duas faturas"),
+            ctx: "Fechamento dia " + fecha + ", vencimento dia " + vence +
+              ", a partir da fatura de " + rotuloMes(parseMonthKey(validFromDoCiclo)) + ".",
+            detalhe: "Com estes dias duas faturas passam a vencer em " + quais +
+              ". Se o banco mudou mesmo as datas, isso é o certo e pode seguir. " +
+              "Se os dias sempre foram estes e o errado era o cadastro, cancele e escolha \u201cDesde sempre\u201d.",
+            acao: "Mudar assim mesmo"
+          });
+          if (!seguir) return;
+        }
+      }
       var okK = await comServidor(alvoK ? "salvar o cartão" : "criar o cartão", async function () {
         if (!alvoK) {
           var criado = await api("/credit-cards", {
