@@ -27,7 +27,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceStatus } from '@prisma/client';
-import { CicloDoCartao, cicloDoDia, datasDoMesChave } from './billing-cycle';
+import { CicloDoCartao, cicloDoDia, datasDoMesChave, referenciaComVencimentoEm } from './billing-cycle';
 import { resolveInvoicePeriod } from '../transactions/transaction.utils';
 import { ORDEM_DA_LISTA, gravarOrdem, novaOrdem } from '../common/ordering';
 import { chaveDoMes, dia, faturaAtual, hojeNoFuso, limiteEmUso, montarFaturas, proximoMes } from './invoice-statement';
@@ -364,40 +364,110 @@ export class CreditCardsService {
    * Aqui o histórico é reescrito: um ciclo só, desde sempre, e todas as
    * faturas recalculadas. É o que torna o calendário contínuo de novo.
    *
-   * O que NÃO muda: a referência gravada em cada lançamento. Ela é o mês em
-   * que a fatura fecha, e continua a mesma — o que muda é a data de
-   * vencimento que esse mês passa a ter, e portanto o nome da fatura.
+   * O QUE NÃO PODE MUDAR: o NOME de nenhuma fatura, e em que fatura cada
+   * lançamento está. Para a pessoa, a fatura é "outubro/2026" — e uma fatura
+   * já conferida, ou já paga, não pode mudar de conteúdo sozinha.
+   *
+   * Isto é mais forte do que preservar a referência, e a diferença foi
+   * medida: a referência é o mês do FECHAMENTO, o nome é o mês do
+   * VENCIMENTO, e a régua decide a distância entre os dois (fecha 1/vence 7
+   * vencem no mesmo mês; fecha 30/vence 7 vence no mês seguinte). Preservar a
+   * referência preserva o número interno e deixa o nome escorregar — foi
+   * exatamente assim que um lançamento de 30/09 saiu de outubro e apareceu em
+   * novembro. Então o que se preserva aqui é o nome, e as referências é que
+   * são renumeradas por baixo para sustentá-lo.
    */
   async corrigirCiclo(userId: string, creditCardId: string, closingDay: number, dueDay: number) {
     const card = await this.findOneByUser(userId, creditCardId);
 
+    /* O nome que uma fatura tem HOJE, pela régua antiga — com a linha do
+     * tempo inteira, porque meses diferentes podem estar em períodos
+     * diferentes. É a pergunta "onde isto aparece na tela agora". */
+    const nomeDeHoje = (ref: Date) => {
+      const datas = datasDoMesChave(chaveDoMes(ref), card);
+      return { ano: datas.dueDate.getUTCFullYear(), mes0: datas.dueDate.getUTCMonth() };
+    };
+
+    /* E a referência que carrega esse mesmo nome com a régua nova. */
+    const paraOnde = (nome: { ano: number; mes0: number }) => {
+      const destino = referenciaComVencimentoEm(nome.ano, nome.mes0, closingDay, dueDay);
+      if (!destino) {
+        /* Recusar alto. O contrário — escolher a referência mais próxima —
+         * moveria lançamento de fatura em silêncio, que é a única coisa que
+         * esta operação promete nunca fazer. */
+        throw new BadRequestException(
+          'Com fechamento dia ' + closingDay + ' e vencimento dia ' + dueDay +
+            ', a fatura de ' + String(nome.mes0 + 1).padStart(2, '0') + '/' + nome.ano +
+            ' não existiria. Confira os dias com o banco.',
+        );
+      }
+      return new Date(Date.UTC(destino.ano, destino.mes0, 1));
+    };
+
     return this.prisma.$transaction(async (tx) => {
-      /* ANTES de mexer na régua, PRENDE o passado onde ele está.
-       *
-       * Um lançamento importado já guarda a fatura dele
-       * (`invoiceMonthOverride`) e não se move. Um digitado à mão não
-       * guarda nada: a fatura dele é RECALCULADA a cada leitura, a partir
-       * da data e dos dias do cartão. Trocar os dias move esse lançamento
-       * de fatura — e foi exatamente o que aconteceu, com um lançamento
-       * saindo de uma fatura já conciliada.
-       *
-       * Isso não pode acontecer. Quem já conferiu uma fatura não pode
-       * descobrir depois que o conteúdo dela mudou sozinho. Então cada
-       * lançamento solto recebe, gravada, a fatura em que ele está AGORA,
-       * calculada com os dias de antes.
-       *
-       * O que a correção passa a mudar, então, é só o que ainda não
-       * aconteceu: as datas das faturas, os nomes que elas recebem, e a
-       * fatura dos lançamentos futuros. */
-      const soltos = await tx.transaction.findMany({
-        where: { userId, creditCardId, invoiceMonthOverride: null },
-        select: { id: true, transactionDate: true },
+      const faturas = await tx.creditCardInvoice.findMany({
+        where: { creditCardId },
+        select: { id: true, referenceMonth: true },
+        orderBy: { referenceMonth: 'asc' },
       });
-      for (const t of soltos) {
-        const onde = resolveInvoicePeriod(t.transactionDate, card);
-        await tx.transaction.update({
-          where: { id: t.id },
-          data: { invoiceMonthOverride: onde.referenceMonth },
+
+      /* Para onde cada fatura vai, mantendo o nome. */
+      const destinos = faturas.map((f) => ({ id: f.id, de: f.referenceMonth, para: paraOnde(nomeDeHoje(f.referenceMonth)) }));
+
+      /* Duas faturas no mesmo destino significaria juntar duas faturas numa
+       * — e, com elas, os pagamentos de ambas.
+       *
+       * Varridos os 961 pares de dias, nenhum chega aqui hoje: a distância
+       * entre fechamento e vencimento é de zero ou um mês, e isso mantém o
+       * mapeamento um-para-um. Fica como tranca, e não como caso previsto —
+       * é uma linha, e o que ela evita é um estrago que não se desfaz. */
+      const vistos = new Set<number>();
+      for (const d of destinos) {
+        const chave = d.para.getTime();
+        if (vistos.has(chave)) {
+          throw new BadRequestException(
+            'Com estes dias, duas faturas do histórico passariam a ser a mesma. Confira os dias com o banco.',
+          );
+        }
+        vistos.add(chave);
+      }
+
+      /* ANTES da régua nova, cada lançamento recebe gravada a fatura em que
+       * está AGORA — já traduzida para a referência nova.
+       *
+       * Vale para os dois casos. O importado já guardava uma referência, mas
+       * guardava a ANTIGA, que sob a régua nova se chama outra coisa; ele
+       * precisa ser renumerado como as faturas. O digitado à mão não guardava
+       * nada — a fatura dele é recalculada a cada leitura — e sem um valor
+       * gravado a troca de régua o levaria embora. */
+      const lancamentos = await tx.transaction.findMany({
+        where: { userId, creditCardId },
+        select: { id: true, transactionDate: true, invoiceMonthOverride: true },
+      });
+      let presos = 0;
+      for (const t of lancamentos) {
+        const refAtual = t.invoiceMonthOverride ?? resolveInvoicePeriod(t.transactionDate, card).referenceMonth;
+        const destino = paraOnde(nomeDeHoje(refAtual));
+        if (!t.invoiceMonthOverride || destino.getTime() !== t.invoiceMonthOverride.getTime()) {
+          await tx.transaction.update({ where: { id: t.id }, data: { invoiceMonthOverride: destino } });
+        }
+        presos++;
+      }
+
+      /* A renumeração das faturas em duas voltas: `(cartão, referência)` é
+       * único, e mover uma fatura para um mês que outra ainda ocupa estoura o
+       * índice no meio do caminho. O desvio por um século à frente é um lugar
+       * onde nenhuma fatura de verdade mora. */
+      const DESVIO = 1200; // meses
+      for (const d of destinos) {
+        const longe = new Date(Date.UTC(d.de.getUTCFullYear(), d.de.getUTCMonth() + DESVIO, 1));
+        await tx.creditCardInvoice.update({ where: { id: d.id }, data: { referenceMonth: longe } });
+      }
+      for (const d of destinos) {
+        const datas = datasDoMesChave(chaveDoMes(d.para), { closingDay, dueDay });
+        await tx.creditCardInvoice.update({
+          where: { id: d.id },
+          data: { referenceMonth: d.para, closingDate: datas.closingDate, dueDate: datas.dueDate },
         });
       }
 
@@ -416,25 +486,10 @@ export class CreditCardsService {
         data: { closingDay, dueDay },
       });
 
-      /* TODAS as faturas, e não só a corrente: o histórico inteiro mudou de
-       * régua, e uma fatura com data de fechamento antiga continuaria
-       * dizendo um vencimento que já não existe. */
-      const faturas = await tx.creditCardInvoice.findMany({
-        where: { creditCardId },
-        select: { id: true, referenceMonth: true },
-      });
-      for (const f of faturas) {
-        const datas = datasDoMesChave(chaveDoMes(f.referenceMonth), { closingDay, dueDay });
-        await tx.creditCardInvoice.update({
-          where: { id: f.id },
-          data: { closingDate: datas.closingDate, dueDate: datas.dueDate },
-        });
-      }
-
       return {
         cartao: atualizado,
         faturasRecalculadas: faturas.length,
-        lancamentosPresos: soltos.length,
+        lancamentosPresos: presos,
       };
     });
   }

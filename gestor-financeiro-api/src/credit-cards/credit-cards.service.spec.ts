@@ -161,10 +161,16 @@ describe('CreditCardsService', () => {
   describe('corrigirCiclo() — o cadastro e que estava errado', () => {
     const cartao = { id: 'card-1', userId: 'user-1', closingDay: 20, dueDay: 28, cycles: [] };
 
+    /* O nome de uma fatura e o mes em que ela VENCE. Em todo teste daqui o
+     * que se confere e o nome, e nunca a referencia: a referencia e numero
+     * interno, e preservar o numero foi justamente o erro. */
+    const nome = (d: Date) => d.toISOString().slice(0, 7);
+
     beforeEach(() => {
       prismaMock.creditCard.findFirst.mockResolvedValue(cartao);
       prismaMock.creditCard.update.mockResolvedValue({ ...cartao, closingDay: 30, dueDay: 7 });
       prismaMock.creditCardInvoice.findMany.mockResolvedValue([]);
+      prismaMock.transaction.findMany.mockResolvedValue([]);
     });
 
     it('reescreve o historico: um ciclo so, desde sempre', async () => {
@@ -198,10 +204,105 @@ describe('CreditCardsService', () => {
       });
     });
 
-    /* TODAS, e nao so a corrente: o historico inteiro mudou de regua, e uma
-     * fatura com a data velha continuaria dizendo um vencimento que ja nao
-     * existe. */
-    it('recalcula as datas de TODAS as faturas', async () => {
+    // ------------------------------------------------- o nome nao escorrega
+    /* O defeito medido com a tela na mao, e a razao de tudo o que vem
+     * abaixo. Cartao cadastrado 1/7 (vence no MESMO mes do fechamento),
+     * corrigido para 30/7 (vence no mes SEGUINTE). A fatura de referencia
+     * outubro se chamava outubro; com a regua nova ela passaria a se chamar
+     * novembro, e o lancamento que estava nela "mudaria de fatura" sem
+     * ninguem ter pedido. */
+    describe('o cadastro 1/7 corrigido para 30/7', () => {
+      const errado = { id: 'card-1', userId: 'user-1', closingDay: 1, dueDay: 7, cycles: [] };
+
+      beforeEach(() => {
+        prismaMock.creditCard.findFirst.mockResolvedValue(errado);
+        prismaMock.creditCard.update.mockResolvedValue({ ...errado, closingDay: 30, dueDay: 7 });
+      });
+
+      it('a fatura que se chamava outubro continua se chamando outubro', async () => {
+        prismaMock.creditCardInvoice.findMany.mockResolvedValue([
+          { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 9, 1)) }, // vence 07/10
+        ]);
+
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+        /* Duas voltas por fatura: o desvio e o destino. A que vale e a
+         * segunda, e e nela que o nome tem de estar intacto. */
+        const final = prismaMock.creditCardInvoice.update.mock.calls.at(-1)[0];
+        expect(final.where).toEqual({ id: 'f1' });
+        expect(nome(final.data.dueDate)).toBe('2026-10');
+        expect(nome(final.data.referenceMonth)).toBe('2026-09');
+      });
+
+      /* O lancamento dos prints: compra de 30/09, hoje na fatura de
+       * outubro. Depois da correcao, ainda em outubro. */
+      it('o lancamento de 30/09 continua na fatura de outubro', async () => {
+        prismaMock.transaction.findMany.mockResolvedValue([
+          { id: 't1', transactionDate: new Date(Date.UTC(2026, 8, 30)), invoiceMonthOverride: null },
+        ]);
+
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+        const preso = prismaMock.transaction.update.mock.calls[0][0].data.invoiceMonthOverride;
+        // referencia setembro, que com 30/7 vence em 07/10: outubro.
+        expect(nome(preso)).toBe('2026-09');
+      });
+
+      /* O importado ja guardava uma referencia -- mas guardava a ANTIGA.
+       * Deixa-lo parado seria deixa-lo mudar de nome. */
+      it('o importado tambem e renumerado, para nao mudar de nome', async () => {
+        prismaMock.transaction.findMany.mockResolvedValue([
+          {
+            id: 't1',
+            transactionDate: new Date(Date.UTC(2026, 8, 30)),
+            invoiceMonthOverride: new Date(Date.UTC(2026, 9, 1)), // outubro
+          },
+        ]);
+
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+        const preso = prismaMock.transaction.update.mock.calls[0][0].data.invoiceMonthOverride;
+        expect(nome(preso)).toBe('2026-09');
+      });
+
+      /* Uma fatura inteira de lancamentos nao pode se separar da fatura:
+       * os dois sao traduzidos pela MESMA conta. */
+      it('fatura e lancamento vao para a mesma referencia', async () => {
+        prismaMock.creditCardInvoice.findMany.mockResolvedValue([
+          { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 9, 1)) },
+        ]);
+        prismaMock.transaction.findMany.mockResolvedValue([
+          { id: 't1', transactionDate: new Date(Date.UTC(2026, 8, 30)), invoiceMonthOverride: null },
+        ]);
+
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+        const fatura = prismaMock.creditCardInvoice.update.mock.calls.at(-1)[0].data.referenceMonth;
+        const lancamento = prismaMock.transaction.update.mock.calls[0][0].data.invoiceMonthOverride;
+        expect(nome(lancamento)).toBe(nome(fatura));
+      });
+    });
+
+    /* O caso em que a regua nao muda a distancia: 20/28 e 15/28 vencem os
+     * dois no mesmo mes do fechamento. Nada precisa ser renumerado. */
+    it('regua que nao muda a distancia nao renumera nada', async () => {
+      prismaMock.creditCardInvoice.findMany.mockResolvedValue([
+        { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 9, 1)) },
+      ]);
+
+      await service.corrigirCiclo('user-1', 'card-1', 15, 28);
+
+      const final = prismaMock.creditCardInvoice.update.mock.calls.at(-1)[0];
+      expect(nome(final.data.referenceMonth)).toBe('2026-10');
+      expect(nome(final.data.dueDate)).toBe('2026-10');
+    });
+
+    // --------------------------------------------------- as faturas em bloco
+    /* TODAS, e nao so a corrente: o historico inteiro mudou de regua. E a
+     * renumeracao vai em duas voltas porque `(cartao, referencia)` e unico
+     * -- mover uma fatura para um mes que a vizinha ainda ocupa estoura o
+     * indice no meio do caminho. */
+    it('recalcula TODAS as faturas, em duas voltas', async () => {
       prismaMock.creditCardInvoice.findMany.mockResolvedValue([
         { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 9, 1)) },
         { id: 'f2', referenceMonth: new Date(Date.UTC(2026, 10, 1)) },
@@ -211,59 +312,63 @@ describe('CreditCardsService', () => {
       const r = await service.corrigirCiclo('user-1', 'card-1', 30, 7);
 
       expect(r.faturasRecalculadas).toBe(3);
-      expect(prismaMock.creditCardInvoice.update).toHaveBeenCalledTimes(3);
-      const primeira = prismaMock.creditCardInvoice.update.mock.calls[0][0];
-      expect(primeira.where).toEqual({ id: 'f1' });
-      expect(primeira.data.closingDate).toBeInstanceOf(Date);
-      expect(primeira.data.dueDate).toBeInstanceOf(Date);
+      expect(prismaMock.creditCardInvoice.update).toHaveBeenCalledTimes(6);
     });
 
-    /* O defeito que isto conserta, levantado com a tela na mao: um
-     * lancamento DIGITADO A MAO nao guarda a fatura dele -- ela e
-     * recalculada a cada leitura, a partir da data e dos dias do cartao.
-     * Trocar os dias movia esse lancamento de fatura, e um deles saiu de
-     * uma fatura ja conciliada. Quem conferiu uma fatura nao pode
-     * descobrir depois que o conteudo dela mudou sozinho. */
-    it('prende cada lancamento solto na fatura em que ele JA esta', async () => {
-      prismaMock.transaction.findMany.mockResolvedValue([
-        { id: 't1', transactionDate: new Date(Date.UTC(2026, 8, 30)) },
-        { id: 't2', transactionDate: new Date(Date.UTC(2026, 9, 5)) },
+    it('o desvio da primeira volta sai de perto de qualquer fatura de verdade', async () => {
+      prismaMock.creditCardInvoice.findMany.mockResolvedValue([
+        { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 9, 1)) },
       ]);
 
-      const r = await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+      await service.corrigirCiclo('user-1', 'card-1', 30, 7);
 
-      expect(r.lancamentosPresos).toBe(2);
-      expect(prismaMock.transaction.update).toHaveBeenCalledTimes(2);
-      const primeiro = prismaMock.transaction.update.mock.calls[0][0];
-      expect(primeiro.where).toEqual({ id: 't1' });
-      expect(primeiro.data.invoiceMonthOverride).toBeInstanceOf(Date);
+      const desvio = prismaMock.creditCardInvoice.update.mock.calls[0][0].data.referenceMonth;
+      expect(desvio.getUTCFullYear()).toBe(2126);
     });
 
-    /* So os SOLTOS: o importado ja guarda a fatura dele, e reescrever
-     * seria mover o que estava parado. */
-    it('so procura os que nao tem fatura gravada', async () => {
+    /* Os nomes seguidos continuam seguidos: e o buraco de dezembro, visto
+     * pelo outro lado. */
+    it('a sequencia de nomes fica continua', async () => {
+      prismaMock.creditCardInvoice.findMany.mockResolvedValue([
+        { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 9, 1)) },
+        { id: 'f2', referenceMonth: new Date(Date.UTC(2026, 10, 1)) },
+        { id: 'f3', referenceMonth: new Date(Date.UTC(2026, 11, 1)) },
+      ]);
+
+      await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+      const finais = prismaMock.creditCardInvoice.update.mock.calls
+        .slice(3)
+        .map((c) => nome(c[0].data.dueDate));
+      expect(finais).toEqual(['2026-10', '2026-11', '2026-12']);
+    });
+
+    /* Ha reguas em que um mes simplesmente nao tem fatura: fecha 28 e vence
+     * 29, em fevereiro, caem os dois no dia 28 -- o vencimento escorrega
+     * para marco, e fevereiro fica sem nome nenhum. Medido varrendo os 961
+     * pares de dias: este caso existe, e colisao de duas faturas numa so
+     * nao existe em nenhum deles.
+     *
+     * Aproximar para o mes vizinho moveria lancamento em silencio, que e a
+     * unica coisa que esta operacao promete nunca fazer. Entao recusa, e
+     * quem configurou confere os dias com o banco. */
+    it('recusa quando a regua nova nao teria uma das faturas', async () => {
+      const errado = { id: 'card-1', userId: 'user-1', closingDay: 1, dueDay: 7, cycles: [] };
+      prismaMock.creditCard.findFirst.mockResolvedValue(errado);
+      prismaMock.creditCardInvoice.findMany.mockResolvedValue([
+        { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 1, 1)) }, // hoje: fevereiro
+      ]);
+
+      await expect(service.corrigirCiclo('user-1', 'card-1', 28, 29)).rejects.toThrow(/02\/2026/);
+    });
+
+    it('olha TODOS os lancamentos do cartao, e nao so os soltos', async () => {
       await service.corrigirCiclo('user-1', 'card-1', 30, 7);
       expect(prismaMock.transaction.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: 'user-1', creditCardId: 'card-1', invoiceMonthOverride: null },
+          where: { userId: 'user-1', creditCardId: 'card-1' },
         }),
       );
-    });
-
-    /* A fatura em que ele esta e calculada com os dias de ANTES -- se
-     * fosse com os novos, prender nao serviria para nada: ele ja estaria
-     * no lugar novo. */
-    it('usa os dias ANTIGOS para decidir onde prender', async () => {
-      // cartao em 20/28; uma compra de 25/09 esta, hoje, na fatura de
-      // referencia OUTUBRO (passou do fechamento dia 20).
-      prismaMock.transaction.findMany.mockResolvedValue([
-        { id: 't1', transactionDate: new Date(Date.UTC(2026, 8, 25)) },
-      ]);
-
-      await service.corrigirCiclo('user-1', 'card-1', 30, 7);
-
-      const preso = prismaMock.transaction.update.mock.calls[0][0].data.invoiceMonthOverride;
-      expect(preso.toISOString().slice(0, 7)).toBe('2026-10');
     });
 
     it('cartao de outra pessoa nao se corrige', async () => {

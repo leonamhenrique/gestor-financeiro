@@ -195,3 +195,42 @@ export function datasDoMesChave(chave: string, cartao: CicloDoCartao): DatasDoCi
   const [ano, mes] = chave.split('-').map(Number);
   return datasDaReferencia(ano, mes - 1, cartao);
 }
+
+/**
+ * A referência que, com estes dias, produz uma fatura com ESTE NOME.
+ *
+ * É a inversa de `datasDoCiclo`, e existe por um motivo só: para a pessoa, a
+ * fatura é o NOME — "outubro/2026" —, e o nome é o mês do VENCIMENTO. A
+ * referência é o mês do fechamento, que é detalhe interno. Trocar a régua
+ * troca a distância entre os dois (fecha 1/vence 7 vencem no mesmo mês; fecha
+ * 30/vence 7 vence no mês seguinte), e por isso a MESMA referência passa a se
+ * chamar outra coisa.
+ *
+ * Quem quer que nada mude de lugar não pode preservar a referência: tem de
+ * preservar o nome, e para isso precisa saber qual referência carrega o nome
+ * antigo sob a régua nova. É o que isto responde.
+ *
+ * A janela é pequena de propósito: a distância entre fechamento e vencimento
+ * é de zero ou um mês, nunca mais. A ordem de busca começa no próprio mês
+ * porque é o caso de distância zero, que é o mais comum.
+ *
+ * `null` quando nenhuma referência produz esse nome — acontece com dias que
+ * mudam de comportamento de mês para mês (fecha 31, vence 30) e significa que
+ * essa régua simplesmente não tem uma fatura com esse nome. Quem chama tem de
+ * tratar; inventar uma referência aproximada moveria lançamento em silêncio.
+ */
+export function referenciaComVencimentoEm(
+  ano: number,
+  mes0: number,
+  closingDay: number,
+  dueDay: number,
+): { ano: number; mes0: number } | null {
+  for (const passo of [0, -1, 1, -2, 2]) {
+    const alvo = new Date(Date.UTC(ano, mes0 + passo, 1));
+    const datas = datasDoCiclo(alvo.getUTCFullYear(), alvo.getUTCMonth(), closingDay, dueDay);
+    if (datas.dueDate.getUTCFullYear() === ano && datas.dueDate.getUTCMonth() === mes0) {
+      return { ano: alvo.getUTCFullYear(), mes0: alvo.getUTCMonth() };
+    }
+  }
+  return null;
+}
