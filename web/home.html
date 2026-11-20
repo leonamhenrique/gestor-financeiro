@@ -2755,8 +2755,13 @@
              cadastrados. É a correção a um toque do aviso logo acima: sem
              ela, a pessoa teria de sair daqui, ir em Cartões, editar e
              voltar — com a conferência aberta no meio. -->
+        <!-- DUAS perguntas diferentes, e usar a errada abre um buraco no
+             calendário: medido, a fatura de um mês inteiro deixou de
+             existir e os lançamentos dela foram parar no mês seguinte.
+             Por isso são dois botões, e não um. -->
         <div class="acoes-linha" id="imp-dias-campo" hidden>
-          <button type="button" class="ghost" id="imp-usar-dias">Usar os dias do banco</button>
+          <button type="button" class="ghost" id="imp-corrigir-dias">Sempre foram estes</button>
+          <button type="button" class="ghost" id="imp-usar-dias">O cartão mudou agora</button>
         </div>
         <div class="acoes-linha">
           <button type="button" class="primary" id="imp-continuar" disabled>Conferir lançamentos</button>
@@ -12095,45 +12100,67 @@
    * O app guarda histórico de ciclos, então as faturas antigas continuam
    * calculadas com os dias de antes. A troca vale daqui para a frente, e
    * é isso que a confirmação promete. */
-  ofEl("imp-usar-dias").addEventListener("click", function () {
+  /**
+   * Os dias do cartão, nas DUAS leituras possíveis.
+   *
+   * "Sempre foram estes" = o cadastro estava errado. Reescreve o histórico:
+   * um ciclo só, desde sempre, e todas as faturas recalculadas.
+   *
+   * "Mudou agora" = o cartão realmente trocou de datas. Preserva o passado
+   * com um ciclo novo a partir da fatura aberta.
+   *
+   * Usar a errada abre um BURACO no calendário, e isso foi medido: trocar
+   * o vencimento do dia 28 (mesmo mês do fechamento) para o dia 7 (mês
+   * seguinte) empurrou o vencimento um mês à frente, a fatura de dezembro
+   * deixou de existir e os lançamentos dela apareceram em janeiro.
+   *
+   * O caso comum, de longe, é o primeiro: o banco informa os dias das 15
+   * faturas que ele mandou, e elas dizem como o cartão SEMPRE foi. Por
+   * isso ele vem primeiro, e é o que o texto recomenda.
+   */
+  function ofAjustarDias(corrigindo) {
     if (!imp || !imp.openFinance) return;
     var k = cartaoDaImportacao();
     var la = imp.openFinance;
     if (!k || !la.fechamentoLa || !la.vencimentoLa) return;
 
     pedirConfirmacao({
-      titulo: "Usar os dias que o banco informa?",
-      ctx: "Fecha dia " + la.fechamentoLa + ", vence dia " + la.vencimentoLa,
-      detalhe: "Hoje este cartão está como fecha dia " + k.fechamento + " e vence dia " +
-        k.vencimento + ". A troca vale da fatura aberta em diante; as que já fecharam " +
-        "continuam com as datas que tinham. ATENÇÃO: lançamentos que você já importou " +
-        "guardam a fatura em que foram postos, e com os dias novos alguns podem passar " +
-        "a aparecer no mês seguinte. Se isso acontecer, desfaça aquela importação e " +
-        "importe de novo.",
-      acao: "Usar os dias do banco"
+      titulo: corrigindo ? "Este cartão sempre fechou nesses dias?" : "O cartão mudou de datas agora?",
+      ctx: "Fecha dia " + la.fechamentoLa + ", vence dia " + la.vencimentoLa +
+        " · hoje está " + k.fechamento + " e " + k.vencimento,
+      detalhe: corrigindo
+        ? "Vou corrigir o cadastro: as faturas passadas deste cartão são recalculadas com " +
+          "esses dias, e o nome de algumas pode mudar. É o caso quando o cartão sempre foi " +
+          "assim e os dias daqui é que estavam errados."
+        : "Vou guardar os dias novos valendo da fatura aberta em diante; as que já fecharam " +
+          "continuam como estão. ATENÇÃO: isso pode fazer a fatura de um mês deixar de " +
+          "existir, e os lançamentos dela aparecerem no mês seguinte. Só escolha isto se o " +
+          "cartão realmente mudou de datas agora.",
+      acao: corrigindo ? "Corrigir o cadastro" : "Mudar daqui para a frente",
+      destrutivo: !corrigindo
     }, async function () {
       var feito = await comServidor("ajustar os dias do cartão", async function () {
-        /* `billing-cycle`, e não o PATCH comum do cartão: aquele aceita o
-         * pedido e IGNORA os dias — medido, devolve 200 e não muda nada.
-         * Mudar fechamento e vencimento é o que decide em qual fatura cada
-         * compra cai, e por isso tem porta própria, que grava um ciclo
-         * novo em vez de reescrever o passado. Sem `validFrom`, vale da
-         * fatura aberta em diante. */
-        await api("/credit-cards/" + k.id + "/billing-cycle",
+        /* Duas portas, de propósito. A comum (`PATCH /credit-cards/:id`)
+         * não serve: ela aceita o pedido e IGNORA os dias — medido,
+         * devolve 200 e não muda nada. */
+        await api("/credit-cards/" + k.id + "/billing-cycle" + (corrigindo ? "/corrigir" : ""),
           { closingDay: la.fechamentoLa, dueDay: la.vencimentoLa }, "PATCH");
         await carregarDoServidor();
       });
       if (!feito) return;
       renderAll();
       /* Refaz a conferência com os dias novos: se agora concordam, o aviso
-       * e este botão somem sozinhos. */
+       * e os botões somem sozinhos. */
       ofEl("imp-erro").textContent = "";
       ofEl("imp-dias-campo").hidden = true;
       imp.faturaEscolhida = false;
       atualizarCampoDeFatura();
       ofConferirFatura();
     });
-  });
+  }
+
+  ofEl("imp-corrigir-dias").addEventListener("click", function () { ofAjustarDias(true); });
+  ofEl("imp-usar-dias").addEventListener("click", function () { ofAjustarDias(false); });
 
   /** Guarda a correspondência depois que a importação deu certo. */
   async function ofVincular() {

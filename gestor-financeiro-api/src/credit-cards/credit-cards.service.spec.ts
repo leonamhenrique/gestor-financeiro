@@ -28,6 +28,7 @@ describe('CreditCardsService', () => {
         count: jest.fn(),
         deleteMany: jest.fn(),
         updateMany: jest.fn(),
+        update: jest.fn(),
       },
       // A linha do tempo do ciclo: é nela que a troca de vencimento grava.
       creditCardBillingCycle: {
@@ -149,6 +150,78 @@ describe('CreditCardsService', () => {
 
     expect(prismaMock.creditCard.delete).not.toHaveBeenCalled();
     expect(result).toEqual({ deleted: false, archived: true });
+  });
+
+  /* A outra pergunta: o cartao NAO mudou de datas -- o cadastro e que
+   * estava errado. Usar a porta de "mudou agora" nesse caso abre um BURACO
+   * no calendario, e isso foi medido: trocar o vencimento do dia 28 (mesmo
+   * mes) para o dia 7 (mes seguinte) empurrou o vencimento um mes a frente,
+   * a fatura de dezembro deixou de existir, e os lancamentos dela
+   * apareceram em janeiro. */
+  describe('corrigirCiclo() — o cadastro e que estava errado', () => {
+    const cartao = { id: 'card-1', userId: 'user-1', closingDay: 20, dueDay: 28, cycles: [] };
+
+    beforeEach(() => {
+      prismaMock.creditCard.findFirst.mockResolvedValue(cartao);
+      prismaMock.creditCard.update.mockResolvedValue({ ...cartao, closingDay: 30, dueDay: 7 });
+      prismaMock.creditCardInvoice.findMany.mockResolvedValue([]);
+    });
+
+    it('reescreve o historico: um ciclo so, desde sempre', async () => {
+      await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+      expect(prismaMock.creditCardBillingCycle.deleteMany).toHaveBeenCalledWith({
+        where: { creditCardId: 'card-1' },
+      });
+      expect(prismaMock.creditCardBillingCycle.create).toHaveBeenCalledWith({
+        data: {
+          creditCardId: 'card-1',
+          validFrom: new Date(Date.UTC(1900, 0, 1)),
+          closingDay: 30,
+          dueDay: 7,
+        },
+      });
+    });
+
+    /* Nenhum `upsert`: criar um periodo a partir de hoje e justamente o que
+     * abre o buraco. */
+    it('nao cria periodo novo a partir de hoje', async () => {
+      await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+      expect(prismaMock.creditCardBillingCycle.upsert).not.toHaveBeenCalled();
+    });
+
+    it('os dias do cartao passam a ser os corrigidos', async () => {
+      await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+      expect(prismaMock.creditCard.update).toHaveBeenCalledWith({
+        where: { id: 'card-1' },
+        data: { closingDay: 30, dueDay: 7 },
+      });
+    });
+
+    /* TODAS, e nao so a corrente: o historico inteiro mudou de regua, e uma
+     * fatura com a data velha continuaria dizendo um vencimento que ja nao
+     * existe. */
+    it('recalcula as datas de TODAS as faturas', async () => {
+      prismaMock.creditCardInvoice.findMany.mockResolvedValue([
+        { id: 'f1', referenceMonth: new Date(Date.UTC(2026, 9, 1)) },
+        { id: 'f2', referenceMonth: new Date(Date.UTC(2026, 10, 1)) },
+        { id: 'f3', referenceMonth: new Date(Date.UTC(2026, 11, 1)) },
+      ]);
+
+      const r = await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+      expect(r.faturasRecalculadas).toBe(3);
+      expect(prismaMock.creditCardInvoice.update).toHaveBeenCalledTimes(3);
+      const primeira = prismaMock.creditCardInvoice.update.mock.calls[0][0];
+      expect(primeira.where).toEqual({ id: 'f1' });
+      expect(primeira.data.closingDate).toBeInstanceOf(Date);
+      expect(primeira.data.dueDate).toBeInstanceOf(Date);
+    });
+
+    it('cartao de outra pessoa nao se corrige', async () => {
+      prismaMock.creditCard.findFirst.mockResolvedValue(null);
+      await expect(service.corrigirCiclo('user-1', 'alheio', 30, 7)).rejects.toThrow();
+    });
   });
 
   describe('updateBillingCycle() — a troca de ciclo', () => {

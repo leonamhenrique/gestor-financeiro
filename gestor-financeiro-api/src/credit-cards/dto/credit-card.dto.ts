@@ -102,6 +102,25 @@ export class UpdateCreditCardDto {
   color?: string;
 }
 
+/**
+ * "Os dias sempre foram estes; o cadastro é que estava errado."
+ *
+ * Sem `validFrom`, de propósito: corrigir um cadastro errado não tem data
+ * de início — ele estava errado desde sempre. Quem muda de datas de
+ * verdade usa `UpdateBillingCycleDto`, que preserva o passado.
+ */
+export class CorrigirCicloDto {
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  closingDay: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  dueDay: number;
+}
+
 // Único caminho seguro para mudar closingDay/dueDay — só permitido
 // enquanto o cartão ainda não tem nenhuma fatura gerada.
 export class UpdateBillingCycleDto {

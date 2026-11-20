@@ -345,6 +345,66 @@ export class CreditCardsService {
     });
   }
 
+  /**
+   * CORRIGE os dias do cartão: eles sempre foram estes, o cadastro é que
+   * estava errado.
+   *
+   * Diferente de `updateBillingCycle`, que trata o caso em que o cartão
+   * REALMENTE mudou de datas e por isso preserva o passado com um ciclo
+   * novo a partir da fatura aberta.
+   *
+   * A diferença não é de gosto, e custou caro para aparecer. Quem usa o
+   * caminho errado abre um BURACO no calendário: trocar o vencimento do
+   * dia 28 (mesmo mês do fechamento) para o dia 7 (mês seguinte) empurra o
+   * vencimento um mês à frente, e a fatura de um mês inteiro deixa de
+   * existir — medido, com a fatura de dezembro sumindo da lista e os
+   * lançamentos dela aparecendo em janeiro.
+   *
+   * Aqui o histórico é reescrito: um ciclo só, desde sempre, e todas as
+   * faturas recalculadas. É o que torna o calendário contínuo de novo.
+   *
+   * O que NÃO muda: a referência gravada em cada lançamento. Ela é o mês em
+   * que a fatura fecha, e continua a mesma — o que muda é a data de
+   * vencimento que esse mês passa a ter, e portanto o nome da fatura.
+   */
+  async corrigirCiclo(userId: string, creditCardId: string, closingDay: number, dueDay: number) {
+    await this.findOneByUser(userId, creditCardId);
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.creditCardBillingCycle.deleteMany({ where: { creditCardId } });
+      await tx.creditCardBillingCycle.create({
+        data: {
+          creditCardId,
+          validFrom: CreditCardsService.DESDE_SEMPRE,
+          closingDay,
+          dueDay,
+        },
+      });
+
+      const atualizado = await tx.creditCard.update({
+        where: { id: creditCardId },
+        data: { closingDay, dueDay },
+      });
+
+      /* TODAS as faturas, e não só a corrente: o histórico inteiro mudou de
+       * régua, e uma fatura com data de fechamento antiga continuaria
+       * dizendo um vencimento que já não existe. */
+      const faturas = await tx.creditCardInvoice.findMany({
+        where: { creditCardId },
+        select: { id: true, referenceMonth: true },
+      });
+      for (const f of faturas) {
+        const datas = datasDoMesChave(chaveDoMes(f.referenceMonth), { closingDay, dueDay });
+        await tx.creditCardInvoice.update({
+          where: { id: f.id },
+          data: { closingDate: datas.closingDate, dueDate: datas.dueDate },
+        });
+      }
+
+      return { cartao: atualizado, faturasRecalculadas: faturas.length };
+    });
+  }
+
   async delete(userId: string, creditCardId: string) {
     await this.findOneByUser(userId, creditCardId);
 

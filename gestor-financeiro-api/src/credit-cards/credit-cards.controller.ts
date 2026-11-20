@@ -24,6 +24,7 @@ import {
   CreateCreditCardDto,
   UpdateCreditCardDto,
   UpdateBillingCycleDto,
+  CorrigirCicloDto,
   PayInvoiceDto,
   UpdateInvoicePaymentDto,
 } from './dto/credit-card.dto';
@@ -130,6 +131,22 @@ export class CreditCardsController {
   @Patch(':id')
   update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateCreditCardDto) {
     return this.creditCardsService.update(req.user.id, id, dto);
+  }
+
+  /**
+   * CORRIGE os dias: eles sempre foram estes.
+   *
+   * Porta separada da de cima porque a pergunta é outra. Lá o cartão MUDOU
+   * de datas, e o passado é preservado com um ciclo novo. Aqui o cartão
+   * nunca mudou — o cadastro estava errado —, e o histórico é reescrito.
+   *
+   * Usar a porta errada abre um buraco no calendário: medido, a fatura de
+   * um mês inteiro deixou de existir e os lançamentos dela foram parar no
+   * mês seguinte.
+   */
+  @Patch(':id/billing-cycle/corrigir')
+  corrigirCiclo(@Req() req: any, @Param('id') id: string, @Body() dto: CorrigirCicloDto) {
+    return this.creditCardsService.corrigirCiclo(req.user.id, id, dto.closingDay, dto.dueDay);
   }
 
   // Rota separada e explícita — deliberadamente fora do PATCH genérico
