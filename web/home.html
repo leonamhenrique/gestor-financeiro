@@ -12129,9 +12129,10 @@
       ctx: "Fecha dia " + la.fechamentoLa + ", vence dia " + la.vencimentoLa +
         " · hoje está " + k.fechamento + " e " + k.vencimento,
       detalhe: corrigindo
-        ? "Vou corrigir o cadastro: as faturas passadas deste cartão são recalculadas com " +
-          "esses dias, e o nome de algumas pode mudar. É o caso quando o cartão sempre foi " +
-          "assim e os dias daqui é que estavam errados."
+        ? "Os lançamentos que já existem FICAM na fatura em que estão — inclusive os de " +
+          "faturas já pagas. O que muda são as datas de fechamento e vencimento das faturas, " +
+          "e por isso o nome de algumas pode mudar. Daqui para a frente, os lançamentos novos " +
+          "seguem estes dias."
         : "Vou guardar os dias novos valendo da fatura aberta em diante; as que já fecharam " +
           "continuam como estão. ATENÇÃO: isso pode fazer a fatura de um mês deixar de " +
           "existir, e os lançamentos dela aparecerem no mês seguinte. Só escolha isto se o " +
@@ -15160,7 +15161,7 @@
     }
     document.getElementById("k-ciclo-help").textContent = emUso
       ? "Mudou o vencimento no banco? Troque aqui também, dizendo de qual fatura em diante — as anteriores não se mexem. " +
-        "Se os dias sempre foram estes e o errado era o cadastro, escolha \"Desde sempre\": aí o histórico inteiro é recalculado."
+        "Se os dias sempre foram estes e o errado era o cadastro, escolha \"Desde sempre\": as datas das faturas são recalculadas e os lançamentos que já existem ficam onde estão."
       : "";
     abrir("dlg-cartao");
   }

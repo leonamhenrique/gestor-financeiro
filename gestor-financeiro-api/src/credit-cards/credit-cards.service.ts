@@ -28,6 +28,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceStatus } from '@prisma/client';
 import { CicloDoCartao, cicloDoDia, datasDoMesChave } from './billing-cycle';
+import { resolveInvoicePeriod } from '../transactions/transaction.utils';
 import { ORDEM_DA_LISTA, gravarOrdem, novaOrdem } from '../common/ordering';
 import { chaveDoMes, dia, faturaAtual, hojeNoFuso, limiteEmUso, montarFaturas, proximoMes } from './invoice-statement';
 
@@ -368,9 +369,38 @@ export class CreditCardsService {
    * vencimento que esse mês passa a ter, e portanto o nome da fatura.
    */
   async corrigirCiclo(userId: string, creditCardId: string, closingDay: number, dueDay: number) {
-    await this.findOneByUser(userId, creditCardId);
+    const card = await this.findOneByUser(userId, creditCardId);
 
     return this.prisma.$transaction(async (tx) => {
+      /* ANTES de mexer na régua, PRENDE o passado onde ele está.
+       *
+       * Um lançamento importado já guarda a fatura dele
+       * (`invoiceMonthOverride`) e não se move. Um digitado à mão não
+       * guarda nada: a fatura dele é RECALCULADA a cada leitura, a partir
+       * da data e dos dias do cartão. Trocar os dias move esse lançamento
+       * de fatura — e foi exatamente o que aconteceu, com um lançamento
+       * saindo de uma fatura já conciliada.
+       *
+       * Isso não pode acontecer. Quem já conferiu uma fatura não pode
+       * descobrir depois que o conteúdo dela mudou sozinho. Então cada
+       * lançamento solto recebe, gravada, a fatura em que ele está AGORA,
+       * calculada com os dias de antes.
+       *
+       * O que a correção passa a mudar, então, é só o que ainda não
+       * aconteceu: as datas das faturas, os nomes que elas recebem, e a
+       * fatura dos lançamentos futuros. */
+      const soltos = await tx.transaction.findMany({
+        where: { userId, creditCardId, invoiceMonthOverride: null },
+        select: { id: true, transactionDate: true },
+      });
+      for (const t of soltos) {
+        const onde = resolveInvoicePeriod(t.transactionDate, card);
+        await tx.transaction.update({
+          where: { id: t.id },
+          data: { invoiceMonthOverride: onde.referenceMonth },
+        });
+      }
+
       await tx.creditCardBillingCycle.deleteMany({ where: { creditCardId } });
       await tx.creditCardBillingCycle.create({
         data: {
@@ -401,7 +431,11 @@ export class CreditCardsService {
         });
       }
 
-      return { cartao: atualizado, faturasRecalculadas: faturas.length };
+      return {
+        cartao: atualizado,
+        faturasRecalculadas: faturas.length,
+        lancamentosPresos: soltos.length,
+      };
     });
   }
 

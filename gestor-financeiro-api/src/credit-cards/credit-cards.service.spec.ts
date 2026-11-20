@@ -36,7 +36,7 @@ describe('CreditCardsService', () => {
         upsert: jest.fn(),
         deleteMany: jest.fn(),
       },
-      transaction: { count: jest.fn() },
+      transaction: { count: jest.fn(), findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
       invoicePayment: { count: jest.fn().mockResolvedValue(0) },
       bankAccount: { findFirst: jest.fn() },
     };
@@ -216,6 +216,54 @@ describe('CreditCardsService', () => {
       expect(primeira.where).toEqual({ id: 'f1' });
       expect(primeira.data.closingDate).toBeInstanceOf(Date);
       expect(primeira.data.dueDate).toBeInstanceOf(Date);
+    });
+
+    /* O defeito que isto conserta, levantado com a tela na mao: um
+     * lancamento DIGITADO A MAO nao guarda a fatura dele -- ela e
+     * recalculada a cada leitura, a partir da data e dos dias do cartao.
+     * Trocar os dias movia esse lancamento de fatura, e um deles saiu de
+     * uma fatura ja conciliada. Quem conferiu uma fatura nao pode
+     * descobrir depois que o conteudo dela mudou sozinho. */
+    it('prende cada lancamento solto na fatura em que ele JA esta', async () => {
+      prismaMock.transaction.findMany.mockResolvedValue([
+        { id: 't1', transactionDate: new Date(Date.UTC(2026, 8, 30)) },
+        { id: 't2', transactionDate: new Date(Date.UTC(2026, 9, 5)) },
+      ]);
+
+      const r = await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+      expect(r.lancamentosPresos).toBe(2);
+      expect(prismaMock.transaction.update).toHaveBeenCalledTimes(2);
+      const primeiro = prismaMock.transaction.update.mock.calls[0][0];
+      expect(primeiro.where).toEqual({ id: 't1' });
+      expect(primeiro.data.invoiceMonthOverride).toBeInstanceOf(Date);
+    });
+
+    /* So os SOLTOS: o importado ja guarda a fatura dele, e reescrever
+     * seria mover o que estava parado. */
+    it('so procura os que nao tem fatura gravada', async () => {
+      await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+      expect(prismaMock.transaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-1', creditCardId: 'card-1', invoiceMonthOverride: null },
+        }),
+      );
+    });
+
+    /* A fatura em que ele esta e calculada com os dias de ANTES -- se
+     * fosse com os novos, prender nao serviria para nada: ele ja estaria
+     * no lugar novo. */
+    it('usa os dias ANTIGOS para decidir onde prender', async () => {
+      // cartao em 20/28; uma compra de 25/09 esta, hoje, na fatura de
+      // referencia OUTUBRO (passou do fechamento dia 20).
+      prismaMock.transaction.findMany.mockResolvedValue([
+        { id: 't1', transactionDate: new Date(Date.UTC(2026, 8, 25)) },
+      ]);
+
+      await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+
+      const preso = prismaMock.transaction.update.mock.calls[0][0].data.invoiceMonthOverride;
+      expect(preso.toISOString().slice(0, 7)).toBe('2026-10');
     });
 
     it('cartao de outra pessoa nao se corrige', async () => {
