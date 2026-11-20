@@ -11898,7 +11898,9 @@
 
     /* O que não tem dúvida nenhuma entra sozinho, e o resto continua
      * esperando. As condições estão em `ofSemDuvida` — leia lá antes de
-     * afrouxar qualquer uma delas. */
+     * afrouxar qualquer uma delas. E em `ofDepoisDeAutorizar`, que é a
+     * décima: nove dizem que a LINHA não tem dúvida, a décima diz que a
+     * pessoa pediu aquele PERÍODO. */
     /* UM lote para a passada inteira, e não um por fatura: foi uma ação só
      * do app, e desfazê-la tem de ser uma ação só da pessoa. Cinco linhas de
      * "Desfazer" para uma coisa que ela não pediu seria cobrar cinco vezes
@@ -12082,6 +12084,31 @@
    * recentes" com o botão Desfazer — do mesmo jeito que uma importação de
    * arquivo. Automático sem desfazer seria irreversível por omissão.
    */
+  /**
+   * A DÉCIMA condição, e a única que não é sobre o lançamento: ele é
+   * posterior à autorização desta conexão?
+   *
+   * As outras nove perguntam se há dúvida sobre AQUELA linha. Esta pergunta
+   * se a pessoa pediu aquele PERÍODO — e ela não pediu. A primeira busca
+   * traz doze meses de histórico, e o app estava entrando sozinho em tudo
+   * que tivesse regra de lojista, num ano inteiro que ninguém mandou
+   * importar.
+   *
+   * Os doze meses são retrovisor: histórico que se escolhe mês a mês, na
+   * tela de conferência, olhando. A entrada automática existe para o
+   * FLUXO — a compra de ontem que já tem regra e só daria trabalho
+   * conferir. A data da autorização separa exatamente os dois.
+   *
+   * Sem data de autorização não entra nada sozinho: conexão que ainda
+   * espera o banco não tem fluxo, só retrovisor.
+   */
+  function ofDepoisDeAutorizar(f, l) {
+    var cx = byId(of.conexoes, f.connectionId);
+    var desde = cx && cx.autorizadaEm ? String(cx.autorizadaEm).slice(0, 10) : null;
+    if (!desde) return false;
+    return String(l.data).slice(0, 10) >= desde;
+  }
+
   function ofSemDuvida(l) {
     return !l.repetida && !l.pagamento && !l.base._parcelada &&
            l.origem === "regra" && !!l.categoriaId && isFinite(l.base.valor) &&
@@ -12124,7 +12151,9 @@
                      destino: f.ehCartao ? "CARTAO" : "CONTA", faturaPrevista: f.faturaPrevista || "" }
     };
 
-    var certas = linhasDaConferencia(lancamentos).filter(ofSemDuvida);
+    var certas = linhasDaConferencia(lancamentos).filter(function (l) {
+      return ofSemDuvida(l) && ofDepoisDeAutorizar(f, l);
+    });
     if (!certas.length) { imp = guardado; return 0; }
 
     // Sem criar parcelas: nenhuma das certas é parcelada, por definição.

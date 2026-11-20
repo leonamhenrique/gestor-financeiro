@@ -16,7 +16,7 @@
 // O QUE ELE NÃO FAZ
 // Não grava lançamento. Não cria, não casa, não classifica. Chamada vinda
 // de fora não mexe no dinheiro de ninguém: ela só recontra o que espera
-// conferência, que é o número no menu Importar. A regra das oito condições
+// conferência, que é o número no menu Importar. A regra das dez condições
 // continua valendo, e continua rodando quando a pessoa abre a tela.
 //
 // O CORPO É DADO, NUNCA ORDEM
