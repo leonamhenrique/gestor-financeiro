@@ -15190,6 +15190,15 @@
        * exatamente o que sobra depois de alguém corrigir pela porta errada. */
       var corrigindoDesdeSempre = validFromDoCiclo === "SEMPRE";
       var mudouOCiclo = !kAtual || kAtual.fechamento !== fecha || kAtual.vencimento !== vence;
+      /* Em qual fatura a tela está AGORA — pelo NOME, que é o que a pessoa
+       * está lendo no cabeçalho.
+       *
+       * `faturaMes` guarda a referência, que é o mês do fechamento. Trocar a
+       * régua muda o nome que cada referência carrega, então ficar na mesma
+       * referência é escorregar de fatura: medido, a tela estava em dezembro
+       * de 2026 e, ao salvar, pulou para janeiro de 2027 — dezembro parecia
+       * ter sumido, quando na verdade era a tela que tinha andado. */
+      var nomeNaTela = kAtual && cartaoSel === alvoK && faturaMes ? mesDaFatura(kAtual, faturaMes) : null;
       var okK = await comServidor(alvoK ? "salvar o cartão" : "criar o cartão", async function () {
         if (!alvoK) {
           var criado = await api("/credit-cards", {
@@ -15214,6 +15223,17 @@
         }
       });
       if (!okK) return;
+      /* E volta para a fatura com AQUELE nome, agora que a régua é outra.
+       * `comServidor` já recarregou e redesenhou, então o cartão aqui é o
+       * novo e falta só reposicionar e redesenhar esta tela. */
+      if (nomeNaTela && faturaMes) {
+        var kDepois = byId(state.cards, alvoK);
+        if (kDepois) {
+          var refDepois = referenciaQueVenceEm(kDepois, nomeNaTela);
+          faturaMes.y = refDepois.y; faturaMes.m = refDepois.m;
+          renderCartoes();
+        }
+      }
       editandoCartao = null;
       fechar("dlg-cartao");
       return;
