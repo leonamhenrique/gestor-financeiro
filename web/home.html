@@ -15149,11 +15149,18 @@
       // o ciclo novo passa a valer.
       preencherSelect(document.getElementById("k-ciclo-de"), [
         { id: monthKey(atual), nome: rotuloFatura(k, atual) },
-        { id: monthKey(seguinte), nome: rotuloFatura(k, seguinte) }
+        { id: monthKey(seguinte), nome: rotuloFatura(k, seguinte) },
+        /* A terceira resposta, que faltava: o cartão nunca mudou — o
+         * cadastro é que estava errado. Sem ela só havia "de uma fatura em
+         * diante", e usar isso para corrigir um cadastro errado abre um
+         * BURACO no calendário: medido, a fatura de um mês inteiro deixou
+         * de existir e os lançamentos dela foram para o mês seguinte. */
+        { id: "SEMPRE", nome: "Desde sempre — o cadastro estava errado" }
       ], monthKey(atual));
     }
     document.getElementById("k-ciclo-help").textContent = emUso
-      ? "Mudou o vencimento no banco? Troque aqui também, dizendo de qual fatura em diante. As faturas anteriores não se mexem."
+      ? "Mudou o vencimento no banco? Troque aqui também, dizendo de qual fatura em diante — as anteriores não se mexem. " +
+        "Se os dias sempre foram estes e o errado era o cadastro, escolha \"Desde sempre\": aí o histórico inteiro é recalculado."
       : "";
     abrir("dlg-cartao");
   }
@@ -15177,6 +15184,10 @@
       var validFromDoCiclo = document.getElementById("k-ciclo-de-campo").hidden ? undefined : campoCicloDe.value;
       // Só chama a rota do ciclo quando os dias mudaram de verdade: salvar o
       // cartão só para trocar a cor não pode criar um período novo.
+      /* "Desde sempre" vale MESMO sem mudar os dias: é o caso em que os
+       * dias de hoje já estão certos e o que está torto é o histórico —
+       * exatamente o que sobra depois de alguém corrigir pela porta errada. */
+      var corrigindoDesdeSempre = validFromDoCiclo === "SEMPRE";
       var mudouOCiclo = !kAtual || kAtual.fechamento !== fecha || kAtual.vencimento !== vence;
       var okK = await comServidor(alvoK ? "salvar o cartão" : "criar o cartão", async function () {
         if (!alvoK) {
@@ -15190,7 +15201,13 @@
         await api("/credit-cards/" + alvoK, { name: nome, limitAmount: limite, bankAccountId: contaId || undefined, color: cor }, "PATCH");
         // Ciclo tem rota própria: ela grava um PERÍODO, e o servidor confere
         // que a fatura escolhida ainda não fechou.
-        if (mudouOCiclo) {
+        if (corrigindoDesdeSempre) {
+          /* Reescreve o histórico: um ciclo só, desde sempre, e todas as
+           * faturas recalculadas. Sem `validFrom` — cadastro errado não
+           * tem data de início. */
+          await api("/credit-cards/" + alvoK + "/billing-cycle/corrigir",
+            { closingDay: fecha, dueDay: vence }, "PATCH");
+        } else if (mudouOCiclo) {
           await api("/credit-cards/" + alvoK + "/billing-cycle",
             { closingDay: fecha, dueDay: vence, validFrom: validFromDoCiclo }, "PATCH");
         }
