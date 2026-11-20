@@ -11817,7 +11817,11 @@
         (porMes[String(l.data).slice(0, 7)] = porMes[String(l.data).slice(0, 7)] || []).push(l);
       });
       Object.keys(porMes).sort().reverse().forEach(function (chave) {
-        fora.push({ titulo: nome + " · " + chave.slice(5) + "/" + chave.slice(0, 4),
+        /* "Agosto 2026", e não "08/2026": é o mesmo mês escrito como a
+         * pessoa fala dele, e como o resto do app já escreve — o campo de
+         * fatura, o seletor de mês e o extrato. Duas grafias para a mesma
+         * coisa, na mesma tela, obrigam a traduzir de cabeça. */
+        fora.push({ titulo: nome + " · " + rotuloMes(parseMonthKey(chave)),
                     ehCartao: false, destinoId: c.bankAccountId,
                     connectionId: p.connectionId, mes: chave,
                     providerAccountId: c.providerAccountId, lancamentos: porMes[chave] });
@@ -11831,7 +11835,7 @@
       });
       Object.keys(porFatura).sort().reverse().forEach(function (chave) {
         fora.push({
-          titulo: k.nome + " · fatura " + chave.slice(5) + "/" + chave.slice(0, 4),
+          titulo: k.nome + " · fatura " + rotuloMes(parseMonthKey(chave)),
           ehCartao: true, destinoId: k.creditCardId, providerAccountId: k.providerAccountId,
           connectionId: p.connectionId,
           faturaPrevista: chave, lancamentos: porFatura[chave]
