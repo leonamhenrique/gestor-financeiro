@@ -29,9 +29,10 @@
 // texto e data, erraria; a segunda, resolvida por id, nunca casaria.
 // ============================================================
 
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PolpClient, LancamentoDoProvedor, ConflitoDeConsentimento } from './polp.client';
+import { CreditCardsService } from '../credit-cards/credit-cards.service';
 
 /** Está ligada? Sem a variável, o app se comporta exatamente como antes. */
 export const openFinanceLigado = (): boolean => process.env.OPENFINANCE_ENABLED === 'true';
@@ -60,10 +61,75 @@ export interface PropostaDeImportacao {
 
 @Injectable()
 export class OpenFinanceService {
+  private readonly logger = new Logger('OpenFinance');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly polp: PolpClient,
+    private readonly cartoes: CreditCardsService,
   ) {}
+
+
+  /**
+   * Alinha o ciclo do cartão com o que o BANCO reporta.
+   *
+   * Até aqui os dias do banco eram lidos a cada conferência, mostrados numa
+   * tela e jogados fora. Fora da importação, ninguém sabia o que o banco
+   * tinha dito — e a única fonte dos dias passava a ser quem digitou o
+   * cadastro. Medido num cartão real: o banco reportou fechamento 30 e
+   * vencimento 7 em 15 faturas seguidas, e o cadastro dizia 1 e 7.
+   *
+   * POR QUE APLICAR SOZINHO
+   * A integração propõe e não decide — mas só onde existe decisão humana
+   * para respeitar. Num cartão que veio do Open Finance e cujo ciclo
+   * ninguém nunca escolheu, não existe: há um palpite de cadastro de um
+   * lado e as faturas do banco do outro. Depois que alguém grava dias que
+   * discordam do banco, `cycleEditedByUser` fica verdadeiro e isto para de
+   * agir — passa a ser proposta na tela.
+   *
+   * POR QUE É SEGURO
+   * A correção preserva o NOME de cada fatura e não move lançamento nenhum:
+   * ela renumera as referências por baixo. O que muda são as datas de
+   * fechamento e vencimento das faturas e onde cai a compra NOVA. Sem essa
+   * garantia isto não poderia rodar sem alguém olhando.
+   *
+   * Falhar aqui não pode estragar a conferência: ela é o que a pessoa está
+   * esperando na tela, e o alinhamento é um extra.
+   */
+  private async alinharCicloComOBanco(
+    userId: string,
+    creditCardId: string,
+    fechamento: number | null,
+    vencimento: number | null,
+  ): Promise<void> {
+    if (!fechamento || !vencimento) return;
+
+    await this.prisma.creditCard.update({
+      where: { id: creditCardId },
+      data: { bankClosingDay: fechamento, bankDueDay: vencimento },
+    });
+
+    const card = await this.prisma.creditCard.findUnique({
+      where: { id: creditCardId },
+      select: { closingDay: true, dueDay: true, cycleEditedByUser: true, cycles: true },
+    });
+    if (!card || card.cycleEditedByUser) return;
+
+    /* Já está alinhado quando os dias batem E existe um período só: um
+     * cartão com dois períodos tem as colunas certas e o histórico torto. */
+    const umCicloSo = (card.cycles?.length ?? 0) <= 1;
+    if (card.closingDay === fechamento && card.dueDay === vencimento && umCicloSo) return;
+
+    try {
+      await this.cartoes.corrigirCiclo(userId, creditCardId, fechamento, vencimento);
+      this.logger.log('ciclo do cartão alinhado com o banco');
+    } catch (e: any) {
+      /* Recusa esperada: há réguas em que um mês do histórico não existiria,
+       * e a correção prefere parar a mover lançamento em silêncio. Fica para
+       * a pessoa resolver na tela, com os dois números à vista. */
+      this.logger.warn('não consegui alinhar o ciclo com o banco: ' + (e?.message || 'erro'));
+    }
+  }
 
   // ---------------------------------------------------------------- bancos
   async instituicoes(busca?: string) {
@@ -427,6 +493,12 @@ export class OpenFinanceService {
         where: { userId, connectionId: conexao.id, providerAccountId: k.providerAccountId },
         select: { id: true },
       });
+      /* O banco acabou de dizer os dias: grava, e alinha o ciclo quando não
+       * há escolha de ninguém para respeitar. */
+      if (daqui?.id) {
+        await this.alinharCicloComOBanco(userId, daqui.id, dias.fechamento, dias.vencimento);
+      }
+
       cartoes.push({
         providerAccountId: k.providerAccountId,
         nome: k.nome,

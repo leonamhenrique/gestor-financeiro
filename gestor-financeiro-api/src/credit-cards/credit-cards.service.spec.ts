@@ -200,7 +200,43 @@ describe('CreditCardsService', () => {
       await service.corrigirCiclo('user-1', 'card-1', 30, 7);
       expect(prismaMock.creditCard.update).toHaveBeenCalledWith({
         where: { id: 'card-1' },
-        data: { closingDay: 30, dueDay: 7 },
+        data: expect.objectContaining({ closingDay: 30, dueDay: 7 }),
+      });
+    });
+
+    // ------------------------------------------- de quem e a escolha
+    /* O marcador que decide se a sincronizacao pode alinhar o ciclo
+     * sozinha. Enquanto o cadastro concorda com o banco nao ha decisao
+     * humana para respeitar; discordando, passa a haver. */
+    describe('quem escolheu estes dias', () => {
+      const comBanco = (fechamento: number | null, vencimento: number | null) => ({
+        ...cartao,
+        bankClosingDay: fechamento,
+        bankDueDay: vencimento,
+      });
+
+      it('sem dias do banco, gravar e sempre escolha de pessoa', async () => {
+        prismaMock.creditCard.findFirst.mockResolvedValue(comBanco(null, null));
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+        const dados = prismaMock.creditCard.update.mock.calls.at(-1)[0].data;
+        expect(dados.cycleEditedByUser).toBe(true);
+      });
+
+      /* Aplicar os dias do banco nao e "a pessoa escolheu": e o cartao
+       * voltando a concordar com a fonte. Senao o primeiro alinhamento
+       * trancaria todos os seguintes. */
+      it('gravar os MESMOS dias do banco nao e escolha', async () => {
+        prismaMock.creditCard.findFirst.mockResolvedValue(comBanco(30, 7));
+        await service.corrigirCiclo('user-1', 'card-1', 30, 7);
+        const dados = prismaMock.creditCard.update.mock.calls.at(-1)[0].data;
+        expect(dados.cycleEditedByUser).toBe(false);
+      });
+
+      it('gravar dias que DISCORDAM do banco vira escolha', async () => {
+        prismaMock.creditCard.findFirst.mockResolvedValue(comBanco(30, 7));
+        await service.corrigirCiclo('user-1', 'card-1', 1, 7);
+        const dados = prismaMock.creditCard.update.mock.calls.at(-1)[0].data;
+        expect(dados.cycleEditedByUser).toBe(true);
       });
     });
 
@@ -408,7 +444,7 @@ describe('CreditCardsService', () => {
       });
       expect(prismaMock.creditCard.update).toHaveBeenCalledWith({
         where: { id: 'card-1' },
-        data: { closingDay: 15, dueDay: 22 },
+        data: expect.objectContaining({ closingDay: 15, dueDay: 22 }),
       });
     });
 
@@ -445,8 +481,12 @@ describe('CreditCardsService', () => {
           create: expect.objectContaining({ validFrom: new Date(Date.UTC(2027, 0, 1)) }),
         }),
       );
-      // As colunas são o período de AGORA, e agora ainda é o antigo.
-      expect(prismaMock.creditCard.update).not.toHaveBeenCalled();
+      /* As colunas são o período de AGORA, e agora ainda é o antigo: os
+       * DIAS não se mexem. O que ainda é gravado é só o marcador de quem
+       * escolheu o ciclo — a escolha já foi feita, mesmo valendo mais
+       * tarde, e é ela que impede a sincronização de desfazê-la. */
+      const gravado = prismaMock.creditCard.update.mock.calls.map((c: any) => c[0].data);
+      expect(gravado.every((d: any) => d.closingDay === undefined && d.dueDay === undefined)).toBe(true);
     });
 
     it('fatura que já fechou não muda de data', async () => {

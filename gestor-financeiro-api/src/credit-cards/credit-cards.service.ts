@@ -329,8 +329,20 @@ export class CreditCardsService {
       // carrega a linha do tempo, que é a verdade.
       const valeAgora = !emUso || alvo === atual;
       const atualizado = valeAgora
-        ? await tx.creditCard.update({ where: { id: creditCardId }, data: { closingDay, dueDay } })
-        : card;
+        ? await tx.creditCard.update({
+            where: { id: creditCardId },
+            data: {
+              closingDay,
+              dueDay,
+              cycleEditedByUser: this.escolhaDePessoa(card, closingDay, dueDay),
+            },
+          })
+        : await tx.creditCard.update({
+            /* Fatura futura: as colunas de hoje não mudam, mas a escolha já
+             * foi feita — e é ela que impede a sincronização de desfazer. */
+            where: { id: creditCardId },
+            data: { cycleEditedByUser: this.escolhaDePessoa(card, closingDay, dueDay) },
+          });
 
       // A fatura do ciclo corrente pode ter nascido com as datas antigas.
       // Recalculada aqui, ela não fica mentindo até o cron da madrugada.
@@ -344,6 +356,27 @@ export class CreditCardsService {
 
       return atualizado;
     });
+  }
+
+  /**
+   * O ciclo passou a ser escolha de uma PESSOA, ou voltou a ser o do banco?
+   *
+   * Enquanto o cadastro concorda com o que o banco reporta, não há decisão
+   * humana para respeitar, e a sincronização pode aplicar os dias do banco
+   * sozinha. Discordou, vira escolha: a partir daí o app propõe em vez de
+   * decidir, porque pode ser o banco que está atrasado — fatura nova ainda
+   * não emitida — ou um cartão que a pessoa conhece melhor do que a API.
+   *
+   * Sem dias do banco gravados, qualquer gravação conta como escolha: não há
+   * com o que comparar, e o palpite seguro é o de quem está olhando a tela.
+   */
+  private escolhaDePessoa(
+    card: { bankClosingDay: number | null; bankDueDay: number | null },
+    closingDay: number,
+    dueDay: number,
+  ): boolean {
+    if (card.bankClosingDay == null || card.bankDueDay == null) return true;
+    return card.bankClosingDay !== closingDay || card.bankDueDay !== dueDay;
   }
 
   /**
@@ -483,7 +516,11 @@ export class CreditCardsService {
 
       const atualizado = await tx.creditCard.update({
         where: { id: creditCardId },
-        data: { closingDay, dueDay },
+        data: {
+          closingDay,
+          dueDay,
+          cycleEditedByUser: this.escolhaDePessoa(card, closingDay, dueDay),
+        },
       });
 
       return {

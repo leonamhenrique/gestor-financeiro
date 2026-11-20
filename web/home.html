@@ -7517,6 +7517,12 @@
       // Faturas viradas: { '2026-12': '2026-11-23' }. Vêm no próprio cartão
       // porque toda tela de lançamento precisa delas.
       viradas: j.earlyClosures || {},
+      // Os dias que o BANCO reporta, quando o cartão veio do Open Finance.
+      // Eles existem para a tela poder dizer de onde vem o número certo, em
+      // vez de perguntar a quem não tem como saber.
+      fechamentoBanco: j.bankClosingDay == null ? null : j.bankClosingDay,
+      vencimentoBanco: j.bankDueDay == null ? null : j.bankDueDay,
+      cicloEscolhido: !!j.cycleEditedByUser,
       // A linha do tempo do ciclo: [{ inicio: '2027-02', fechamento, vencimento }].
       // Sem ela, a tela calcularia as faturas antigas com os dias de hoje.
       ciclos: (j.cycles || []).map(function (c) {
@@ -10639,24 +10645,43 @@
      * "Novembro 2026 · fecha dia 30" numa fatura que fechou no dia 1 — e foi
      * essa mentira que escondeu uma fronteira de ciclo durante dias: os
      * números na tela não batiam com nenhuma conta possível. */
-    /* A linha do tempo do ciclo, dita em voz alta.
+    /* A linha do tempo do ciclo, e de onde vem o número certo.
      *
-     * Ela sempre existiu no banco e nunca na tela. O resultado medido: três
-     * períodos empilhados por três edições deram DUAS faturas de novembro e
-     * NENHUMA de dezembro, e não havia nada na tela que explicasse — nem que
-     * dissesse que o cartão tinha mais de um ciclo. */
+     * Ela sempre existiu no banco de dados e nunca na tela. O resultado
+     * medido: três períodos empilhados por três edições deram DUAS faturas
+     * de novembro e NENHUMA de dezembro, sem nada que explicasse.
+     *
+     * E quando o cartão veio do Open Finance, quem sabe os dias é o BANCO —
+     * lidos das faturas dele. Oferecer "um ciclo só" com os dias do cadastro
+     * ainda dependia de a pessoa ter acertado o cadastro, que é justamente
+     * o que costuma estar errado. Havendo dias do banco, é por eles. */
     var ciclos = (card.ciclos || []).slice().sort(function (a, b) { return a.inicio < b.inicio ? -1 : 1; });
+    var temBanco = card.fechamentoBanco != null && card.vencimentoBanco != null;
+    var discorda = temBanco && (card.fechamentoBanco !== card.fechamento || card.vencimentoBanco !== card.vencimento);
     var aviso = document.getElementById("k-det-ciclos");
     var acaoCiclos = document.getElementById("k-ciclos-acao");
-    if (ciclos.length > 1) {
-      var trechos = ciclos.map(function (c, i) {
-        var dias = "fecha dia " + c.fechamento + ", vence dia " + c.vencimento;
-        if (i === 0) return "até " + rotuloMes(mesDoIndice(indiceMes(parseMonthKey(ciclos[1].inicio)) - 1)) + ": " + dias;
-        return "de " + rotuloMes(parseMonthKey(c.inicio)) + " em diante: " + dias;
-      });
-      aviso.textContent = "Este cartão tem " + ciclos.length + " ciclos — " + trechos.join("; ") +
-        ". Cada troca feita \u201ca partir de uma fatura\u201d cria um ciclo novo, e é isso que faz um mês " +
-        "ficar sem fatura ou aparecer duas vezes. Se os dias sempre foram os de hoje, use um ciclo só.";
+    var botaoCiclo = document.getElementById("k-achatar");
+    if (ciclos.length > 1 || discorda) {
+      var partes = [];
+      if (ciclos.length > 1) {
+        var trechos = ciclos.map(function (c, i) {
+          var dias = "fecha dia " + c.fechamento + ", vence dia " + c.vencimento;
+          if (i === 0) return "até " + rotuloMes(mesDoIndice(indiceMes(parseMonthKey(ciclos[1].inicio)) - 1)) + ": " + dias;
+          return "de " + rotuloMes(parseMonthKey(c.inicio)) + " em diante: " + dias;
+        });
+        partes.push("Este cartão tem " + ciclos.length + " ciclos — " + trechos.join("; ") +
+          ". Cada troca feita \u201ca partir de uma fatura\u201d cria um ciclo novo, e é isso que faz " +
+          "um mês ficar sem fatura ou aparecer duas vezes.");
+      }
+      if (discorda) {
+        partes.push("O banco diz que este cartão fecha dia " + card.fechamentoBanco +
+          " e vence dia " + card.vencimentoBanco + "; aqui está dia " + card.fechamento +
+          " e dia " + card.vencimento + ". Os dias do banco são lidos das faturas dele.");
+      } else if (temBanco && ciclos.length > 1) {
+        partes.push("Os dias batem com o banco — o que está torto é o histórico.");
+      }
+      aviso.textContent = partes.join(" ");
+      botaoCiclo.textContent = discorda ? "Usar os dias do banco" : "Usar um ciclo só";
       aviso.hidden = false;
       acaoCiclos.hidden = false;
     } else {
@@ -15696,18 +15721,28 @@
     var card = byId(state.cards, cartaoSel);
     if (!card) return;
     botaoDaAcao = e.currentTarget;
+    /* Havendo dias do banco, são eles. O botão que usava os dias do cadastro
+     * ainda dependia de a pessoa ter acertado o cadastro — e é o cadastro
+     * que costuma estar errado. */
+    var temBanco = card.fechamentoBanco != null && card.vencimentoBanco != null;
+    var fecha = temBanco ? card.fechamentoBanco : card.fechamento;
+    var vence = temBanco ? card.vencimentoBanco : card.vencimento;
+    var doBanco = temBanco && (fecha !== card.fechamento || vence !== card.vencimento);
     pedirConfirmacao({
-      titulo: "Usar um ciclo só, com fechamento dia " + card.fechamento + " e vencimento dia " + card.vencimento + "?",
+      titulo: (doBanco ? "Usar os dias do banco" : "Usar um ciclo só") +
+        ", fechamento dia " + fecha + " e vencimento dia " + vence + "?",
       ctx: card.nome,
-      detalhe: "Os ciclos antigos são apagados e estes dias passam a valer para todas as faturas. " +
-        "Nenhum lançamento muda de fatura — as faturas continuam com os nomes que têm hoje. " +
-        "Use isto quando os dias sempre foram estes e o errado era o cadastro.",
-      acao: "Usar um ciclo só"
+      detalhe: (doBanco
+        ? "Estes são os dias lidos das faturas do próprio banco. "
+        : "") +
+        "Os ciclos antigos são apagados e estes dias passam a valer para todas as faturas. " +
+        "Nenhum lançamento muda de fatura — as faturas continuam com os nomes que têm hoje.",
+      acao: doBanco ? "Usar os dias do banco" : "Usar um ciclo só"
     }, async function () {
       if (!MODO_API) return;
       await comServidor("ajustar o ciclo", function () {
         return api("/credit-cards/" + card.id + "/billing-cycle/corrigir",
-          { closingDay: card.fechamento, dueDay: card.vencimento }, "PATCH");
+          { closingDay: fecha, dueDay: vence }, "PATCH");
       });
     });
   });

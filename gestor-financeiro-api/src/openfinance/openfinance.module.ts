@@ -13,11 +13,16 @@ import { OpenFinanceService } from './openfinance.service';
 import { OpenFinanceScheduler } from './openfinance.scheduler';
 import { PolpClient } from './polp.client';
 import { PushModule } from '../push/push.module';
+import { CreditCardsModule } from '../credit-cards/credit-cards.module';
 
 @Module({
   /* O trabalho diário já sabe quantos lançamentos esperam; o módulo de push
    * sabe entregar o aviso. Quem decide a HORA continua sendo o trabalho. */
-  imports: [PushModule],
+  /* `CreditCardsModule` entra pelo ciclo de fatura: o banco é quem sabe os
+   * dias de verdade, e alinhar o cartão com eles passa pela MESMA correção
+   * que o formulário usa — nenhuma regra de fatura nasce aqui dentro. A
+   * dependência é de mão única, e apagar esta pasta continua bastando. */
+  imports: [PushModule, CreditCardsModule],
   /* O webhook fica em controller próprio porque não tem pessoa logada:
    * quem bate é o provedor. Pôr a rota junto das outras obrigaria a
    * afrouxar o guard que protege todas elas. */

@@ -698,6 +698,17 @@ model CreditCard {
   /// de desconectar — o cartão e as compras dele continuam onde estavam.
   connectionId  String?  @map("connection_id")
   providerAccountId String? @map("provider_account_id")
+  /// Os dias que o BANCO reporta, lidos das faturas dele na sincronização.
+  /// Nulos até a primeira leitura, e nulos para cartão que não veio do Open
+  /// Finance. Guardados porque antes eram lidos, usados na tela de conferir
+  /// e jogados fora — e aí nenhuma outra tela sabia o que o banco tinha dito.
+  bankClosingDay Int?    @map("bank_closing_day")
+  bankDueDay     Int?    @map("bank_due_day")
+  /// O ciclo deste cartão está como uma PESSOA quis, e não como o banco diz.
+  /// Enquanto for falso, os dias do banco são aplicados sozinhos: não há
+  /// decisão humana para respeitar. Vira verdadeiro quando alguém grava dias
+  /// que discordam do banco, e volta a falso quando voltam a concordar.
+  cycleEditedByUser Boolean @default(false) @map("cycle_edited_by_user")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 

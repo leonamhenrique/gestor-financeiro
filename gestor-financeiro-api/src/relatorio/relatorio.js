@@ -519,6 +519,12 @@ function cartaoDaApi(j) {
       // Faturas viradas: { '2026-12': '2026-11-23' }. Vêm no próprio cartão
       // porque toda tela de lançamento precisa delas.
       viradas: j.earlyClosures || {},
+      // Os dias que o BANCO reporta, quando o cartão veio do Open Finance.
+      // Eles existem para a tela poder dizer de onde vem o número certo, em
+      // vez de perguntar a quem não tem como saber.
+      fechamentoBanco: j.bankClosingDay == null ? null : j.bankClosingDay,
+      vencimentoBanco: j.bankDueDay == null ? null : j.bankDueDay,
+      cicloEscolhido: !!j.cycleEditedByUser,
       // A linha do tempo do ciclo: [{ inicio: '2027-02', fechamento, vencimento }].
       // Sem ela, a tela calcularia as faturas antigas com os dias de hoje.
       ciclos: (j.cycles || []).map(function (c) {

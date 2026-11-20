@@ -17,11 +17,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OpenFinanceService } from './openfinance.service';
 import { OpenFinanceAtivo } from './openfinance.controller';
+import { CreditCardsService } from '../credit-cards/credit-cards.service';
 import { PolpClient, ConflitoDeConsentimento } from './polp.client';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('OpenFinance', () => {
   let service: OpenFinanceService;
+  let cartoes: any;
   let polp: any;
   let prisma: any;
 
@@ -74,6 +76,7 @@ describe('OpenFinance', () => {
       },
       creditCard: {
         findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue(null),
         update: jest.fn(),
         updateMany: jest.fn(),
       },
@@ -95,11 +98,17 @@ describe('OpenFinance', () => {
       },
     };
 
+    cartoes = { corrigirCiclo: jest.fn().mockResolvedValue({}) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OpenFinanceService,
         { provide: PrismaService, useValue: prisma },
         { provide: PolpClient, useValue: polp },
+        /* Um dublê: o que o Open Finance faz com o cartão é CHAMAR a mesma
+         * correção de ciclo do formulário. O que se confere aqui é quando
+         * ele chama; como ela corrige tem suíte própria. */
+        { provide: CreditCardsService, useValue: cartoes },
       ],
     }).compile();
 
@@ -282,6 +291,100 @@ describe('OpenFinance', () => {
         service.conectar('u1', { institutionId: 'nao-existe', cpf: '12345678900' }),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.openFinanceConnection.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  /* O BANCO sabe os dias; o cadastro e um palpite de quem digitou. Medido
+   * num cartao real: 15 faturas seguidas com fechamento 30 e vencimento 7,
+   * contra um cadastro que dizia 1 e 7 -- e o resultado foi um mes inteiro
+   * sem fatura. Ate aqui esses dias eram lidos, mostrados numa tela e
+   * jogados fora. */
+  describe('os dias que o banco reporta', () => {
+    beforeEach(() => {
+      polp.cartoes.mockResolvedValue([{ providerAccountId: 'k-la', nome: 'GOLD' }]);
+      polp.transacoesDoCartao.mockResolvedValue([]);
+      polp.diasDoCartao.mockResolvedValue({ fechamento: 30, vencimento: 7 });
+      prisma.creditCard.findFirst.mockResolvedValue({ id: 'card-1' });
+    });
+
+    it('ficam gravados no cartao', async () => {
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 30, dueDay: 7, cycleEditedByUser: false, cycles: [{}],
+      });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(prisma.creditCard.update).toHaveBeenCalledWith({
+        where: { id: 'card-1' },
+        data: { bankClosingDay: 30, bankDueDay: 7 },
+      });
+    });
+
+    /* Sem escolha de ninguem para respeitar, o banco vale: nao ha decisao
+     * humana ali, so um palpite de cadastro contra as faturas de verdade. */
+    it('cartao que ninguem configurou e alinhado sozinho', async () => {
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 1, dueDay: 7, cycleEditedByUser: false, cycles: [{}],
+      });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(cartoes.corrigirCiclo).toHaveBeenCalledWith('u1', 'card-1', 30, 7);
+    });
+
+    /* Dois periodos e historico torto mesmo com as colunas certas: tambem
+     * se alinha, porque e justamente a pilha de ciclos que come um mes. */
+    it('cartao com mais de um ciclo e alinhado, mesmo com os dias certos', async () => {
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 30, dueDay: 7, cycleEditedByUser: false, cycles: [{}, {}],
+      });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(cartoes.corrigirCiclo).toHaveBeenCalled();
+    });
+
+    it('ja alinhado nao se mexe', async () => {
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 30, dueDay: 7, cycleEditedByUser: false, cycles: [{}],
+      });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(cartoes.corrigirCiclo).not.toHaveBeenCalled();
+    });
+
+    /* Aqui existe decisao humana, e a integracao volta a so propor: pode
+     * ser o banco atrasado, ou alguem que conhece o cartao melhor que a API. */
+    it('cartao que a pessoa configurou NAO e mexido', async () => {
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 1, dueDay: 7, cycleEditedByUser: true, cycles: [{}],
+      });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(cartoes.corrigirCiclo).not.toHaveBeenCalled();
+    });
+
+    it('banco sem dias legiveis nao grava nem alinha', async () => {
+      polp.diasDoCartao.mockResolvedValue({ fechamento: null, vencimento: null });
+
+      await service.paraImportar('u1', 'cx1');
+
+      expect(cartoes.corrigirCiclo).not.toHaveBeenCalled();
+      expect(prisma.creditCard.update).not.toHaveBeenCalled();
+    });
+
+    /* A conferencia e o que a pessoa esta esperando na tela; o alinhamento
+     * e um extra. Extra que falha nao derruba o principal. */
+    it('recusa da correcao nao derruba a conferencia', async () => {
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 1, dueDay: 7, cycleEditedByUser: false, cycles: [{}],
+      });
+      cartoes.corrigirCiclo.mockRejectedValue(new Error('um mes nao existiria'));
+
+      await expect(service.paraImportar('u1', 'cx1')).resolves.toBeDefined();
     });
   });
 
