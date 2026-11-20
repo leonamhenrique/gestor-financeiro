@@ -12406,7 +12406,13 @@
         (l.candidata
           ? '<span class="imp-tag" title="' + esc(l.candidata.desc || "") + '">parece que você já lançou: ' +
             esc(encurtar(l.candidata.desc || "sem histórico", 22)) + " · " +
-            fmtDataBR(l.candidata.data) + "</span>"
+            fmtDataBR(l.candidata.data) + "</span>" +
+            /* A saída que faltava. Sem ela, quem reconhece o próprio gasto
+             * só tinha duas: deixar de fora, e a linha voltar amanhã; ou
+             * importar, e ficar com dois lançamentos do mesmo dinheiro. */
+            (MODO_API && imp.openFinance && l.base.fitid
+              ? '<button type="button" class="pill imp-mesmo" data-i="' + i + '">É o mesmo</button>'
+              : "")
           : "") +
         (l.pagamento ? '<span class="imp-tag">pagamento da fatura</span>' : "") +
         /* O banco levantou a mão. É sugestão, e some assim que a pessoa
@@ -12617,6 +12623,38 @@
     var abrindo = b.getAttribute("aria-expanded") !== "true";
     b.setAttribute("aria-expanded", String(abrindo));
     document.getElementById("imp-prontas").hidden = !abrindo;
+  });
+
+  /* "É o mesmo": o lançamento que já existe RECEBE o id do banco.
+   *
+   * Nada é criado. Valor, data, categoria e descrição continuam os da
+   * pessoa — o que entra é só a identidade, e é ela que faz a linha sumir
+   * da proposta para sempre, pelo mesmo filtro que já impede o que foi
+   * importado de voltar.
+   *
+   * O app nunca faz isto sozinho: a candidata é proposta, e o vínculo só
+   * acontece neste toque. */
+  document.getElementById("imp-lista").addEventListener("click", async function (e) {
+    var b = e.target.closest(".imp-mesmo");
+    if (!b) return;
+    var i = Number(b.getAttribute("data-i"));
+    var l = imp.linhas[i];
+    if (!l || !l.candidata || !l.base.fitid) return;
+
+    var ok = await comServidor("ligar este lançamento ao do banco", async function () {
+      await api("/openfinance/vincular-lancamento", {
+        transactionId: l.candidata.id,
+        providerTxId: l.base.fitid
+      });
+    });
+    if (!ok) return;
+
+    /* Daqui para a frente ela é "já existe", como qualquer linha que o app
+     * reconhece: fora da importação, e à vista para quem quiser conferir. */
+    l.repetida = true;
+    l.candidata = null;
+    l.marcada = false;
+    pintarImportacao();
   });
 
   /* Repetir a mesma categoria em 44 parcelas do mesmo lojista, uma a uma, é

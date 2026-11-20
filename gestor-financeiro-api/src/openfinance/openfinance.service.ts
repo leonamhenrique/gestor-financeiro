@@ -529,6 +529,52 @@ export class OpenFinanceService {
    * É opcional e reversível: desvincular é mandar `destinoId` nulo, e a conta
    * volta a ser comum, com o histórico inteiro.
    */
+  /**
+   * "Este lançamento que eu já tinha É o que o banco mandou."
+   *
+   * Grava no lançamento da pessoa o id da transação no provedor, e nada
+   * mais. Valor, data, categoria, destino e DESCRIÇÃO continuam os dela —
+   * copiar o texto do banco por cima desfaria uma edição que ela fez de
+   * propósito.
+   *
+   * Isto existe para cercar a duplicata. Sem ele, quem reconhece o próprio
+   * gasto na lista só tem duas saídas: deixar de fora (e a linha volta
+   * amanhã) ou importar (e ficar com dois lançamentos do mesmo dinheiro).
+   * Com o id gravado, a linha some da proposta para sempre — pelo mesmo
+   * filtro que já impede o que foi importado de voltar.
+   *
+   * Quem decide é sempre a pessoa: o app NUNCA vincula sozinho.
+   */
+  async vincularLancamento(userId: string, transactionId: string, providerTxId: string) {
+    const meu = await this.prisma.transaction.findFirst({
+      where: { id: transactionId, userId },
+      select: { id: true, providerTxId: true },
+    });
+    if (!meu) throw new NotFoundException('Lançamento não encontrado.');
+
+    /* Já tem OUTRO id do banco: são duas transações diferentes do provedor
+     * apontando para o mesmo lançamento daqui, e uma delas está errada. */
+    if (meu.providerTxId && meu.providerTxId !== providerTxId) {
+      throw new BadRequestException('Este lançamento já está ligado a outra transação do banco.');
+    }
+
+    /* E o id do banco não pode pertencer a dois lançamentos: seria o mesmo
+     * dinheiro contado duas vezes, que é justamente o que isto evita. */
+    const jaDeOutro = await this.prisma.transaction.findFirst({
+      where: { userId, providerTxId, NOT: { id: transactionId } },
+      select: { id: true },
+    });
+    if (jaDeOutro) {
+      throw new BadRequestException('Esta transação do banco já está em outro lançamento.');
+    }
+
+    await this.prisma.transaction.update({
+      where: { id: meu.id },
+      data: { providerTxId, syncedAt: new Date() },
+    });
+    return { vinculado: true };
+  }
+
   async vincular(
     userId: string,
     id: string,

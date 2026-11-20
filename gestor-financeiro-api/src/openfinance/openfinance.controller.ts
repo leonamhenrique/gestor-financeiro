@@ -43,6 +43,7 @@ import {
   IsOptional,
   IsArray,
   ArrayMaxSize,
+  MaxLength,
 } from 'class-validator';
 import { OpenFinanceService, openFinanceLigado } from './openfinance.service';
 
@@ -104,6 +105,19 @@ export class VincularDto {
   @IsOptional()
   @IsString()
   destinoId?: string | null;
+}
+
+/** "Este lançamento que eu já tinha é o que o banco mandou." */
+export class VincularLancamentoDto {
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[0-9a-fA-F-]{36}$/, { message: 'transactionId inválido.' })
+  transactionId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  providerTxId: string;
 }
 
 export class RecusarDto {
@@ -185,6 +199,19 @@ export class OpenFinanceController {
   @Post('recusados')
   recusar(@Req() req: any, @Body() dto: RecusarDto) {
     return this.openFinance.recusar(req.user.id, dto.providerTxIds);
+  }
+
+  /**
+   * Liga um lançamento que a pessoa JÁ TINHA à transação do banco.
+   *
+   * Não cria nada e não sobrescreve nada dela: grava só o id do provedor.
+   * É o que cerca a duplicata quando ela reconhece o próprio gasto na
+   * lista — sem isto, as saídas eram deixar de fora (e a linha voltar
+   * amanhã) ou importar (e ficar com dois lançamentos do mesmo dinheiro).
+   */
+  @Post('vincular-lancamento')
+  vincularLancamento(@Req() req: any, @Body() dto: VincularLancamentoDto) {
+    return this.openFinance.vincularLancamento(req.user.id, dto.transactionId, dto.providerTxId);
   }
 
   /** Liga um recurso de lá a uma conta/cartão daqui. `destinoId` nulo solta. */

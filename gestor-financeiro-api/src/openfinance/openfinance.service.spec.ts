@@ -88,6 +88,7 @@ describe('OpenFinance', () => {
       },
       transaction: {
         findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn(),
         createMany: jest.fn(),
         update: jest.fn(),
@@ -548,6 +549,73 @@ describe('OpenFinance', () => {
   });
 
   // ----------------------------------------------------------------------
+  /* "Este lancamento que eu ja tinha E o que o banco mandou."
+   *
+   * Nasceu de uma pergunta com a tela na mao: se a pessoa importar uma
+   * linha que ja existe, o app sobrepoe? Nao -- ele DUPLICA. A caixa
+   * desmarcada era a unica protecao, e protecao que depende de ninguem
+   * insistir nao e protecao. */
+  describe('vincular um lancamento que ja existe', () => {
+    it('grava o id do provedor, e so isso', async () => {
+      prisma.transaction.findFirst
+        .mockResolvedValueOnce({ id: 't1', providerTxId: null })  // o meu
+        .mockResolvedValueOnce(null);                             // ninguem mais tem esse id
+
+      await service.vincularLancamento('u1', 't1', 'tx-do-banco');
+
+      const chamada = prisma.transaction.update.mock.calls[0][0];
+      expect(chamada.where).toEqual({ id: 't1' });
+      expect(chamada.data.providerTxId).toBe('tx-do-banco');
+      expect(chamada.data.syncedAt).toBeInstanceOf(Date);
+      /* Valor, data, categoria e DESCRICAO continuam os dela: copiar o
+       * texto do banco por cima desfaria uma edicao feita de proposito. */
+      expect(Object.keys(chamada.data).sort()).toEqual(['providerTxId', 'syncedAt']);
+    });
+
+    it('lancamento de outra pessoa nao se vincula', async () => {
+      prisma.transaction.findFirst.mockResolvedValueOnce(null);
+
+      await expect(service.vincularLancamento('u1', 't-alheio', 'tx-1')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.transaction.update).not.toHaveBeenCalled();
+    });
+
+    /* Duas transacoes do banco apontando para o mesmo lancamento daqui:
+     * uma das duas esta errada, e gravar por cima perderia a primeira. */
+    it('lancamento que ja tem OUTRO id do banco e recusado', async () => {
+      prisma.transaction.findFirst.mockResolvedValueOnce({ id: 't1', providerTxId: 'tx-antigo' });
+
+      await expect(service.vincularLancamento('u1', 't1', 'tx-novo')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.transaction.update).not.toHaveBeenCalled();
+    });
+
+    /* O mesmo id em dois lancamentos seria o mesmo dinheiro contado duas
+     * vezes -- exatamente o que isto veio evitar. */
+    it('id do banco que ja esta em outro lancamento e recusado', async () => {
+      prisma.transaction.findFirst
+        .mockResolvedValueOnce({ id: 't1', providerTxId: null })
+        .mockResolvedValueOnce({ id: 't2' });
+
+      await expect(service.vincularLancamento('u1', 't1', 'tx-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.transaction.update).not.toHaveBeenCalled();
+    });
+
+    it('vincular de novo ao MESMO id nao reclama', async () => {
+      prisma.transaction.findFirst
+        .mockResolvedValueOnce({ id: 't1', providerTxId: 'tx-1' })
+        .mockResolvedValueOnce(null);
+
+      await expect(service.vincularLancamento('u1', 't1', 'tx-1')).resolves.toEqual({
+        vinculado: true,
+      });
+    });
+  });
+
   describe('vincular', () => {
     it('liga o cartao de la ao cartao daqui', async () => {
       prisma.creditCard.findFirst.mockResolvedValue({ id: 'k-daqui' });
