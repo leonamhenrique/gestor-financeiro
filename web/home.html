@@ -742,6 +742,19 @@
    * que o que está atrás é a página. */
   .seg--solta { background: none; gap: 16px; }
   .seg--solta .seg-cell { border-radius: var(--r-lg); padding: var(--blk-pad-y) var(--blk-pad-x); }
+  /* Sendo BLOCO, veste o que todo bloco veste: a superfície neutra. O fundo
+   * tingido era o que dizia "aqui é receita, ali é despesa" quando as duas
+   * eram células de uma caixa só, coladas pela hairline; separadas e com o
+   * valor na cor do sinal, ele passou a ser uma segunda voz dizendo o mesmo
+   * mais alto — e as duas únicas manchas de cor da tela.
+   *
+   * A cor fica no VALOR, onde ela é lida junto com o número. E ela melhora
+   * sem o tinte atrás: medido, o verde sobe de 9,10:1 para 10,00:1 e o
+   * vermelho de 6,15:1 para 6,76:1 no escuro; no claro, 6,51 e 6,30. */
+  .seg--solta .seg-cell--receita,
+  .seg--solta .seg-cell--despesa {
+    background-image: linear-gradient(var(--superficie), var(--superficie));
+  }
   .seg-val { font-size: 17px; font-weight: 500; }
   /* Três células numa tela de celular dão ~105px cada: com padding e fonte do
    * desktop, um valor de cinco dígitos (12.345,67) é cortado. Só o grid de três

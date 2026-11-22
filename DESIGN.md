@@ -273,10 +273,16 @@ mesmo: a borda saiu quando o bloco virou quem desenha a caixa (regra 1).
 
 **Par solto** (`.seg--solta`, o receitas/despesas do Resumo) — cada lado deixa
 de ser célula e vira bloco: sai o fundo que desenhava a hairline do meio, entra
-um vão de 16px, e cada lado ganha `--r-lg` e o respiro de bloco. O invólucro
-então **não** é bloco (`.blk--solto`: sem superfície e sem respiro), senão a
-tela teria caixa dentro de caixa. O tinte não muda de receita porque já era
-pintado por cima de `--bg`, e não da célula.
+um vão de 16px, e cada lado ganha `--r-lg`, o respiro de bloco e **a superfície
+neutra, como qualquer bloco**. O invólucro então **não** é bloco (`.blk--solto`:
+sem superfície e sem respiro), senão a tela teria caixa dentro de caixa.
+
+**Sendo bloco, perde o tinte**: o fundo tingido dizia "aqui é receita, ali é
+despesa" quando as duas eram células coladas pela hairline; separadas e com o
+valor na cor do sinal, ele virou uma segunda voz dizendo o mesmo mais alto, e
+as duas únicas manchas de cor da tela. A cor fica no VALOR, e melhora sem o
+tinte atrás: o verde sobe de 9,10:1 para 10,00:1 e o vermelho de 6,15 para
+6,76 no escuro; no claro, 6,51 e 6,30.
 
 A célula de **receita** e a de **despesa** fogem do fundo neutro: fundo tingido
 a 10% do próprio sinal (`--seg-receita-fundo`, `--seg-despesa-fundo`) e valor
