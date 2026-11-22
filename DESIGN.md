@@ -188,6 +188,20 @@ salva, segue `prefers-color-scheme`.
 
 ### Rolagem
 
+**A página e o trilho congelado são uma rolagem só, em fila.** O `.rail-fixo`
+tem rolagem própria, e quando ele é mais alto que a tela o resto dele só
+andava com o ponteiro DENTRO dele: a página chegava ao fim, a roda parava de
+fazer efeito e metade da lista ficava escondida de quem não descobrisse que
+precisava mirar na coluna. Acabou a página, a roda passa a mover o trilho;
+voltando, o trilho desfaz primeiro o que fez por último, e só então a página
+sobe — último a entrar, primeiro a sair, senão a volta pula um pedaço.
+
+Vale para TODO trilho congelado, por um ouvinte só de `wheel` no documento,
+que não age quando o ponteiro já está dentro do trilho (lá o navegador faz
+sozinho, e somar o delta dobraria a velocidade) nem quando a página ainda tem
+para onde ir. `deltaY` é convertido: o Firefox manda linhas, não pixels. No
+telefone não existe trilho congelado, então não há o que tratar no toque.
+
 A barra padrão do sistema é clara e tem trilho — num fundo `--bg` ela vira a
 coisa mais brilhante da tela. Toda área que rola, **inclusive a página**, usa a
 mesma barra fina, sem trilho:

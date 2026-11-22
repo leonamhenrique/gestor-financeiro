@@ -15959,6 +15959,47 @@
     document.getElementById("k-add-lancamento").click();
   });
 
+  /* ================= a rolagem continua no trilho =================
+   *
+   * O trilho congela e tem rolagem própria (`.rail-fixo`). Quando ele é mais
+   * alto que a tela, o resto dele só andava com o ponteiro DENTRO dele: a
+   * página chegava ao fim e a roda parava de fazer efeito, com meia lista de
+   * contas ainda escondida. Quem não descobre que precisa mirar na coluna
+   * nunca vê o que está lá embaixo.
+   *
+   * Aqui a página e o trilho viram uma rolagem só, em fila: acabou a página,
+   * a roda passa a mover o trilho; voltando, o trilho desfaz primeiro o que
+   * fez por último, e só então a página sobe. É o último a entrar, primeiro a
+   * sair — qualquer outra ordem faria a volta pular um pedaço.
+   *
+   * Só com a roda, e só quando o ponteiro está FORA do trilho: dentro dele o
+   * navegador já faz isso sozinho, e duplicar o delta dobraria a velocidade.
+   * No celular não existe trilho congelado (é regra do desktop), então não há
+   * o que tratar no toque. */
+  document.addEventListener("wheel", function (e) {
+    // Ctrl+roda é zoom do navegador, não rolagem.
+    if (e.ctrlKey) return;
+    if (e.target && e.target.closest && e.target.closest(".rail-fixo")) return;
+    var trilho = document.querySelector(".view.on .rail-fixo");
+    if (!trilho) return;
+    var sobra = trilho.scrollHeight - trilho.clientHeight;
+    if (sobra < 2) return;
+
+    var pagina = document.scrollingElement || document.documentElement;
+    var noFim = pagina.scrollTop + pagina.clientHeight >= pagina.scrollHeight - 1;
+    if (!noFim) return;
+
+    /* `deltaY` nem sempre vem em pixels: o Firefox manda linhas (modo 1) e
+     * há quem mande páginas (modo 2). Sem converter, uma volta da roda
+     * moveria três pixels. */
+    var d = e.deltaY;
+    if (e.deltaMode === 1) d *= 16;
+    else if (e.deltaMode === 2) d *= trilho.clientHeight;
+
+    if (d > 0 && trilho.scrollTop < sobra - 1) { trilho.scrollTop += d; e.preventDefault(); }
+    else if (d < 0 && trilho.scrollTop > 0) { trilho.scrollTop += d; e.preventDefault(); }
+  }, { passive: false });
+
   /* Mostra a barra só quando as ações originais já subiram para FORA da tela.
    * Testar apenas "não está visível" não bastaria: isso também é verdade antes
    * de rolar, quando elas ainda estão abaixo — e a barra apareceria por cima da
