@@ -637,8 +637,9 @@ E saem de `totaisDoMes`, **a mesma fonte do bloco de Receitas/Despesas logo
 abaixo**: somar por fora aqui faria a faixa e o detalhe do mês dizerem números
 diferentes sobre o mesmo mês, que é exatamente o que a regra do total proíbe.
 
-**Sem card.** As colunas se separam por hairline vertical, como a lista se
-separa por hairline horizontal (regra 1), e o mês escolhido é marcado como a
+**Nada de caixa por coluna.** O degrau de luz é do BLOCO, e não de cada mês
+dentro dele (regra 1): as colunas se separam por hairline vertical, como a
+lista se separa por hairline horizontal, e o mês escolhido é marcado como a
 aba ativa — filete de `--accent` na borda de cima, nome em `--accent` — nunca
 por caixa com fundo e contorno próprios.
 
@@ -1940,10 +1941,16 @@ larga — isso troca densidade por respiro, que é o oposto do princípio. A
 linguagem atravessa inteira (tokens, tipografia, hairlines, ausência de card,
 anatomia de barra e lista); o que muda é só a composição.
 
-Em tela larga o "sem cards" perde o apoio natural da coluna única: blocos sem
-fundo tendem a flutuar e o agrupamento se desfaz. A resposta **não** é
-reintroduzir caixa — é trilho: uma hairline vertical nascida do grid, mais
-espaço entre blocos, e largura de leitura limitada.
+Em tela larga a coluna única deixa de segurar o agrupamento: blocos soltos
+tendem a flutuar. Quem resolve isso é a superfície do bloco (regra 1), mais
+espaço entre blocos e largura de leitura limitada.
+
+**Sem filete entre as colunas.** Enquanto os blocos não tinham fundo, uma
+hairline vertical nascida do grid era o que dizia "isto aqui é outra coluna";
+com a superfície ela virou um traço a mais cortando a tela entre duas pilhas
+que já se separam sozinhas, e saiu em 21/11/2026. **A calha de 64px fica** —
+32 de `gap` mais 32 de recuo no trilho: as contas de quebra desta seção são
+escritas em cima dela, e tirar o recuo junto moveria todos os pontos.
 
 ### 9.1 Tokens adicionais
 

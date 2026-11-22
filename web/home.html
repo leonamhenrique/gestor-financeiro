@@ -2090,7 +2090,7 @@
      * que acontece a partir de ~1272 de viewport. Daí o corte em 1280. */
     @media (max-width: 1279px) {
       .split--fluxo { grid-template-columns: minmax(0, 1fr); }
-      .split--fluxo > .rail { border-left: none; padding-left: 0; }
+      .split--fluxo > .rail { padding-left: 0; }
       /* Mesmo critério, outra conta: a lista precisa de 720px para a linha
        * inteira (592 de colunas fixas e vãos, mais 128 para o nome), e a
        * coluna principal só chega lá quando o conteúdo bate no teto de 1120
@@ -2100,7 +2100,7 @@
        * O trilho sobe para a frente, como no celular: quem ESCOLHE vem antes
        * de quem é escolhido — mês e filtro antes da lista que eles filtram. */
       .split--extrato { grid-template-columns: minmax(0, 1fr); }
-      .split--extrato > .rail { border-left: none; padding-left: 0; order: -1; }
+      .split--extrato > .rail { padding-left: 0; order: -1; }
       /* Objetivos pela mesma regra, e pelo mesmo motivo medido: em 768 a
        * coluna principal saía com 254px contra um trilho de 320, e aí TODOS os
        * 5 nomes e as 10 metas ficavam cortados — "Notebook novo" virava "Not…"
@@ -2112,21 +2112,32 @@
        * nada, só explica de onde vem o dinheiro guardado — é nota de rodapé,
        * e nota de rodapé não abre a página. */
       .split--objetivos { grid-template-columns: minmax(0, 1fr); }
-      .split--objetivos > .rail { border-left: none; padding-left: 0; }
+      .split--objetivos > .rail { padding-left: 0; }
       /* Planejamento pela mesma régua: a linha da meta é alta (nome, frase e
        * barra) e não cabe em coluna estreita. Aqui o trilho sobe para a
        * FRENTE, ao contrário do de Objetivos: ele carrega o número do mês —
        * quanto já foi gasto do teto —, que é a resposta que a pessoa veio
        * buscar; a lista por categoria é o detalhamento dela. */
       .split--planejamento { grid-template-columns: minmax(0, 1fr); }
-      .split--planejamento > .rail { border-left: none; padding-left: 0; order: -1; }
+      .split--planejamento > .rail { padding-left: 0; order: -1; }
       .view[data-view="pendencias"] .split--par { grid-template-columns: minmax(0, 1fr); }
-      /* Em coluna única o trilho não divide nada: o filete e o recuo sairiam
-       * indentando a segunda seção sem nada do lado. */
-      .view[data-view="pendencias"] .split--par > .rail { border-left: none; padding-left: 0; }
+      /* Em coluna única o recuo sairia indentando a segunda seção sem nada
+       * do lado. */
+      .view[data-view="pendencias"] .split--par > .rail { padding-left: 0; }
     }
     .col-main, .rail, .rail-fixo { gap: var(--blk-gap); }
-    .rail { border-left: 1px solid var(--hairline); padding-left: var(--col-gap); }
+    /* Sem filete entre as colunas. Ele existia porque em tela larga o "sem
+     * cards" perdia o apoio da coluna única e os blocos flutuavam: a hairline
+     * vertical era o que dizia "isto aqui é outra coluna". Quem diz isso
+     * agora é a superfície do bloco (regra 1), e a linha passou a ser um
+     * traço a mais cortando a tela entre duas pilhas que já se separam
+     * sozinhas.
+     *
+     * A CALHA FICA: os 32px de recuo mais os 32 do gap somam os 64 que as
+     * contas de quebra deste arquivo usam ("com a calha de 64, isso exige
+     * 944px de corpo"). Tirar o recuo junto moveria todos os pontos de
+     * quebra. */
+    .rail { padding-left: var(--col-gap); }
     /* O trilho é do .rail, que estica com a linha do grid; quem congela é o
      * conteúdo dentro dele — um sticky esticado não teria onde grudar. */
     .rail-fixo {
