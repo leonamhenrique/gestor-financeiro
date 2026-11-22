@@ -164,16 +164,18 @@
    * escurecidos: o ciano claro do tema escuro não tem contraste sobre claro.
    * Hairline em preto precisa de mais opacidade que em branco para pesar igual. */
   :root[data-tema="claro"] {
-    --bg: #F6F8FB;
-    /* Branco puro: aqui o degrau é para CIMA, como no escuro, mas rende
-     * menos — a página já é quase branca. Medido, a tinta GANHA contraste
-     * sobre ele (`--fg-subtle` de 5,23:1 para 5,34:1), então o custo do
-     * degrau no tema claro é zero. */
+    /* A PÁGINA é que desce, porque a superfície não tem para onde subir: ela
+     * já é branco puro. Com #F6F8FB o bloco se separava do fundo por 1,06x de
+     * luminância — contra 1,22x no escuro —, e as seções chapavam umas nas
+     * outras. Em #E6ECF4 o degrau fecha 1,19x, que é a mesma leitura dos dois
+     * lados. Baixou em 22/11/2026, junto com o degrau do tema escuro. */
+    --bg: #E6ECF4;
     --superficie: #FFFFFF;
     --hairline: rgba(15,23,32,0.10);
     --hairline-strong: rgba(15,23,32,0.16);
-    /* Tinta preta rende menos que branca: 0,46 aqui para os mesmos 3,00:1. */
-    --controle-borda: rgba(15,23,32,0.46);
+    /* Tinta preta rende menos que branca: 0,47 aqui para os mesmos 3,00:1 —
+     * subiu de 0,46 quando a página escureceu, que levou a borda para 2,94. */
+    --controle-borda: rgba(15,23,32,0.47);
     /* O ocre do aviso, só no preenchimento da barra. O --warning de texto
      * rende 4,69:1 contra a página, e era ELE quem limitava o trilho: com o
      * preenchimento tão claro, não sobrava espaço entre os dois. Escurecido
@@ -195,7 +197,10 @@
      * 3,2:1 — abaixo do mínimo de texto. Medido: 0,64 é o piso para 4,5:1,
      * inclusive sobre as células tingidas de receita e despesa. */
     --fg-muted: rgba(20,32,43,0.78);
-    --fg-subtle: rgba(20,32,43,0.66);
+    /* 0,70, e não os 0,66 de antes: é a tinta do texto MENOR da tela, e ela
+     * sobe junto com a do escuro pelo mesmo motivo. Medido: 6,10:1 sobre o
+     * bloco branco e 5,65:1 sobre a página. */
+    --fg-subtle: rgba(20,32,43,0.70);
     --fg-ghost: rgba(20,32,43,0.52);
 
     /* Um passo mais escuro que o ciano de antes (#0E7C86): sobre o próprio

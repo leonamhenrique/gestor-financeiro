@@ -57,12 +57,15 @@ Consequências práticas:
   `margin-inline: calc(var(--blk-pad-x) * -1)` com
   `width: calc(100% + var(--blk-pad-x) * 2)`. Vale para o gráfico do saldo e a
   faixa de meses — 40px a menos tiram um mês da faixa.
-- O degrau é limitado pelo que custa ao TEXTO. Em `#162133` a tinta mais
-  fraca (`--fg-subtle`) fecharia 4,97:1 no escuro — passava, mas a 0,47 do
-  piso de 4,5 —, então ela subiu junto, de 0,54 para 0,58: **5,50:1 sobre o
-  bloco e 6,00 sobre a página**, melhor do que antes de clarear. No claro
-  SOBE de 5,23 para 5,34 sem precisar de nada. Mexer nessa cor é refazer a
-  conta: em `#1E2B41` com a tinta antiga ela fecharia 4,62.
+- **O degrau é o mesmo nos dois temas: ~1,2x de luminância.** No escuro quem
+  sobe é a superfície (`#162133`); no claro quem desce é a **página**
+  (`#E6ECF4`), porque a superfície já é branco puro e não tem para onde subir.
+- O degrau é limitado pelo que custa ao TEXTO, e a tinta mais fraca
+  (`--fg-subtle`) subiu junto nos dois: 0,54 → 0,58 no escuro (**5,50:1** sobre
+  o bloco, 6,00 sobre a página) e 0,66 → 0,70 no claro (**6,10:1** sobre o
+  bloco, 5,65 sobre a página). O piso é 4,5. Mexer nessas cores é refazer a
+  conta — e a página mais escura também levou `--controle-borda` de 0,46 para
+  0,47, senão o contorno de controle caía para 2,94 contra os 3,00 exigidos.
 
 ## 2. Tokens
 
@@ -118,17 +121,17 @@ nenhuma regra de composição muda. Três coisas não são simples inversão:
 
 ```css
 :root[data-tema="claro"] {
-  --bg:              #F6F8FB;
+  --bg:              #E6ECF4;                  /* a PÁGINA desce; a superfície é #FFF */
   --hairline:        rgba(15,23,32,0.10);
   --hairline-strong: rgba(15,23,32,0.16);
-  --controle-borda:  rgba(15,23,32,0.46);      /* 3,00:1 — tinta preta rende menos */
+  --controle-borda:  rgba(15,23,32,0.47);      /* 3,02:1 — tinta preta rende menos */
   --warning-borda:   rgba(154,100,16,0.75);    /* 3,01:1 — idem para o aviso */
   --bar-aviso:       #84540C;                  /* 6,06:1 — ocre só do preenchimento */
   --track:           rgba(15,23,32,0.28);      /* 1,85:1 — teto do acento, ver abaixo */
 
   --fg:        #14202B;
   --fg-muted:  rgba(20,32,43,0.78);
-  --fg-subtle: rgba(20,32,43,0.66);
+  --fg-subtle: rgba(20,32,43,0.70);
   --fg-ghost:  rgba(20,32,43,0.52);
 
   --accent:     #0C6E77;   --accent-ink: #F3FBFC;
