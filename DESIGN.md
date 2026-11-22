@@ -2172,6 +2172,19 @@ que entra pelo Resumo e volta por um botão) e **tela de detalhe**, cujo título
 o nome do registro (a pessoa, em Compartilhadas). Ali o título é a única coisa
 que diz onde você está.
 
+**Orientação da tela mora num "i"**, e não num bloco. Texto que explica como a
+tela funciona não muda nunca e se lê uma vez; num bloco fixo ele compete com os
+números em toda visita — nas Compartilhadas ocupava o trilho inteiro. O ícone
+(círculo com "i", `.icon-btn`) entra na vaga do botão principal, à esquerda
+dele: ali a linha já tem 44px por causa do botão, e o ícone não custa altura.
+
+A ajuda **continua na tela**, num bloco `hidden`, e a camada clona esse bloco:
+o texto é marcação (os negritos distinguem quem paga de quem deve) e passá-lo
+por `textContent` perderia isso. Uma camada só (`#dlg-ajuda`) serve todas as
+telas — acrescentar ajuda em outra é um bloco escondido e um botão com
+`data-ajuda` e `data-ajuda-titulo`, sem tocar no script. Rodapé com "Entendi",
+que é tudo o que há para fazer com um texto que explica.
+
 **Botão primário** — não estica: altura 44px, padding `0 24px`, largura
 automática, ancorado à direita no cabeçalho da tela. Continua um por tela.
 

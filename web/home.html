@@ -364,7 +364,9 @@
 
   .v-head h1 { font-size: 17px; font-weight: 600; margin: 0; }
   .v-head .sub { font-size: 12px; color: var(--fg-subtle); margin-top: 4px; }
-  .v-cta { display: flex; }
+  /* `flex-direction: row` é explícito porque `.blk` já declara `column`: sem
+   * isto o "i" e o botão principal empilham um sobre o outro. */
+  .v-cta { display: flex; flex-direction: row; gap: 8px; align-items: center; }
   /* Fileira de botões DENTRO de um bloco. Não é `.v-cta`: aquela é a vaga do
    * botão no grid da tela, e no desktop vem com `align-self: center` para
    * sentar ao lado do título — reusada aqui, ela centrava os botões no meio
@@ -1791,6 +1793,9 @@
     padding: 22px 64px 0 24px; position: sticky; top: 0;
     background: var(--bg); z-index: 2;
   }
+  /* O clone vem como um bloco só, com os parágrafos colados: no trilho quem
+   * os separava era o `gap` do bloco, que não existe aqui. */
+  #ajuda-corpo > * { display: flex; flex-direction: column; gap: 12px; }
   .layer-x {
     position: absolute; top: 14px; right: 14px;
     width: 44px; height: 44px; border-radius: 50%;
@@ -2076,6 +2081,9 @@
       gap: var(--col-gap); align-items: stretch;
     }
     .split--extrato { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+    /* Compartilhadas ficou sem trilho quando a explicação virou o "i": com
+     * duas colunas declaradas, a segunda seguiria reservando 320px de nada. */
+    .view[data-view="compartilhadas"] .split { grid-template-columns: minmax(0, 1fr); }
     .split--par { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     /* Pendências só abre em duas colunas quando cada uma cabe a linha inteira.
      * A linha dela é a mais pesada do app — nome, meta de quatro partes (data ·
@@ -3239,6 +3247,16 @@
     <section class="view" data-view="compartilhadas">
       <div class="blk v-head" style="--i:0"><h1 class="sr-only">Compartilhadas</h1></div>
       <div class="blk v-cta" style="--i:0">
+        <!-- A orientação da tela, que antes ocupava o trilho inteiro. Ela não
+             muda nunca e se lê uma vez; morava ao lado dos números, competindo
+             com eles em toda visita. O "i" fica na vaga do botão principal, e
+             não no cabeçalho: ali a linha já tem 44px de altura por causa do
+             botão, e o ícone não custa altura nenhuma. -->
+        <button class="icon-btn" type="button" data-ajuda="ajuda-compartilhadas"
+                data-ajuda-titulo="Como a conta fecha"
+                aria-label="Como a conta fecha" title="Como a conta fecha">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 11.2v4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="7.9" r="1.15" fill="currentColor"/></svg>
+        </button>
         <button class="ghost" type="button" data-novo="compartilhada">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
           Nova despesa
@@ -3281,15 +3299,14 @@
           </div>
         </div>
 
-        <aside class="rail">
-          <div class="rail-fixo">
-          <div class="blk" style="--i:4">
-            <div class="lbl">Como a conta fecha</div>
-            <div class="field-help">Quando <b>você</b> paga, o valor cheio sai da sua conta e entra no seu mês — a parte do outro fica anotada ao lado, como crédito. Quando <b>a outra pessoa</b> paga, nada sai daqui: o gasto fica fora da sua conta e vira só a sua dívida com ela.</div>
-            <div class="field-help">O <b>acerto</b> é o dinheiro voltando. Ele mexe no saldo da conta, mas não é receita nem despesa: não entra em nenhum relatório, porque esse dinheiro já era seu — você só tinha adiantado.</div>
-          </div>
-          </div>
-        </aside>
+      </div>
+
+      <!-- A fonte da ajuda mora NA TELA, e não numa string do script: o texto
+           é marcação (os negritos distinguem quem paga de quem deve), e passá-lo
+           por `textContent` perderia isso. A camada clona este bloco. -->
+      <div id="ajuda-compartilhadas" hidden>
+        <div class="field-help">Quando <b>você</b> paga, o valor cheio sai da sua conta e entra no seu mês — a parte do outro fica anotada ao lado, como crédito. Quando <b>a outra pessoa</b> paga, nada sai daqui: o gasto fica fora da sua conta e vira só a sua dívida com ela.</div>
+        <div class="field-help">O <b>acerto</b> é o dinheiro voltando. Ele mexe no saldo da conta, mas não é receita nem despesa: não entra em nenhum relatório, porque esse dinheiro já era seu — você só tinha adiantado.</div>
       </div>
     </section>
 
@@ -4072,6 +4089,18 @@
   <div class="layer-body"><div class="field-help" id="cf-detalhe"></div></div>
   <div class="layer-foot">
     <button type="button" class="primary" id="cf-ok">Confirmar</button>
+  </div>
+</dialog>
+
+<!-- A ajuda de uma tela. Uma camada só para todas: o conteúdo vem clonado do
+     bloco escondido que mora na própria tela, então acrescentar ajuda em outra
+     é um bloco e um botão, sem tocar aqui. Sem ação nenhuma no rodapé — "Entendi"
+     fecha, que é tudo o que há para fazer com um texto que explica. -->
+<dialog id="dlg-ajuda">
+  <div class="layer-head"><h3 id="ajuda-titulo">Como funciona</h3><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-body" id="ajuda-corpo"></div>
+  <div class="layer-foot">
+    <button type="button" class="primary" data-fechar>Entendi</button>
   </div>
 </dialog>
 
@@ -5321,6 +5350,24 @@
     for (var k = indiceMes(nomeAqui); k <= indiceMes(nomeAnterior); k++) meses.push(mesDoIndice(k));
     return { repetem: meses };
   }
+
+  /* A ajuda de uma tela. O botão diz de onde vem o texto (`data-ajuda`) e qual
+   * é o título; a camada só clona. Clona em vez de mover para o bloco original
+   * continuar na tela — fechar a camada não pode deixar a ajuda sem casa — e
+   * em vez de `innerHTML` porque o que entra aqui é marcação da própria
+   * página, e não texto que alguém digitou. */
+  document.querySelectorAll("[data-ajuda]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var fonte = document.getElementById(b.dataset.ajuda);
+      if (!fonte) return;
+      var copia = fonte.cloneNode(true);
+      copia.removeAttribute("id");
+      copia.hidden = false;
+      document.getElementById("ajuda-titulo").textContent = b.dataset.ajudaTitulo || "Como funciona";
+      document.getElementById("ajuda-corpo").replaceChildren(copia);
+      abrir("dlg-ajuda");
+    });
+  });
 
   function avisar(titulo, detalhe) {
     pedirConfirmacao({ titulo: titulo, detalhe: detalhe, acao: "Entendi" }, null);
