@@ -303,6 +303,13 @@ as duas únicas manchas de cor da tela. A cor fica no VALOR, e melhora sem o
 tinte atrás: medido sobre a superfície, o verde fecha 8,62:1 e o vermelho
 5,82:1 no escuro; no claro, 6,51 e 6,30.
 
+**A navegação veste a superfície, não a página.** O trilho lateral e a barra
+de baixo são camadas por cima do conteúdo, e em `--bg` eram o pedaço mais
+apagado da tela — cinza no claro, preto no escuro, encostadas num conteúdo que
+tinha superfície. Pintam `var(--superficie)` e **mantêm o filete**: borda de
+camada que flutua sobre o que rola não é o mesmo que divisória entre duas
+colunas estáticas, que saiu (ver seção 9).
+
 **Sem fundo tingido, em lugar nenhum.** A célula de receita e a de despesa já
 tiveram fundo a 10% do próprio sinal; ele saiu em 21/11/2026, de todas as seis
 ocorrências do app. Com o valor já na cor do sinal, o fundo era uma segunda voz

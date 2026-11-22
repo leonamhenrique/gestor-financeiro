@@ -1930,7 +1930,12 @@
     overflow-x: auto; overscroll-behavior-x: contain;
     -webkit-mask-image: linear-gradient(to right, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
     mask-image: linear-gradient(to right, transparent 0, #000 20px, #000 calc(100% - 20px), transparent 100%);
-    background: var(--bg); border-top: 1px solid var(--hairline);
+    /* A cor dos BLOCOS, e não a da página: em `--bg` a barra era o pedaço
+     * mais apagado da tela, cinza no claro e preto no escuro, encostada num
+     * conteúdo que tinha superfície. O filete fica: ela flutua POR CIMA do
+     * que rola, e borda de camada não é o mesmo que divisória entre colunas
+     * (essa saiu, ver `.rail`). */
+    background: var(--superficie); border-top: 1px solid var(--hairline);
     /* A barra encosta no fundo do aparelho; a área segura entra como altura
      * extra para os ícones não ficarem sob a barra de gestos. */
     height: calc(56px + env(safe-area-inset-bottom, 0px));
@@ -2014,7 +2019,8 @@
       position: fixed; top: 0; left: 0; bottom: 0; z-index: 7;
       display: flex; flex-direction: column; gap: 4px; padding: 32px 0;
       width: var(--nav-w-min); overflow-x: hidden; overflow-y: auto;
-      background: var(--bg); border-right: 1px solid var(--hairline);
+      /* Mesma cor dos blocos, pelo mesmo motivo da barra de baixo. */
+      background: var(--superficie); border-right: 1px solid var(--hairline);
       transition: width 180ms ease-out;
     }
     .nav:hover { width: var(--nav-w); transition-delay: 120ms; }
