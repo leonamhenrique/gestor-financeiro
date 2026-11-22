@@ -2053,6 +2053,21 @@ cabeçalho de colunas, e é empurrado pelo grupo seguinte:
 A altura do cabeçalho precisa ser fixa: se o `top` do rótulo não encostar nela
 exatamente, linhas aparecem deslizando na fresta entre os dois.
 
+**Quem ocupa o topo é quem define o `top` do rótulo.** Na fatura não há
+cabeçalho de colunas: o topo é da barra que aparece na rolagem (`.fatura-fixa`),
+e é embaixo dela que o rótulo do dia gruda. Como essa barra tem `flex-wrap` e
+quebra em mais linhas no celular — 107px em 375, 93px em 1024, medido —, a
+altura **vem medida por `ResizeObserver` e publicada numa variável**, nunca
+escrita à mão: número fixo acerta uma largura de tela e erra as outras.
+
+```css
+#k-det-lista .dia-sep { top: var(--fatura-fixa-h, 0px); }
+```
+
+E o recuo só vale **enquanto existir a barra**: sem ela o rótulo grudaria a
+107px do topo com nada em cima, e a fresta seria o recuo inteiro. Por isso a
+variável nasce de quem acende a barra, e vale 0 quando ela não existe.
+
 **Coluna ordenável é o próprio rótulo**, virado `<button>` — sem ícone extra de
 "ordenar" ao lado. A coluna ativa passa de `--fg-subtle` para `--fg` e ganha
 uma seta de 10px; as demais não mostram seta nenhuma. O primeiro clique usa o

@@ -561,6 +561,17 @@
   @media (pointer: coarse) {
     .fatura-fixa .icon-btn::after { content: ""; position: absolute; inset: -7px; }
   }
+  /* Dentro da fatura, quem faz o papel do cabeçalho de colunas é esta barra:
+   * é ela que ocupa o topo durante a rolagem. Por isso o rótulo do dia gruda
+   * logo abaixo dela, e não no topo da tela — grudado em `top: 0` ele ficaria
+   * ATRÁS da barra (que é z-index 4) e só reapareceria de relance.
+   *
+   * A altura vem MEDIDA, e não escrita: a barra quebra em duas ou três
+   * linhas no celular, e um número fixo aqui deixaria uma fresta num
+   * tamanho de tela e esconderia o rótulo em outro. Quem mede é o
+   * ResizeObserver lá embaixo; sem ele (ou sem a barra) o valor é 0 e o
+   * rótulo gruda no topo, como no extrato. */
+  #k-det-lista .dia-sep { top: var(--fatura-fixa-h, 0px); }
   .fatura-fixa-nums { display: flex; gap: 12px; flex-wrap: wrap; }
   .fatura-fixa-nums span { white-space: nowrap; }
   .fatura-fixa-nums b { font-weight: 500; color: var(--fg); margin-left: 5px; }
@@ -10736,8 +10747,32 @@
         '<span class="row-val num">−' + money(f.transportado) + '</span>' +
         '<span class="row-acoes"></span></div>'
       : "";
+    /* Agrupada por dia, como o extrato e pela mesma razão: lista longa sem
+     * rótulo de dia obriga a ler a data de cada linha para saber onde se
+     * está. O rótulo gruda no topo e é empurrado pelo dia seguinte — logo
+     * ABAIXO da barra da fatura, que aqui faz o papel do cabeçalho de
+     * colunas (ver `--fatura-fixa-h`).
+     *
+     * Sem a opção de desligar: esta lista tem uma ordem só, a data, e o
+     * agrupamento por dia só mente quando a ordem é outra. */
+    var totalDoDia = {};
+    itens.forEach(function (t) {
+      totalDoDia[t.data] = (totalDoDia[t.data] || 0) + (t.tipo === "INCOME" ? t.valor : -t.valor);
+    });
+    var corpoFatura = "", diaDaFatura = null;
+    itens.forEach(function (t) {
+      if (t.data !== diaDaFatura) {
+        diaDaFatura = t.data;
+        corpoFatura += '<div class="dia-sep"><span class="lbl">' + fmtDataLonga(t.data) + '</span>' +
+          '<span class="dia-total num">' + sinal(totalDoDia[t.data]) + '</span></div>';
+      }
+      corpoFatura += linhaLancamentoHTML(t, true);
+    });
+    /* O transportado fica FORA dos grupos, e em cima: ele não tem data —
+     * é o que sobrou da fatura anterior, e pendurá-lo no dia da primeira
+     * compra seria dizer que aconteceu naquele dia. */
     document.getElementById("k-det-lista").innerHTML = (itens.length || linhaTransporte)
-      ? linhaTransporte + itens.map(function (t) { return linhaLancamentoHTML(t, true); }).join("")
+      ? linhaTransporte + corpoFatura
       : '<div class="empty">Nenhum lançamento nesta fatura.</div>';
     // Aviso na própria fatura de origem, para o valor não "sumir".
     var aviso = document.getElementById("k-det-transporte");
@@ -15740,6 +15775,29 @@
           barraFatura.classList.toggle("on", !e.isIntersecting && e.boundingClientRect.top < 0);
         });
       }, { threshold: 0 }).observe(acoesFatura);
+
+      /* A altura da barra vira medida, para o rótulo do dia grudar embaixo
+       * dela (ver `#k-det-lista .dia-sep`).
+       *
+       * Medida, e não escrita: a barra tem `flex-wrap`, e no celular ela
+       * quebra em duas ou três linhas conforme o valor em aberto e o nome do
+       * mês. Um número fixo no CSS acertaria uma largura de tela e erraria
+       * todas as outras.
+       *
+       * Ela é `position: absolute` dentro de uma âncora de altura zero, então
+       * tem altura própria mesmo apagada — dá para medir antes de aparecer, e
+       * o rótulo não precisa esperar a primeira rolagem para saber onde parar.
+       *
+       * Só aqui dentro: sem IntersectionObserver a barra nunca acende, e um
+       * recuo para uma barra que não existe seria uma fresta por onde as
+       * linhas passariam à vista. */
+      var medirBarra = function () {
+        var h = barraFatura.offsetHeight || 0;
+        document.documentElement.style.setProperty("--fatura-fixa-h", h + "px");
+      };
+      medirBarra();
+      if (typeof ResizeObserver === "function") new ResizeObserver(medirBarra).observe(barraFatura);
+      else window.addEventListener("resize", medirBarra);
     }
   }
 
