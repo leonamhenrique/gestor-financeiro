@@ -63,17 +63,6 @@
 
     --r-sm: 10px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
 
-    /* Superfície do bloco. É a exceção à regra 1 ("sem cards") que o DESIGN.md
-     * passou a admitir: o bloco se separa do fundo por um degrau de luz, e não
-     * por um traço — contorno em cima de contorno empilharia linha no que já
-     * tem hairline, grid segmentado e mapa de calor.
-     *
-     * 2,8% é o degrau mais fraco que ainda se vê, e foi escolhido medindo o
-     * que ele custa ao TEXTO: sobre a superfície o fundo vira rgb(14,18,25) e
-     * a tinta mais fraca, `--fg-subtle`, cai de 5,32:1 para 5,28:1. Cinco
-     * centésimos. Em 4,5% a perda ainda seria aceitável, mas o degrau já
-     * começa a ler como caixa cinza. */
-    --superficie: rgba(255,255,255,0.028);
     /* O respiro de dentro do bloco, em variável porque quem ocupa a largura
      * toda (o gráfico, a faixa de meses) precisa do mesmo número com o sinal
      * trocado para voltar a encostar nas bordas. */
@@ -119,7 +108,16 @@
     --scroll: rgba(255,255,255,0.14);
     --scroll-forte: rgba(255,255,255,0.24);
     --backdrop: rgba(7,11,18,0.72);
-    --superficie: #0E1622;
+    /* Superfície do bloco — e também da dica do mapa de calor e da lista do
+     * select, que já usavam este token antes de o bloco existir. É a exceção à
+     * regra 1 ("sem cards"): a seção se separa do fundo por um degrau de luz,
+     * e não por um traço.
+     *
+     * Subiu de #0E1622 para #162133 em 22/11/2026, a pedido: o degrau era de
+     * 1,09x contra a página e passou a 1,22x. O teto é o TEXTO — a tinta mais
+     * fraca (`--fg-subtle`) cai de 5,23:1 para 4,97:1, e o mínimo é 4,5. Em
+     * #1E2B41 ela fecharia 4,62 e o passo seguinte quebraria a regra. */
+    --superficie: #162133;
 
     /* Mapa de calor: o acento em 5 degraus de opacidade (uma cor só, do fraco
      * ao forte). Do 4º em diante o fundo fica claro demais para --fg, e o
@@ -146,7 +144,7 @@
     --seg-despesa-tinta: var(--negative);
     /* Terceiro sinal, usado no par vencidas/a vencer: o que ainda vai vencer
      * é aviso, não perda. No escuro o ocre de token rende de sobra sobre a
-     * superfície (medido: 11,01:1) e não precisa de versão própria. */
+     * superfície (medido: 9,48:1) e não precisa de versão própria. */
     --seg-aviso-tinta: var(--warning);
 
     /* Faz o navegador pintar os controles nativos (lista do select, calendário,
@@ -324,20 +322,16 @@
   /* O que GRUDA precisa ser opaco, e dentro de um bloco o opaco deixou de ser
    * o fundo da página: o rótulo do dia, o cabeçalho de colunas e a barra da
    * fatura pintavam `--bg` e passaram a aparecer como faixas escuras
-   * atravessando o bloco claro. Medido na bancada: bloco rgb(14,22,34),
+   * atravessando o bloco claro. Medido na bancada: bloco rgb(22,33,51),
    * rótulo rgb(7,11,18).
    *
-   * Pintam a superfície POR CIMA do fundo, em vez de um terceiro tom: é o
-   * mesmo par de camadas que o bloco tem, então a faixa some dentro dele por
-   * construção, e continua acompanhando o tema.
+   * Pintam `--superficie`, a mesma cor do bloco, em vez de um terceiro tom:
+   * a faixa some dentro dele por construção, e continua acompanhando o tema.
    *
    * A barra da fatura leva o mesmo par na regra dela, mais abaixo: posta
    * aqui, ela seria apagada pelo `background` que aquela regra declara
    * depois. */
-  .blk .dia-sep, .blk .list-head {
-    background-color: var(--bg);
-    background-image: linear-gradient(var(--superficie), var(--superficie));
-  }
+  .blk .dia-sep, .blk .list-head { background: var(--superficie); }
   /* No celular a tela já tem o respiro da página nas laterais; somar 20px de
    * cada lado dentro do bloco tiraria 40px da linha de leitura, que ali é o
    * que falta. */
@@ -625,10 +619,8 @@
     display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
     /* A superfície do bloco, e não o fundo da página: ela flutua POR CIMA da
      * fatura, que é um bloco — em `--bg` virava uma faixa escura atravessando
-     * o claro. Mesmo par de camadas que o bloco, pelo mesmo motivo que o
-     * rótulo do dia (ver `.blk .dia-sep`). */
-    padding: 9px 0; background-color: var(--bg);
-    background-image: linear-gradient(var(--superficie), var(--superficie));
+     * o claro. Mesmo motivo do rótulo do dia (ver `.blk .dia-sep`). */
+    padding: 9px 0; background: var(--superficie);
     border-bottom: 1px solid var(--hairline-strong);
     font-size: 12px; color: var(--fg-subtle);
     opacity: 0; transform: translateY(-6px); pointer-events: none;
@@ -752,11 +744,7 @@
    * do app. O padrão passou a ser este para a próxima tela nascer igual às
    * que existem, em vez de nascer tingida e precisar que alguém lembre de
    * desligar. */
-  .seg-cell {
-    background-color: var(--bg);
-    background-image: linear-gradient(var(--superficie), var(--superficie));
-    padding: 14px 16px; display: flex; flex-direction: column; gap: 6px;
-  }
+  .seg-cell { background: var(--superficie); padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
   /* Par SOLTO: cada lado deixa de ser célula e vira bloco. Sai o fundo que
    * desenhava a hairline do meio (ela nascia do gap de 1px) e entra um vão de
    * verdade; cada lado ganha o raio e o respiro de bloco.
@@ -773,8 +761,8 @@
    * mais alto — e as duas únicas manchas de cor da tela.
    *
    * A cor fica no VALOR, onde ela é lida junto com o número. E ela melhora
-   * sem o tinte atrás: medido, o verde sobe de 9,10:1 para 10,00:1 e o
-   * vermelho de 6,15:1 para 6,76:1 no escuro; no claro, 6,51 e 6,30. */
+   * sem o tinte atrás: medido sobre a superfície, o verde fecha 8,62:1 e o
+   * vermelho 5,82:1 no escuro; no claro, 6,51 e 6,30. */
   .seg-val { font-size: 17px; font-weight: 500; }
   /* Três células numa tela de celular dão ~105px cada: com padding e fonte do
    * desktop, um valor de cinco dígitos (12.345,67) é cortado. Só o grid de três
@@ -789,8 +777,8 @@
   /* Receita e despesa são sinal de valor: a cor diz o que é, antes da leitura
    * do número. Ela vive no VALOR, e não num fundo tingido atrás dele — o
    * fundo era uma segunda voz dizendo o mesmo mais alto, e sobre a superfície
-   * neutra a cor do número ainda GANHA contraste (o verde vai a 10,00:1 e o
-   * ocre a 11,01:1 no escuro). */
+   * neutra a cor do número ainda sobra de contraste (o verde fecha 8,62:1 e
+   * o ocre 9,48:1 no escuro). */
   .seg-cell--receita .seg-val { color: var(--seg-receita-tinta); }
   .seg-cell--despesa .seg-val { color: var(--seg-despesa-tinta); }
   .seg-cell--aviso .seg-val { color: var(--seg-aviso-tinta); }

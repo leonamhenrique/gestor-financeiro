@@ -27,9 +27,9 @@ O padrão abaixo é o que faz esse prompt funcionar — mantenha-o atualizado.
 
 **Sem contornos; a seção se apoia num degrau de luz.** A hierarquia DENTRO de um
 bloco continua nascendo de tipografia, espaçamento e hairlines — nunca de caixas
-empilhadas. O que separa uma seção da outra é a superfície: o bloco é 2,8% mais
-claro que a página (branco no tema claro), com `border-radius: 16px`, e **sem
-borda nenhuma**. Cada pixel de traço que você não desenha é informação que cabe
+empilhadas. O que separa uma seção da outra é a superfície: o bloco é um degrau de luz
+acima da página — 1,22x a luminância dela no escuro, branco no claro —, com
+`border-radius: 16px`, e **sem borda nenhuma**. Cada pixel de traço que você não desenha é informação que cabe
 na primeira dobra.
 
 A regra era "sem cards" e mudou em 21/11/2026, depois de a tela ser fotografada
@@ -51,16 +51,16 @@ Consequências práticas:
   sem superfície e sem respiro, senão viram moldura sem quadro.
 - **O que gruda dentro do bloco pinta a superfície**, e não `--bg`: rótulo do
   dia, cabeçalho de colunas e a barra da fatura. Em `--bg` eles atravessam o
-  bloco como faixa escura. Pintam `background-color: var(--bg)` mais
-  `background-image: linear-gradient(var(--superficie), var(--superficie))` —
-  o mesmo par de camadas do bloco, então somem dentro dele por construção.
+  bloco como faixa escura; em `var(--superficie)` somem dentro dele por
+  construção.
 - **Desenho que quer a largura toda sai pelo respiro**, em vez de encolher:
   `margin-inline: calc(var(--blk-pad-x) * -1)` com
   `width: calc(100% + var(--blk-pad-x) * 2)`. Vale para o gráfico do saldo e a
   faixa de meses — 40px a menos tiram um mês da faixa.
-- O degrau é medido pelo que custa ao TEXTO. Em 2,8% a tinta mais fraca
-  (`--fg-subtle`) cai de 5,32:1 para 5,28:1 no escuro, e SOBE de 5,23 para 5,34
-  no claro. Mexer nesse número é refazer a conta.
+- O degrau é limitado pelo que custa ao TEXTO. Em `#162133` a tinta mais
+  fraca (`--fg-subtle`) cai de 5,32:1 para 4,97:1 no escuro, e SOBE de 5,23
+  para 5,34 no claro. O mínimo é 4,5: em `#1E2B41` ela fecharia 4,62 e o passo
+  seguinte quebraria a regra. Mexer nessa cor é refazer a conta.
 
 ## 2. Tokens
 
@@ -70,7 +70,7 @@ Consequências práticas:
   --bg:            #070B12;
   --hairline:      rgba(255,255,255,0.06);
   --hairline-strong: rgba(255,255,255,0.08);
-  --superficie:    rgba(255,255,255,0.028); /* o degrau do bloco; #FFF no claro */
+  --superficie:    #162133;                 /* o degrau do bloco; #FFF no claro */
   --blk-pad-y: 18px; --blk-pad-x: 20px;     /* 16/14 abaixo de 768 */
   --controle-borda:  rgba(255,255,255,0.34);   /* 3,03:1 — contorno de controle */
   --warning-borda:   rgba(255,184,107,0.45);   /* 3,06:1 — contorno do aviso */
@@ -281,14 +281,14 @@ sem superfície e sem respiro), senão a tela teria caixa dentro de caixa.
 despesa" quando as duas eram células coladas pela hairline; separadas e com o
 valor na cor do sinal, ele virou uma segunda voz dizendo o mesmo mais alto, e
 as duas únicas manchas de cor da tela. A cor fica no VALOR, e melhora sem o
-tinte atrás: o verde sobe de 9,10:1 para 10,00:1 e o vermelho de 6,15 para
-6,76 no escuro; no claro, 6,51 e 6,30.
+tinte atrás: medido sobre a superfície, o verde fecha 8,62:1 e o vermelho
+5,82:1 no escuro; no claro, 6,51 e 6,30.
 
 **Sem fundo tingido, em lugar nenhum.** A célula de receita e a de despesa já
 tiveram fundo a 10% do próprio sinal; ele saiu em 21/11/2026, de todas as seis
 ocorrências do app. Com o valor já na cor do sinal, o fundo era uma segunda voz
 dizendo o mesmo mais alto — e sobre a superfície neutra a cor do número ainda
-GANHA contraste: o verde vai de 9,10:1 para 10,00:1, o ocre de 9,91 para 11,01
+sobra de contraste: o verde fecha 8,62:1, o vermelho 5,82 e o ocre 9,48
 (escuro); no claro, 6,51, 6,30 e 7,19. A cor vive no valor:
 na cor cheia (`--seg-receita-tinta`, `--seg-despesa-tinta`, `--seg-aviso-tinta`).
 É a exceção da regra do verde/vermelho, não uma violação: aqui a cor **é** o
@@ -2111,10 +2111,7 @@ cabeçalho de colunas, e é empurrado pelo grupo seguinte:
 .dia-sep   { position: sticky; top: var(--head-h); z-index: 2; }
 .list-head { z-index: 3; }               /* o cabeçalho passa por cima do rótulo */
 /* Os dois pintam a superfície do bloco, nunca `--bg` — ver regra 1. */
-.blk .dia-sep, .blk .list-head {
-  background-color: var(--bg);
-  background-image: linear-gradient(var(--superficie), var(--superficie));
-}
+.blk .dia-sep, .blk .list-head { background: var(--superficie); }
 ```
 
 A altura do cabeçalho precisa ser fixa: se o `top` do rótulo não encostar nela
