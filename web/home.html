@@ -751,8 +751,14 @@
    * A cor fica no VALOR, onde ela é lida junto com o número. E ela melhora
    * sem o tinte atrás: medido, o verde sobe de 9,10:1 para 10,00:1 e o
    * vermelho de 6,15:1 para 6,76:1 no escuro; no claro, 6,51 e 6,30. */
+  /* A mesma escolha, para um grid que CONTINUA sendo um grid: a célula perde
+   * o tinte e veste a superfície do bloco, e quem dá o sinal é o valor. As
+   * hairlines do gap continuam separando uma da outra, que é o que o tinte
+   * fazia além de colorir. Vale onde a cor vira ruído — nos totais do mês do
+   * extrato, três faixas tingidas num trilho estreito. */
   .seg--solta .seg-cell--receita,
-  .seg--solta .seg-cell--despesa {
+  .seg--solta .seg-cell--despesa,
+  .seg--sem-tinte .seg-cell {
     background-image: linear-gradient(var(--superficie), var(--superficie));
   }
   .seg-val { font-size: 17px; font-weight: 500; }
@@ -2749,7 +2755,7 @@
           </div>
           <div class="blk" style="--i:1">
             <div class="lbl">Totais do mês</div>
-            <div class="seg seg--1">
+            <div class="seg seg--1 seg--sem-tinte">
               <div class="seg-cell seg-cell--receita"><div class="lbl">Receitas</div><div class="seg-val num" id="l-entradas"></div></div>
               <div class="seg-cell seg-cell--despesa"><div class="lbl">Despesas</div><div class="seg-val num" id="l-saidas"></div></div>
               <!-- O resultado não tem cor fixa: ela vem do sinal do mês,
