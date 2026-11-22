@@ -351,7 +351,11 @@
   @media (prefers-reduced-motion: reduce) { .blk { animation: none; } }
 
   .split { display: flex; flex-direction: column; gap: 24px; }
-  .col-main, .rail, .rail-fixo { display: flex; flex-direction: column; gap: 24px; }
+  /* O vão entre blocos de uma coluna, em variável porque a âncora da barra da
+   * fatura precisa do mesmo número com o sinal trocado — ver
+   * `.fatura-fixa-ancora`. */
+  :root { --pilha: 24px; }
+  .col-main, .rail, .rail-fixo { display: flex; flex-direction: column; gap: var(--pilha); }
   /* Empilhado, quem escolhe vem antes de quem é escolhido: filtro antes da
    * lista, cartão antes da fatura dele. */
   @media (max-width: 767px) {
@@ -624,7 +628,15 @@
    *
    * Com a âncora de altura zero não há nem vão nem salto: a barra é uma
    * camada por cima do conteúdo, e o conteúdo nunca sabe que ela existe. */
-  .fatura-fixa-ancora { position: sticky; top: 0; z-index: 4; height: 0; }
+  /* Altura zero, mas ela É um item da pilha: o `gap` da coluna vinha depois
+   * dela e empurrava a fatura inteira para baixo. Medido na bancada: a
+   * primeira caixa da coluna principal começava 32px abaixo da primeira do
+   * trilho, e as duas colunas brancas não casavam. A margem negativa devolve
+   * exatamente o vão que ela não deveria ter aberto. */
+  .fatura-fixa-ancora {
+    position: sticky; top: 0; z-index: 4; height: 0;
+    margin-bottom: calc(-1 * var(--pilha));
+  }
   .fatura-fixa {
     position: absolute; top: 0; left: 0; right: 0;
     display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
@@ -2159,7 +2171,7 @@
        * do lado. */
       .view[data-view="pendencias"] .split--par > .rail { padding-left: 0; }
     }
-    .col-main, .rail, .rail-fixo { gap: var(--blk-gap); }
+    :root { --pilha: var(--blk-gap); }
     /* Sem filete entre as colunas. Ele existia porque em tela larga o "sem
      * cards" perdia o apoio da coluna única e os blocos flutuavam: a hairline
      * vertical era o que dizia "isto aqui é outra coluna". Quem diz isso
