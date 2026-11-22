@@ -312,7 +312,7 @@
    * usam a classe pela pilha e pelo ritmo de entrada, não por serem seção:
    * uma caixa em volta de um h1 ou de um botão solto seria moldura sem
    * quadro. */
-  .blk.v-head, .blk.v-cta { background: none; padding: 0; }
+  .blk.v-head, .blk.v-cta, .blk.blk--solto { background: none; padding: 0; }
   /* Quem ocupava a largura toda continua ocupando: o gráfico do saldo e a
    * faixa de meses são desenhos que pedem a medida inteira, e encolhê-los em
    * 40px para respeitar um respiro que eles não usam é perder mês na faixa e
@@ -733,6 +733,15 @@
   .seg--1 { grid-template-columns: minmax(0, 1fr); }
   .seg--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .seg-cell { background: var(--bg); padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+  /* Par SOLTO: cada lado deixa de ser célula e vira bloco. Sai o fundo que
+   * desenhava a hairline do meio (ela nascia do gap de 1px) e entra um vão de
+   * verdade; cada lado ganha o raio e o respiro de bloco.
+   *
+   * O tinte não muda de receita: ele já era pintado POR CIMA de `--bg`, e não
+   * da célula, então a cor e o contraste medidos continuam os mesmos agora
+   * que o que está atrás é a página. */
+  .seg--solta { background: none; gap: 16px; }
+  .seg--solta .seg-cell { border-radius: var(--r-lg); padding: var(--blk-pad-y) var(--blk-pad-x); }
   .seg-val { font-size: 17px; font-weight: 500; }
   /* Três células numa tela de celular dão ~105px cada: com padding e fonte do
    * desktop, um valor de cinco dígitos (12.345,67) é cortado. Só o grid de três
@@ -2458,13 +2467,17 @@
             <div class="meses" id="r-meses" role="group" aria-label="Resultado de cada mês"></div>
           </div>
 
-          <div class="blk" style="--i:3">
+          <!-- O mês e o par receitas/despesas. O invólucro NÃO é bloco: aqui
+               quem é bloco é cada lado do par, cada um com a própria
+               superfície tingida. O mês fica solto em cima dos dois, porque
+               ele manda nos dois. -->
+          <div class="blk blk--solto" style="--i:3">
             <div class="month-nav">
               <button class="icon-btn" type="button" id="r-mes-ant" aria-label="Mês anterior"><svg viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
               <span class="month-label num" id="r-mes-label"><button type="button" class="mes-abre" data-parte="mes"></button><button type="button" class="mes-abre" data-parte="ano"></button></span>
               <button class="icon-btn" type="button" id="r-mes-prox" aria-label="Próximo mês"><svg viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
-            <div class="seg">
+            <div class="seg seg--solta">
               <div class="seg-cell seg-cell--receita">
                 <div class="lbl">Receitas</div>
                 <div class="seg-val num" id="r-entradas"></div>

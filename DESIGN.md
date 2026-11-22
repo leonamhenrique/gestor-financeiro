@@ -271,6 +271,13 @@ hairlines nascem do gap — não desenhe bordas internas. A célula em `--bg` de
 de um bloco em `--superficie` lê como célula ESCAVADA na superfície, e é assim
 mesmo: a borda saiu quando o bloco virou quem desenha a caixa (regra 1).
 
+**Par solto** (`.seg--solta`, o receitas/despesas do Resumo) — cada lado deixa
+de ser célula e vira bloco: sai o fundo que desenhava a hairline do meio, entra
+um vão de 16px, e cada lado ganha `--r-lg` e o respiro de bloco. O invólucro
+então **não** é bloco (`.blk--solto`: sem superfície e sem respiro), senão a
+tela teria caixa dentro de caixa. O tinte não muda de receita porque já era
+pintado por cima de `--bg`, e não da célula.
+
 A célula de **receita** e a de **despesa** fogem do fundo neutro: fundo tingido
 a 10% do próprio sinal (`--seg-receita-fundo`, `--seg-despesa-fundo`) e valor
 na cor cheia (`--seg-receita-tinta`, `--seg-despesa-tinta`). É a exceção da
