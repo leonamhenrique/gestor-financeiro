@@ -2152,12 +2152,20 @@ duas coisas juntas formando grade**.
 
 **Grid segmentado** — de 2 células para 3 ou 4, mesma anatomia (`gap: 1px`).
 
-**Cabeçalho de tela: sem título à vista.** O nome da tela já está aceso no
-menu, e repeti-lo em 20px no topo é a mesma palavra duas vezes ocupando a
-primeira dobra. O `<h1>` **fica no DOM com `.sr-only`** — sem ele a página não
-tem nome para quem navega por leitor de tela —, e o que aparece é só a linha de
-contexto (`.sub`): "6 cartões", "Setembro 2026", "Nenhum teto definido para
-setembro 2026". Essa linha é dado, não título, e por isso não sai junto.
+**Cabeçalho de tela: vazio.** O nome da tela já está aceso no menu, e
+repeti-lo em 20px no topo é a mesma palavra duas vezes ocupando a primeira
+dobra. O `<h1>` **fica no DOM com `.sr-only`** — sem ele a página não tem nome
+para quem navega por leitor de tela — e nada mais aparece ali.
+
+**Contador não é cabeçalho.** "6 cartões" em cima de seis cartões, "4
+categorias" em cima da lista delas, o mês em cima de um seletor de mês: a tela
+já diz tudo isso, em tamanho maior, uma linha abaixo. Saíram em 21/11/2026 de
+Cartões, Categorias, Contas, Objetivos, Compartilhadas e Extrato.
+
+Sobra na linha de contexto (`.sub`) só o que a tela **não** mostra em outro
+lugar: estado de carga ("Carregando…", "Indisponível no modo demonstração"), o
+recibo de um arquivo que acabou de entrar, e o teto do mês no Planejamento com
+o "herdado de outubro", que não existe em nenhum outro canto da tela.
 
 Duas exceções, e as duas por não serem item de menu: **tela filha** (Pendências,
 que entra pelo Resumo e volta por um botão) e **tela de detalhe**, cujo título é

@@ -2705,7 +2705,7 @@
 
     <!-- ================= LANÇAMENTOS ================= -->
     <section class="view" data-view="lancamentos">
-      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Extrato</h1><div class="sub" id="l-sub"></div>
+      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Extrato</h1>
         <!-- Só aparece quando os relatórios estão por data da compra: aí esta
              tela e o Resumo mostram números diferentes para o mesmo mês, e
              isso precisa estar dito, não descoberto. -->
@@ -2984,7 +2984,7 @@
 
     <!-- ================= CARTÕES ================= -->
     <section class="view" data-view="cartoes">
-      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Cartões</h1><div class="sub" id="k-sub"></div></div>
+      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Cartões</h1></div>
       <div class="blk v-cta" style="--i:0">
         <button class="ghost" type="button" data-novo="cartao">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -3076,7 +3076,7 @@
 
     <!-- ================= CATEGORIAS ================= -->
     <section class="view" data-view="categorias">
-      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Categorias</h1><div class="sub" id="g-sub"></div></div>
+      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Categorias</h1></div>
       <div class="blk v-cta" style="--i:0">
         <button class="ghost" type="button" data-novo="categoria">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -3143,7 +3143,7 @@
 
     <!-- ================= CONTAS ================= -->
     <section class="view" data-view="contas">
-      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Contas</h1><div class="sub" id="c-sub"></div></div>
+      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Contas</h1></div>
       <div class="blk v-cta" style="--i:0">
         <button class="ghost" type="button" data-novo="conta">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -3190,7 +3190,7 @@
          ou despesa — aplicar e resgatar só movem dinheiro entre uma conta e um
          objetivo, como a transferência faz entre duas contas. -->
     <section class="view" data-view="objetivos">
-      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Objetivos</h1><div class="sub" id="obj-sub"></div></div>
+      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Objetivos</h1></div>
       <div class="blk v-cta" style="--i:0">
         <button class="ghost" type="button" data-novo="objetivo">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -3237,7 +3237,7 @@
          Nenhum saldo daqui é guardado: o servidor soma na hora, das partes e
          dos acertos. A tela só desenha o que ele responde. -->
     <section class="view" data-view="compartilhadas">
-      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Compartilhadas</h1><div class="sub" id="cp-sub"></div></div>
+      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Compartilhadas</h1></div>
       <div class="blk v-cta" style="--i:0">
         <button class="ghost" type="button" data-novo="compartilhada">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -10432,7 +10432,6 @@
   });
 
   function renderExtrato() {
-    document.getElementById("l-sub").textContent = rotuloMes(extratoMes);
     // O aviso existe porque a divergência é real: esta tela conta a fatura no
     // vencimento e o Resumo conta a compra no dia dela. Esconder isso é que
     // seria defeito.
@@ -10732,7 +10731,6 @@
 
   function renderCartoes() {
     garantirSelecao();
-    document.getElementById("k-sub").textContent = state.cards.length + (state.cards.length === 1 ? " cartão" : " cartões");
     var total = state.cards.reduce(function (s, k) {
       var p = periodoAtualCartao(k);
       var f = faturasDoCartao(k)[monthKey(p)] || { emAberto: 0 };
@@ -10988,9 +10986,6 @@
     // "Nova categoria" não cria lojista nenhum: fora da aba dele, o botão
     // prometeria uma coisa e faria outra.
     document.querySelector('.view[data-view="categorias"] .v-cta').hidden = aba !== "categorias";
-    document.getElementById("g-sub").textContent = aba === "lojistas"
-      ? (state.regrasCategoria || []).length + " lojista(s) com categoria guardada"
-      : state.categories.length + " categorias · " + rotuloMes(resumoMes);
   }
 
   document.getElementById("g-abas").addEventListener("click", function (e) {
@@ -11069,7 +11064,6 @@
   function renderContas() {
     var ativas = state.accounts.filter(function (a) { return a.isActive; });
     var arquivadas = state.accounts.filter(function (a) { return !a.isActive; });
-    document.getElementById("c-sub").textContent = ativas.length + (ativas.length === 1 ? " conta ativa" : " contas ativas");
     document.getElementById("c-total").textContent = brl(saldoVisivel());
     document.getElementById("c-visivel").textContent = brl(saldoVisivel());
     document.getElementById("c-oculto").textContent = brl(saldoOculto());
@@ -17058,8 +17052,6 @@
     var ativos = objetivos.filter(function (o) { return !objetivoConcluido(o); });
     var concluidos = objetivos.filter(objetivoConcluido);
 
-    document.getElementById("obj-sub").textContent =
-      ativos.length + (ativos.length === 1 ? " objetivo em andamento" : " objetivos em andamento");
     document.getElementById("obj-total").textContent =
       brl(ativos.reduce(function (s, o) { return s + saldoDoObjetivo(o); }, 0));
     document.getElementById("obj-das-contas").textContent = brl(emObjetivos());
@@ -18901,7 +18893,6 @@
     if (!lista) return;
 
     if (!cpTemServidor()) {
-      document.getElementById("cp-sub").textContent = "";
       document.getElementById("cp-hero").textContent = "—";
       document.getElementById("cp-hero-ctx").textContent = "";
       lista.innerHTML = '<div class="empty">Dividir gasto precisa do servidor: é lá que a conta entre vocês é somada. Entre na sua conta para usar.</div>';
@@ -18914,9 +18905,6 @@
 
     var pessoas = cpResumo.pessoas || [];
     var liquido = Number(cpResumo.liquido || 0);
-
-    document.getElementById("cp-sub").textContent =
-      pessoas.length + (pessoas.length === 1 ? " pessoa" : " pessoas");
 
     document.getElementById("cp-hero-lbl").textContent =
       liquido > 0 ? "Você tem a receber" : liquido < 0 ? "Você deve" : "Está tudo quite";
