@@ -25,18 +25,42 @@ O padrão abaixo é o que faz esse prompt funcionar — mantenha-o atualizado.
 
 ## 1. Princípio
 
-**Sem cards.** A hierarquia nasce de tipografia, espaçamento e hairlines — nunca
-de caixas empilhadas. Cada pixel de borda que você não desenha é informação que
-cabe na primeira dobra. Se um bloco parece perdido, o problema é o espaçamento,
-não a falta de um contêiner.
+**Sem contornos; a seção se apoia num degrau de luz.** A hierarquia DENTRO de um
+bloco continua nascendo de tipografia, espaçamento e hairlines — nunca de caixas
+empilhadas. O que separa uma seção da outra é a superfície: o bloco é 2,8% mais
+claro que a página (branco no tema claro), com `border-radius: 16px`, e **sem
+borda nenhuma**. Cada pixel de traço que você não desenha é informação que cabe
+na primeira dobra.
+
+A regra era "sem cards" e mudou em 21/11/2026, depois de a tela ser fotografada
+nas três versões — sem caixa, com contorno e com superfície. O contorno perdeu
+por empilhar linha onde já há hairline, grid segmentado e mapa de calor; a
+superfície separa sem acrescentar traço.
 
 Consequências práticas:
 
-- Nenhum `background` em bloco de conteúdo. O fundo da tela é o fundo de tudo.
-- Separação entre itens: `border-top: 1px solid rgba(255,255,255,0.06)`.
-- Agrupamento: rótulo em caixa alta + espaço maior acima. Nada mais.
-- Exceções permitidas (as únicas): grids segmentados (receitas/despesas, cards de
-  meta) que usam `border: 1px` com `border-radius: 12–16px`, e o botão primário.
+- `background: var(--superficie)` só em `.blk`. Nada DENTRO dele ganha fundo
+  próprio para "destacar" — quem destaca é o degrau, e ele já foi gasto.
+- **Nenhuma borda em bloco de conteúdo.** Dois arredondados concêntricos é o
+  defeito que a escolha evita: o grid segmentado perdeu o contorno que tinha
+  quando era ele quem desenhava a caixa.
+- Separação entre itens: `border-top: 1px solid var(--hairline)`.
+- Agrupamento dentro do bloco: rótulo em caixa alta + espaço maior acima.
+- **Nem todo `.blk` é seção.** O título da tela (`.v-head`) e a vaga do botão
+  principal (`.v-cta`) usam a classe pela pilha e pelo ritmo de entrada: ficam
+  sem superfície e sem respiro, senão viram moldura sem quadro.
+- **O que gruda dentro do bloco pinta a superfície**, e não `--bg`: rótulo do
+  dia, cabeçalho de colunas e a barra da fatura. Em `--bg` eles atravessam o
+  bloco como faixa escura. Pintam `background-color: var(--bg)` mais
+  `background-image: linear-gradient(var(--superficie), var(--superficie))` —
+  o mesmo par de camadas do bloco, então somem dentro dele por construção.
+- **Desenho que quer a largura toda sai pelo respiro**, em vez de encolher:
+  `margin-inline: calc(var(--blk-pad-x) * -1)` com
+  `width: calc(100% + var(--blk-pad-x) * 2)`. Vale para o gráfico do saldo e a
+  faixa de meses — 40px a menos tiram um mês da faixa.
+- O degrau é medido pelo que custa ao TEXTO. Em 2,8% a tinta mais fraca
+  (`--fg-subtle`) cai de 5,32:1 para 5,28:1 no escuro, e SOBE de 5,23 para 5,34
+  no claro. Mexer nesse número é refazer a conta.
 
 ## 2. Tokens
 
@@ -46,6 +70,8 @@ Consequências práticas:
   --bg:            #070B12;
   --hairline:      rgba(255,255,255,0.06);
   --hairline-strong: rgba(255,255,255,0.08);
+  --superficie:    rgba(255,255,255,0.028); /* o degrau do bloco; #FFF no claro */
+  --blk-pad-y: 18px; --blk-pad-x: 20px;     /* 16/14 abaixo de 768 */
   --controle-borda:  rgba(255,255,255,0.34);   /* 3,03:1 — contorno de controle */
   --warning-borda:   rgba(255,184,107,0.45);   /* 3,06:1 — contorno do aviso */
   --track:         rgba(255,255,255,0.38);  /* 3,51:1 — trilho de barras */
@@ -228,9 +254,11 @@ preenchimento em gradiente vertical do acento a 22% → 0%, ponto final marcado
 com círculo de 3.2px preenchido com `--bg` e contorno do acento.
 
 **Grid segmentado** (receitas/despesas, pares de métrica) — `display: grid`,
-`gap: 1px`, fundo `--hairline-strong`, borda 1px, raio 12px, `overflow: hidden`;
-cada célula com `background: var(--bg)` e padding 14/16. As hairlines nascem do
-gap — não desenhe bordas internas.
+`gap: 1px`, fundo `--hairline-strong`, **sem borda**, raio 12px,
+`overflow: hidden`; cada célula com `background: var(--bg)` e padding 14/16. As
+hairlines nascem do gap — não desenhe bordas internas. A célula em `--bg` dentro
+de um bloco em `--superficie` lê como célula ESCAVADA na superfície, e é assim
+mesmo: a borda saiu quando o bloco virou quem desenha a caixa (regra 1).
 
 A célula de **receita** e a de **despesa** fogem do fundo neutro: fundo tingido
 a 10% do próprio sinal (`--seg-receita-fundo`, `--seg-despesa-fundo`) e valor
@@ -2028,7 +2056,7 @@ As faixas somam 436px + 64px de gap, o que deixa ~220px para o nome dentro do
 `--read-max`. Não alargue as colunas fixas: quem precisa de espaço é o nome.
 
 Lista em colunas **exige cabeçalho**, na escala de `.lbl`, e ele **gruda no
-topo** (`position: sticky; top: 0`) com `background: var(--bg)`: numa lista
+topo** (`position: sticky; top: 0`) pintando a superfície do bloco: numa lista
 longa, coluna sem rótulo à vista é número sem significado. Declare as faixas
 uma vez só, para o cabeçalho e para a linha — se divergirem, o rótulo passa a
 mentir sobre a coluna:
@@ -2046,8 +2074,13 @@ cabeçalho de colunas, e é empurrado pelo grupo seguinte:
 
 ```css
 .list-head { height: var(--head-h); }    /* altura fixa, senão sobra folga */
-.dia-sep   { position: sticky; top: var(--head-h); background: var(--bg); z-index: 2; }
+.dia-sep   { position: sticky; top: var(--head-h); z-index: 2; }
 .list-head { z-index: 3; }               /* o cabeçalho passa por cima do rótulo */
+/* Os dois pintam a superfície do bloco, nunca `--bg` — ver regra 1. */
+.blk .dia-sep, .blk .list-head {
+  background-color: var(--bg);
+  background-image: linear-gradient(var(--superficie), var(--superficie));
+}
 ```
 
 A altura do cabeçalho precisa ser fixa: se o `top` do rótulo não encostar nela

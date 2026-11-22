@@ -62,6 +62,23 @@
     --warning: #FFB86B;
 
     --r-sm: 10px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+
+    /* Superfície do bloco. É a exceção à regra 1 ("sem cards") que o DESIGN.md
+     * passou a admitir: o bloco se separa do fundo por um degrau de luz, e não
+     * por um traço — contorno em cima de contorno empilharia linha no que já
+     * tem hairline, grid segmentado e mapa de calor.
+     *
+     * 2,8% é o degrau mais fraco que ainda se vê, e foi escolhido medindo o
+     * que ele custa ao TEXTO: sobre a superfície o fundo vira rgb(14,18,25) e
+     * a tinta mais fraca, `--fg-subtle`, cai de 5,32:1 para 5,28:1. Cinco
+     * centésimos. Em 4,5% a perda ainda seria aceitável, mas o degrau já
+     * começa a ler como caixa cinza. */
+    --superficie: rgba(255,255,255,0.028);
+    /* O respiro de dentro do bloco, em variável porque quem ocupa a largura
+     * toda (o gráfico, a faixa de meses) precisa do mesmo número com o sinal
+     * trocado para voltar a encostar nas bordas. */
+    --blk-pad-y: 18px;
+    --blk-pad-x: 20px;
     --bar-h: 4px;
 
     --nav-w: 240px;
@@ -147,6 +164,11 @@
    * Hairline em preto precisa de mais opacidade que em branco para pesar igual. */
   :root[data-tema="claro"] {
     --bg: #F6F8FB;
+    /* Branco puro: aqui o degrau é para CIMA, como no escuro, mas rende
+     * menos — a página já é quase branca. Medido, a tinta GANHA contraste
+     * sobre ele (`--fg-subtle` de 5,23:1 para 5,34:1), então o custo do
+     * degrau no tema claro é zero. */
+    --superficie: #FFFFFF;
     --hairline: rgba(15,23,32,0.10);
     --hairline-strong: rgba(15,23,32,0.16);
     /* Tinta preta rende menos que branca: 0,46 aqui para os mesmos 3,00:1. */
@@ -280,7 +302,52 @@
   .view { display: none; flex-direction: column; gap: 24px; width: 100%; max-width: 430px; margin: 0 auto; }
   .view.on { display: flex; }
 
-  .blk { display: flex; flex-direction: column; gap: 14px; animation: rise 300ms ease-out both; animation-delay: calc(var(--i, 0) * 60ms); }
+  .blk {
+    display: flex; flex-direction: column; gap: 14px;
+    background: var(--superficie); border-radius: var(--r-lg);
+    padding: var(--blk-pad-y) var(--blk-pad-x);
+    animation: rise 300ms ease-out both; animation-delay: calc(var(--i, 0) * 60ms);
+  }
+  /* Nem todo `.blk` é conteúdo. O título da tela e a vaga do botão principal
+   * usam a classe pela pilha e pelo ritmo de entrada, não por serem seção:
+   * uma caixa em volta de um h1 ou de um botão solto seria moldura sem
+   * quadro. */
+  .blk.v-head, .blk.v-cta { background: none; padding: 0; }
+  /* Quem ocupava a largura toda continua ocupando: o gráfico do saldo e a
+   * faixa de meses são desenhos que pedem a medida inteira, e encolhê-los em
+   * 40px para respeitar um respiro que eles não usam é perder mês na faixa e
+   * achatar a curva. Saem pelo respiro, e não por cima dele. */
+  .blk > .spark, .blk > .meses {
+    margin-inline: calc(var(--blk-pad-x) * -1);
+    width: calc(100% + var(--blk-pad-x) * 2);
+  }
+  /* A exceção que vivia DENTRO da exceção. O grid segmentado tinha contorno
+   * próprio porque era ele quem desenhava a caixa; agora quem desenha é o
+   * bloco, e manter os dois punha dois contornos arredondados concêntricos a
+   * 20px um do outro. A hairline ENTRE as células fica: é ela que separa
+   * receita de despesa. */
+  .blk .seg { border: none; }
+  /* O que GRUDA precisa ser opaco, e dentro de um bloco o opaco deixou de ser
+   * o fundo da página: o rótulo do dia, o cabeçalho de colunas e a barra da
+   * fatura pintavam `--bg` e passaram a aparecer como faixas escuras
+   * atravessando o bloco claro. Medido na bancada: bloco rgb(14,22,34),
+   * rótulo rgb(7,11,18).
+   *
+   * Pintam a superfície POR CIMA do fundo, em vez de um terceiro tom: é o
+   * mesmo par de camadas que o bloco tem, então a faixa some dentro dele por
+   * construção, e continua acompanhando o tema.
+   *
+   * A barra da fatura leva o mesmo par na regra dela, mais abaixo: posta
+   * aqui, ela seria apagada pelo `background` que aquela regra declara
+   * depois. */
+  .blk .dia-sep, .blk .list-head {
+    background-color: var(--bg);
+    background-image: linear-gradient(var(--superficie), var(--superficie));
+  }
+  /* No celular a tela já tem o respiro da página nas laterais; somar 20px de
+   * cada lado dentro do bloco tiraria 40px da linha de leitura, que ali é o
+   * que falta. */
+  @media (max-width: 767px) { :root { --blk-pad-y: 16px; --blk-pad-x: 14px; } }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .blk { animation: none; } }
 
@@ -542,7 +609,12 @@
   .fatura-fixa {
     position: absolute; top: 0; left: 0; right: 0;
     display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
-    padding: 9px 0; background: var(--bg);
+    /* A superfície do bloco, e não o fundo da página: ela flutua POR CIMA da
+     * fatura, que é um bloco — em `--bg` virava uma faixa escura atravessando
+     * o claro. Mesmo par de camadas que o bloco, pelo mesmo motivo que o
+     * rótulo do dia (ver `.blk .dia-sep`). */
+    padding: 9px 0; background-color: var(--bg);
+    background-image: linear-gradient(var(--superficie), var(--superficie));
     border-bottom: 1px solid var(--hairline-strong);
     font-size: 12px; color: var(--fg-subtle);
     opacity: 0; transform: translateY(-6px); pointer-events: none;
