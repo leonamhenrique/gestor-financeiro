@@ -372,6 +372,12 @@
    * sentar ao lado do título — reusada aqui, ela centrava os botões no meio
    * da coluna (medido: 444px de margem numa coluna de 862). */
   .acoes-linha { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* Abas à esquerda, ação à direita, na mesma linha. Quebra para duas linhas
+   * no estreito: empurrar o botão para fora da tela seria pior que descê-lo. */
+  .abas-linha {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+  }
 
   /* ---------- herói ---------- */
   .hero-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -3085,12 +3091,6 @@
     <!-- ================= CATEGORIAS ================= -->
     <section class="view" data-view="categorias">
       <div class="blk v-head" style="--i:0"><h1 class="sr-only">Categorias</h1></div>
-      <div class="blk v-cta" style="--i:0">
-        <button class="ghost" type="button" data-novo="categoria">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-          Nova categoria
-        </button>
-      </div>
 
       <!-- Duas telas no mesmo lugar. As categorias e os lojistas tratam do
            mesmo assunto, mas sao listas diferentes: misturadas, "salario CLT"
@@ -3099,9 +3099,19 @@
            Pills, e nao um menu novo: e o mesmo par Despesas/Receitas que o
            relatorio ja usa, e repetir o que existe custa menos a quem le. -->
       <div class="blk" style="--i:0">
-        <div class="pills" id="g-abas" role="group" aria-label="Ver categorias ou lojistas">
-          <button class="pill on" type="button" data-aba="categorias">Categorias</button>
-          <button class="pill" type="button" data-aba="lojistas" id="g-aba-lojistas-btn">Lojistas</button>
+        <!-- O botão entra NO bloco das abas, e não no cabeçalho da tela: sem
+             título à vista, o cabeçalho seria uma faixa de 44px só para ele.
+             Aqui ele fica ao lado do que muda — a aba decide se criar
+             categoria faz sentido. -->
+        <div class="abas-linha">
+          <div class="pills" id="g-abas" role="group" aria-label="Ver categorias ou lojistas">
+            <button class="pill on" type="button" data-aba="categorias">Categorias</button>
+            <button class="pill" type="button" data-aba="lojistas" id="g-aba-lojistas-btn">Lojistas</button>
+          </div>
+          <button class="ghost" type="button" data-novo="categoria" id="g-nova">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+            Nova categoria
+          </button>
         </div>
       </div>
 
@@ -11032,7 +11042,7 @@
     document.getElementById("g-aba-lojistas").hidden = aba !== "lojistas";
     // "Nova categoria" não cria lojista nenhum: fora da aba dele, o botão
     // prometeria uma coisa e faria outra.
-    document.querySelector('.view[data-view="categorias"] .v-cta').hidden = aba !== "categorias";
+    document.getElementById("g-nova").hidden = aba !== "categorias";
   }
 
   document.getElementById("g-abas").addEventListener("click", function (e) {

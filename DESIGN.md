@@ -2186,7 +2186,14 @@ telas — acrescentar ajuda em outra é um bloco escondido e um botão com
 que é tudo o que há para fazer com um texto que explica.
 
 **Botão primário** — não estica: altura 44px, padding `0 24px`, largura
-automática, ancorado à direita no cabeçalho da tela. Continua um por tela.
+automática, ancorado à direita. Continua um por tela.
+
+**Onde ele fica.** No cabeçalho, quando a tela tem mais de uma seção e o botão
+não pertence a nenhuma. **Dentro do bloco**, à direita da linha que o bloco já
+tem (abas, rótulo), quando ele age sobre aquele bloco — sem título à vista, um
+cabeçalho que carrega só um botão é uma faixa de 44px de nada. É o caso de
+"Nova categoria", ao lado das abas Categorias/Lojistas: ali o botão também
+some na aba de lojistas, porque criar categoria não é o que aquela aba faz.
 
 **Nova transação** — deixa de ser tela e vira camada: overlay
 `rgba(7,11,18,0.72)` e um painel de 480px com `background: var(--bg)`, borda
