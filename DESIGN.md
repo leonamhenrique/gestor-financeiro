@@ -249,6 +249,17 @@ em 12px `--fg-muted`.
 a variação (seta 10px + percentual, verde ou vermelho). Abaixo, uma linha de
 contexto em 12px `--fg-subtle`.
 
+**Navegador de mês** (`.month-nav`, as duas setas e o mês clicável) —
+**centralizado quando é o navegador DO BLOCO**, porque ele manda no que está
+embaixo: o par receitas/despesas, a fatura, o mês da conferência. Encostado à
+esquerda numa seção que ocupa a largura toda, parecia sobra de linha.
+
+Duas exceções, e as duas por serem outra coisa que não o navegador da seção:
+na vaga do botão principal (`.v-cta`) ele senta ao lado do título da tela, e
+sob um `.lbl` ele é um campo dentro do bloco — centrá-lo ali daria três
+alinhamentos em 90px de altura, medido no trilho do extrato. O `.lbl-row`
+(nome à esquerda, estado à direita) não conta: aquele é título de seção.
+
 **Sparkline** — largura total, altura 56px, traço 1.6px em `--accent`,
 preenchimento em gradiente vertical do acento a 22% → 0%, ponto final marcado
 com círculo de 3.2px preenchido com `--bg` e contorno do acento.

@@ -656,6 +656,27 @@
   }
 
   .month-nav { display: flex; align-items: center; gap: 10px; }
+  /* Centralizado quando é o navegador DO BLOCO: ali ele manda no que está
+   * embaixo (o par receitas/despesas, a fatura, o mês da conferência), e
+   * encostado à esquerda numa seção que ocupa a largura toda ele parecia
+   * sobra de linha em vez de controle da seção.
+   *
+   * Fora da regra fica o `.v-cta`, que é a vaga do botão principal no
+   * cabeçalho da tela: ali o mês senta ao lado do título, e no desktop a
+   * vaga já é `justify-self: end`. Centrá-lo mudaria o lugar dele no
+   * cabeçalho, que é outra decisão. */
+  .blk:not(.v-cta):not(.v-head) > .month-nav { justify-content: center; }
+  /* E fica de fora também quem tem um RÓTULO em cima: ali o mês é um campo
+   * dentro do bloco, e não o navegador dele. Medido no trilho do extrato —
+   * "Mês" à esquerda, as setas centradas embaixo e as pílulas do filtro de
+   * novo à esquerda: três alinhamentos em 90px de altura. O rótulo de
+   * cabeçalho (`.lbl-row`, nome à esquerda e estado à direita) não conta:
+   * aquele é título da seção, e o mês embaixo continua sendo o navegador.
+   *
+   * O seletor repete os dois `:not` de propósito: sem eles a regra tem
+   * especificidade menor que a de cima e nunca vence — medido, o trilho
+   * continuava centrado. */
+  .blk:not(.v-cta):not(.v-head) > .lbl + .month-nav { justify-content: flex-start; }
   /* O rótulo deixou de ser texto: são dois botões, o mês e o ano, que abrem a
    * grade de escolha. Continua com a largura mínima de antes para as setas
    * não dançarem quando o nome do mês muda de tamanho. */
