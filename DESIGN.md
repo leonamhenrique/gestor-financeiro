@@ -2152,6 +2152,18 @@ duas coisas juntas formando grade**.
 
 **Grid segmentado** — de 2 células para 3 ou 4, mesma anatomia (`gap: 1px`).
 
+**Cabeçalho de tela: sem título à vista.** O nome da tela já está aceso no
+menu, e repeti-lo em 20px no topo é a mesma palavra duas vezes ocupando a
+primeira dobra. O `<h1>` **fica no DOM com `.sr-only`** — sem ele a página não
+tem nome para quem navega por leitor de tela —, e o que aparece é só a linha de
+contexto (`.sub`): "6 cartões", "Setembro 2026", "Nenhum teto definido para
+setembro 2026". Essa linha é dado, não título, e por isso não sai junto.
+
+Duas exceções, e as duas por não serem item de menu: **tela filha** (Pendências,
+que entra pelo Resumo e volta por um botão) e **tela de detalhe**, cujo título é
+o nome do registro (a pessoa, em Compartilhadas). Ali o título é a única coisa
+que diz onde você está.
+
 **Botão primário** — não estica: altura 44px, padding `0 24px`, largura
 automática, ancorado à direita no cabeçalho da tela. Continua um por tela.
 
