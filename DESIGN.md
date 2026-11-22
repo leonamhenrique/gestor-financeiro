@@ -266,10 +266,10 @@ com círculo de 3.2px preenchido com `--bg` e contorno do acento.
 
 **Grid segmentado** (receitas/despesas, pares de métrica) — `display: grid`,
 `gap: 1px`, fundo `--hairline-strong`, **sem borda**, raio 12px,
-`overflow: hidden`; cada célula com `background: var(--bg)` e padding 14/16. As
-hairlines nascem do gap — não desenhe bordas internas. A célula em `--bg` dentro
-de um bloco em `--superficie` lê como célula ESCAVADA na superfície, e é assim
-mesmo: a borda saiu quando o bloco virou quem desenha a caixa (regra 1).
+`overflow: hidden`; cada célula vestindo a **superfície do bloco** e padding
+14/16. As hairlines nascem do gap — não desenhe bordas internas, e é só elas
+que separam uma célula da outra, como numa lista. A borda externa saiu quando o
+bloco virou quem desenha a caixa (regra 1).
 
 **Par solto** (`.seg--solta`, o receitas/despesas do Resumo) — cada lado deixa
 de ser célula e vira bloco: sai o fundo que desenhava a hairline do meio, entra
@@ -284,22 +284,19 @@ as duas únicas manchas de cor da tela. A cor fica no VALOR, e melhora sem o
 tinte atrás: o verde sobe de 9,10:1 para 10,00:1 e o vermelho de 6,15 para
 6,76 no escuro; no claro, 6,51 e 6,30.
 
-**Grid sem tinte** (`.seg--sem-tinte`, os totais do mês no trilho do extrato) —
-o grid continua grid, com as hairlines do gap separando as células, mas elas
-vestem a superfície do bloco e quem dá o sinal é só o valor. Use onde a cor
-vira ruído: três faixas tingidas empilhadas num trilho estreito pesam mais que
-os três números que elas enfeitam.
-
-A célula de **receita** e a de **despesa** fogem do fundo neutro: fundo tingido
-a 10% do próprio sinal (`--seg-receita-fundo`, `--seg-despesa-fundo`) e valor
-na cor cheia (`--seg-receita-tinta`, `--seg-despesa-tinta`). É a exceção da
-regra do verde/vermelho, não uma violação: aqui a cor **é** o sinal de valor,
-e o par lado a lado é justamente o que o usuário compara. A célula de
-**resultado** usa as mesmas duas cores, escolhidas no render pelo sinal do
-total (positivo → receita, negativo → despesa, zero → neutro). As demais
-células do grid seguem `--bg`. No tema claro o verde e o vermelho
-de token ficam em 4,4:1 sobre o tinte, abaixo do mínimo de texto, então as
-tintas escurecem um passo só aqui (5,29:1 e 5,08:1); no escuro são os tokens.
+**Sem fundo tingido, em lugar nenhum.** A célula de receita e a de despesa já
+tiveram fundo a 10% do próprio sinal; ele saiu em 21/11/2026, de todas as seis
+ocorrências do app. Com o valor já na cor do sinal, o fundo era uma segunda voz
+dizendo o mesmo mais alto — e sobre a superfície neutra a cor do número ainda
+GANHA contraste: o verde vai de 9,10:1 para 10,00:1, o ocre de 9,91 para 11,01
+(escuro); no claro, 6,51, 6,30 e 7,19. A cor vive no valor:
+na cor cheia (`--seg-receita-tinta`, `--seg-despesa-tinta`, `--seg-aviso-tinta`).
+É a exceção da regra do verde/vermelho, não uma violação: aqui a cor **é** o
+sinal de valor, e o par lado a lado é justamente o que o usuário compara. A
+célula de **resultado** usa as mesmas cores, escolhidas no render pelo sinal do
+total (positivo → receita, negativo → despesa, zero → neutro). No tema claro o
+verde, o vermelho e o ocre de token são claros demais para valor sobre branco,
+então essas três tintas escurecem um passo só aqui; no escuro são os tokens.
 
 **Uma fatura aceita vários pagamentos.** Pagar menos que o total deixa a fatura
 em aberto pelo restante, e o botão da tela de cartões vira "Pagar o restante",

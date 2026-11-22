@@ -142,14 +142,11 @@
     /* Células de receita e despesa do grid segmentado: tinte de 10% do próprio
      * sinal, para a cor ser lida antes do número. O valor fica na cor cheia
      * (9,07:1 e 6,41:1 sobre a célula tingida). */
-    --seg-receita-fundo: rgba(61,214,140,0.10);
-    --seg-despesa-fundo: rgba(255,107,107,0.10);
     --seg-receita-tinta: var(--positive);
     --seg-despesa-tinta: var(--negative);
     /* Terceiro sinal, usado no par vencidas/a vencer: o que ainda vai vencer
-     * é aviso, não perda. No escuro o ocre de token já rende de sobra sobre
-     * o próprio tinte (medido: 9,89:1) e não precisa de versão própria. */
-    --seg-aviso-fundo: rgba(255,184,107,0.10);
+     * é aviso, não perda. No escuro o ocre de token rende de sobra sobre a
+     * superfície (medido: 11,01:1) e não precisa de versão própria. */
     --seg-aviso-tinta: var(--warning);
 
     /* Faz o navegador pintar os controles nativos (lista do select, calendário,
@@ -249,14 +246,11 @@
     /* Sobre o tinte claro, o verde e o vermelho de token ficam em 4,4:1 — abaixo
      * do mínimo de texto. Aqui eles escurecem um passo (5,29:1 e 5,08:1) e só
      * nesta célula: o sinal na lista continua com o token normal. */
-    --seg-receita-fundo: rgba(11,107,78,0.10);
-    --seg-despesa-fundo: rgba(176,50,42,0.10);
     --seg-receita-tinta: #0B6B4E;
     --seg-despesa-tinta: #B0322A;
-    /* Mesmo remédio do verde e do vermelho: o ocre de token dá 4,35:1 sobre
-     * o tinte, abaixo do mínimo de texto. Escurecido um passo ele fecha
-     * 5,86:1, e só aqui — o aviso em texto, borda e etiqueta não muda. */
-    --seg-aviso-fundo: rgba(132,84,12,0.10);
+    /* Mesmo remédio do verde e do vermelho: o ocre de token é claro demais
+     * para valor em fundo branco. Escurecido um passo ele fecha 7,19:1, e só
+     * aqui — o aviso em texto, borda e etiqueta não muda. */
     --seg-aviso-tinta: #7A4E0B;
 
     color-scheme: light;
@@ -732,7 +726,17 @@
   }
   .seg--1 { grid-template-columns: minmax(0, 1fr); }
   .seg--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .seg-cell { background: var(--bg); padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+  /* A célula veste a superfície do BLOCO, e não o fundo da página. Quem
+   * separa uma da outra é a hairline do gap, como numa lista — era o que o
+   * fundo tingido fazia além de colorir, e ele saiu de todas as ocorrências
+   * do app. O padrão passou a ser este para a próxima tela nascer igual às
+   * que existem, em vez de nascer tingida e precisar que alguém lembre de
+   * desligar. */
+  .seg-cell {
+    background-color: var(--bg);
+    background-image: linear-gradient(var(--superficie), var(--superficie));
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 6px;
+  }
   /* Par SOLTO: cada lado deixa de ser célula e vira bloco. Sai o fundo que
    * desenhava a hairline do meio (ela nascia do gap de 1px) e entra um vão de
    * verdade; cada lado ganha o raio e o respiro de bloco.
@@ -751,16 +755,6 @@
    * A cor fica no VALOR, onde ela é lida junto com o número. E ela melhora
    * sem o tinte atrás: medido, o verde sobe de 9,10:1 para 10,00:1 e o
    * vermelho de 6,15:1 para 6,76:1 no escuro; no claro, 6,51 e 6,30. */
-  /* A mesma escolha, para um grid que CONTINUA sendo um grid: a célula perde
-   * o tinte e veste a superfície do bloco, e quem dá o sinal é o valor. As
-   * hairlines do gap continuam separando uma da outra, que é o que o tinte
-   * fazia além de colorir. Vale onde a cor vira ruído — nos totais do mês do
-   * extrato, três faixas tingidas num trilho estreito. */
-  .seg--solta .seg-cell--receita,
-  .seg--solta .seg-cell--despesa,
-  .seg--sem-tinte .seg-cell {
-    background-image: linear-gradient(var(--superficie), var(--superficie));
-  }
   .seg-val { font-size: 17px; font-weight: 500; }
   /* Três células numa tela de celular dão ~105px cada: com padding e fonte do
    * desktop, um valor de cinco dígitos (12.345,67) é cortado. Só o grid de três
@@ -772,24 +766,11 @@
   @media (max-width: 380px) {
     .seg--3 .seg-val { font-size: 14px; }
   }
-  /* Receita e despesa são sinal de valor: a cor diz o que é antes da leitura
-   * do número, e o fundo tingido separa uma coluna da outra. */
-  /* O tinte é translúcido e a célula fica por cima do fundo do grid (a própria
-   * hairline). Sem repintar `--bg` embaixo, ele compunha sobre o cinza da
-   * hairline e escurecia a célula — no tema claro isso derrubava o rótulo para
-   * 4,2:1 e o valor para 3,7:1. Duas camadas: tinte por cima, fundo por baixo. */
-  .seg-cell--receita {
-    background-color: var(--bg);
-    background-image: linear-gradient(var(--seg-receita-fundo), var(--seg-receita-fundo));
-  }
-  .seg-cell--despesa {
-    background-color: var(--bg);
-    background-image: linear-gradient(var(--seg-despesa-fundo), var(--seg-despesa-fundo));
-  }
-  .seg-cell--aviso {
-    background-color: var(--bg);
-    background-image: linear-gradient(var(--seg-aviso-fundo), var(--seg-aviso-fundo));
-  }
+  /* Receita e despesa são sinal de valor: a cor diz o que é, antes da leitura
+   * do número. Ela vive no VALOR, e não num fundo tingido atrás dele — o
+   * fundo era uma segunda voz dizendo o mesmo mais alto, e sobre a superfície
+   * neutra a cor do número ainda GANHA contraste (o verde vai a 10,00:1 e o
+   * ocre a 11,01:1 no escuro). */
   .seg-cell--receita .seg-val { color: var(--seg-receita-tinta); }
   .seg-cell--despesa .seg-val { color: var(--seg-despesa-tinta); }
   .seg-cell--aviso .seg-val { color: var(--seg-aviso-tinta); }
@@ -2517,7 +2498,7 @@
                pendente: bloco vazio com título é pior que ausência. -->
           <div class="blk" id="r-pendencias-bloco" style="--i:4" hidden>
             <div class="lbl">Falta pagar e receber</div>
-            <div class="seg seg--sem-tinte" id="r-pend-seg">
+            <div class="seg" id="r-pend-seg">
               <button type="button" class="seg-cell seg-cell--aviso" id="r-pend-a-vencer">
                 <div class="seg-cab"><span class="lbl">A vencer</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                 <div class="seg-val num" id="r-pend-av-val"></div>
@@ -2612,7 +2593,7 @@
       <div id="fx-corpo" class="split split--fluxo">
        <div class="col-main">
         <div class="blk" style="--i:1">
-          <div class="seg seg--kpi seg--sem-tinte" id="fx-kpis"></div>
+          <div class="seg seg--kpi" id="fx-kpis"></div>
         </div>
 
         <div class="blk" style="--i:2">
@@ -2755,7 +2736,7 @@
           </div>
           <div class="blk" style="--i:1">
             <div class="lbl">Totais do mês</div>
-            <div class="seg seg--1 seg--sem-tinte">
+            <div class="seg seg--1">
               <div class="seg-cell seg-cell--receita"><div class="lbl">Receitas</div><div class="seg-val num" id="l-entradas"></div></div>
               <div class="seg-cell seg-cell--despesa"><div class="lbl">Despesas</div><div class="seg-val num" id="l-saidas"></div></div>
               <!-- O resultado não tem cor fixa: ela vem do sinal do mês,
@@ -3273,7 +3254,7 @@
           </div>
 
           <div class="blk" style="--i:2">
-            <div class="seg seg--sem-tinte">
+            <div class="seg">
               <div class="seg-cell seg-cell--receita">
                 <div class="lbl">A receber</div>
                 <div class="seg-val num" id="cp-receber">—</div>
@@ -3438,7 +3419,7 @@
 
           <div class="blk" style="--i:4">
             <div class="lbl">No mês, de verdade</div>
-            <div class="seg seg--1 seg--sem-tinte">
+            <div class="seg seg--1">
               <div class="seg-cell seg-cell--receita">
                 <div class="lbl">Receitas</div>
                 <div class="seg-val num" id="pl-receitas"></div>
