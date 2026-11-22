@@ -50,9 +50,15 @@
     /* Medido, não estimado: com 0,38 o metadado ficava em 3,15:1 — o texto
      * some ao sol. O piso para 4,5:1 é 0,51, inclusive sobre as células
      * tingidas e o primeiro degrau do mapa de calor; o fantasma só precisa
-     * de 3:1, porque só aparece em número grande e na alça de arraste. */
+     * de 3:1, porque só aparece em número grande e na alça de arraste.
+     *
+     * A tinta fraca subiu de 0,54 para 0,58 em 22/11/2026, junto com o
+     * degrau mais claro do bloco: ela veste o texto MENOR da tela (rótulo de
+     * 10px, metadado de 11px), e sobre a superfície nova 0,54 fechava 4,97 —
+     * passava, mas a 0,47 do piso. Em 0,58 são 5,50 sobre o bloco e 6,00
+     * sobre a página, melhor do que os 5,23 de antes de clarear. */
     --fg-muted: rgba(226,238,248,0.72);
-    --fg-subtle: rgba(226,238,248,0.54);
+    --fg-subtle: rgba(226,238,248,0.58);
     --fg-ghost: rgba(226,238,248,0.42);
 
     --accent: #6EE7F0;

@@ -58,9 +58,11 @@ Consequências práticas:
   `width: calc(100% + var(--blk-pad-x) * 2)`. Vale para o gráfico do saldo e a
   faixa de meses — 40px a menos tiram um mês da faixa.
 - O degrau é limitado pelo que custa ao TEXTO. Em `#162133` a tinta mais
-  fraca (`--fg-subtle`) cai de 5,32:1 para 4,97:1 no escuro, e SOBE de 5,23
-  para 5,34 no claro. O mínimo é 4,5: em `#1E2B41` ela fecharia 4,62 e o passo
-  seguinte quebraria a regra. Mexer nessa cor é refazer a conta.
+  fraca (`--fg-subtle`) fecharia 4,97:1 no escuro — passava, mas a 0,47 do
+  piso de 4,5 —, então ela subiu junto, de 0,54 para 0,58: **5,50:1 sobre o
+  bloco e 6,00 sobre a página**, melhor do que antes de clarear. No claro
+  SOBE de 5,23 para 5,34 sem precisar de nada. Mexer nessa cor é refazer a
+  conta: em `#1E2B41` com a tinta antiga ela fecharia 4,62.
 
 ## 2. Tokens
 
@@ -79,7 +81,7 @@ Consequências práticas:
   /* texto */
   --fg:            #E2EEF8;
   --fg-muted:      rgba(226,238,248,0.72);  /* valores secundários */
-  --fg-subtle:     rgba(226,238,248,0.54);  /* metadados, rótulos */
+  --fg-subtle:     rgba(226,238,248,0.58);  /* metadados, rótulos */
   --fg-ghost:      rgba(226,238,248,0.42);  /* centavos, sufixos */
 
   /* semântica */
