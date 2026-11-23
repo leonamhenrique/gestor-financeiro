@@ -393,6 +393,16 @@
    * sentar ao lado do título — reusada aqui, ela centrava os botões no meio
    * da coluna (medido: 444px de margem numa coluna de 862). */
   .acoes-linha { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* Conferindo, a tela de Importar mostra SÓ os lançamentos.
+   *
+   * O passo 1 já sumia; o bloco do Open Finance e o das importações recentes
+   * não, e ficavam entre o topo e a lista — a pessoa rolava doze meses de
+   * fatura para chegar no que veio conferir. Some por CLASSE, e não apagando
+   * o `hidden` de cada um: esses dois têm dono (o Open Finance desligado
+   * esconde o seu, e as recentes só existem quando há alguma), e devolver
+   * `hidden = false` na volta acenderia bloco que não era para acender. */
+  .view[data-view="importar"].conferindo #of-bloco,
+  .view[data-view="importar"].conferindo #imp-recentes { display: none; }
   /* Abas à esquerda, ação à direita, na mesma linha. Quebra para duas linhas
    * no estreito: empurrar o botão para fora da tela seria pior que descê-lo. */
   .abas-linha {
@@ -11377,6 +11387,7 @@
     document.getElementById("imp-continuar").disabled = true;
     document.getElementById("imp-passo-1").hidden = false;
     document.getElementById("imp-passo-2").hidden = true;
+    telaDeImportar().classList.remove("conferindo");
     document.getElementById("imp-lista").innerHTML = "";
     document.getElementById("imp-ilegiveis").hidden = true;
     document.getElementById("imp-dias-campo").hidden = true;
@@ -12907,13 +12918,20 @@
       : "";
     document.getElementById("imp-passo-1").hidden = true;
     document.getElementById("imp-passo-2").hidden = false;
+    telaDeImportar().classList.add("conferindo");
     pintarImportacao();
     window.scrollTo(0, 0);
   });
 
+  function telaDeImportar() { return document.querySelector('.view[data-view="importar"]'); }
+
+  /* Voltar devolve a lista de meses com as fontes que já estavam lá: ele não
+   * refaz a tela, então quem conferiu dezembro escolhe novembro sem buscar de
+   * novo no banco. */
   document.getElementById("imp-voltar").addEventListener("click", function () {
     document.getElementById("imp-passo-1").hidden = false;
     document.getElementById("imp-passo-2").hidden = true;
+    telaDeImportar().classList.remove("conferindo");
     window.scrollTo(0, 0);
   });
 
