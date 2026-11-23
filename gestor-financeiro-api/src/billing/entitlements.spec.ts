@@ -32,11 +32,15 @@ describe('direitos do plano', () => {
     expect(d.mesesDeHistorico).toBe(1);
   });
 
-  it('o Pro conecta 5 bancos e traz 12 meses', () => {
+  /* O teto do pago é de CONEXÃO, não de cadastro: banco que a pessoa cadastra
+   * à mão para lançar sem integração não custa nada e não se limita. */
+  it('o Pro conecta 5 bancos, traz 12 meses e não limita cadastro', () => {
     const d = direitosDe({ codigo: 'pro-mensal', liberada: true }, AGORA);
     expect(d.bancos).toBe(5);
     expect(d.mesesDeHistorico).toBe(12);
-    expect(d.contas).toBe(10);
+    expect(d.contas).toBeNull();
+    expect(d.cartoes).toBeNull();
+    expect(d.objetivos).toBeNull();
   });
 
   it('o anual dá o mesmo que o mensal', () => {
@@ -45,13 +49,19 @@ describe('direitos do plano', () => {
     );
   });
 
-  it('o Premium conecta 12 bancos e não limita cadastro nem mensagem', () => {
+  /* O que separa Premium de Pro é só o que custa por uso. */
+  it('o Premium conecta 12 bancos e não limita mensagem', () => {
     const d = direitosDe({ codigo: 'premium-mensal', liberada: true }, AGORA);
     expect(d.bancos).toBe(12);
-    expect(d.contas).toBeNull();
-    expect(d.cartoes).toBeNull();
     expect(d.whatsappPorMes).toBeNull();
     expect(d.mesesDeHistorico).toBe(12);
+  });
+
+  it('Pro e Premium só diferem no que custa por uso', () => {
+    const pro: any = direitosDe({ codigo: 'pro-mensal', liberada: true }, AGORA);
+    const premium: any = direitosDe({ codigo: 'premium-mensal', liberada: true }, AGORA);
+    const diferentes = Object.keys(pro).filter((k) => pro[k] !== premium[k]);
+    expect(diferentes.sort()).toEqual(['bancos', 'whatsappPorMes']);
   });
 
   /* O caso que o `if` na ordem errada estragaria: quem assina no meio do

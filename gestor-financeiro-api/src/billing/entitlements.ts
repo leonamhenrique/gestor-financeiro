@@ -45,10 +45,13 @@ export interface Direitos {
   compartilharPorLink: boolean;
 }
 
+/* CADASTRO É LIVRE no pago. O teto de 5 e de 12 é de CONEXÃO de Open
+ * Finance, que é o que custa por uso — banco cadastrado à mão, para lançar
+ * sem integração, não custa nada e não se limita. */
 const PRO: Direitos = {
-  contas: 10,
-  cartoes: 10,
-  objetivos: 10,
+  contas: null,
+  cartoes: null,
+  objetivos: null,
   bancos: 5,
   mesesDeHistorico: 12,
   whatsappPorMes: 100,
@@ -60,11 +63,10 @@ const PRO: Direitos = {
   compartilharPorLink: true,
 };
 
+/* O Premium se separa do Pro pelo que custa por uso: mais conexões e
+ * mensagem sem teto. O cadastro já era livre nos dois. */
 const PREMIUM: Direitos = {
   ...PRO,
-  contas: null,
-  cartoes: null,
-  objetivos: null,
   bancos: 12,
   whatsappPorMes: null,
 };
