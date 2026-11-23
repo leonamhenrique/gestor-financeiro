@@ -5,10 +5,13 @@
 // não escolhe de quem é a pessoa.
 // ============================================================
 
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Funcao, FuncaoDoPlanoGuard } from '../billing/funcao-do-plano.guard';
 import { PeopleService } from './people.service';
 import { CreatePersonDto, UpdatePersonDto, ReorderPeopleDto } from './dto/person.dto';
 
+@Funcao('compartilhadas')
+@UseGuards(FuncaoDoPlanoGuard)
 @Controller('shared/people')
 export class PeopleController {
   constructor(private readonly people: PeopleService) {}

@@ -88,6 +88,36 @@ describe('LimitesService', () => {
     expect(prisma.openFinanceConnection.count).not.toHaveBeenCalled();
   });
 
+  /* O planejamento não é guard de rota: a rota é a mesma para qualquer mês,
+   * e quem decide é o `:month` que veio. */
+  describe('mês do planejamento', () => {
+    const mesAtual = new Date().toISOString().slice(0, 7);
+
+    it('no grátis, o mês corrente passa', async () => {
+      billing.direitos.mockResolvedValue({ ...GRATIS, planejamentoCompleto: false });
+      await expect(limites.conferirMesDoPlanejamento('u1', mesAtual)).resolves.toBeUndefined();
+    });
+
+    it('no grátis, outro mês é recusado — e o erro diz qual vale', async () => {
+      billing.direitos.mockResolvedValue({ ...GRATIS, planejamentoCompleto: false });
+      try {
+        await limites.conferirMesDoPlanejamento('u1', '2020-01');
+        fail('devia ter recusado');
+      } catch (e: any) {
+        expect(e.getResponse()).toMatchObject({
+          code: 'PLAN_FEATURE',
+          funcao: 'planejamentoCompleto',
+          mesPermitido: mesAtual,
+        });
+      }
+    });
+
+    it('no pago, qualquer mês passa', async () => {
+      billing.direitos.mockResolvedValue({ ...GRATIS, planejamentoCompleto: true });
+      await expect(limites.conferirMesDoPlanejamento('u1', '2020-01')).resolves.toBeUndefined();
+    });
+  });
+
   it('arquivado não conta: o limite é sobre o que está de pé', async () => {
     await limites.conferirConta('u1');
     expect(prisma.bankAccount.count).toHaveBeenCalledWith({ where: { userId: 'u1', isActive: true } });

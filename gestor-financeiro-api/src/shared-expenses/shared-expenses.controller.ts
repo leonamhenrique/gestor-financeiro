@@ -4,7 +4,8 @@
 // O dono vem sempre de `req.user.id`, nunca do corpo.
 // ============================================================
 
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, HttpCode, UseGuards } from '@nestjs/common';
+import { Funcao, FuncaoDoPlanoGuard } from '../billing/funcao-do-plano.guard';
 import { SharedExpensesService } from './shared-expenses.service';
 import { SettlementsService } from './settlements.service';
 import { SharedSummaryService } from './shared-summary.service';
@@ -18,6 +19,11 @@ import {
   UpdateSettlementDto,
 } from './dto/shared-expense.dto';
 
+/* O controller inteiro é a função: resumo, extrato, despesa e acerto não
+ * existem sem ela. O link tem marca própria, logo abaixo, porque é outra
+ * linha da tabela de planos. */
+@Funcao('compartilhadas')
+@UseGuards(FuncaoDoPlanoGuard)
 @Controller('shared')
 export class SharedExpensesController {
   constructor(
@@ -92,11 +98,13 @@ export class SharedExpensesController {
 
   // ---------- link de compartilhamento ----------
 
+  @Funcao('compartilharPorLink')
   @Post('people/:id/links')
   criarLink(@Req() req: any, @Param('id') id: string, @Body() dto: CreateShareLinkDto) {
     return this.links.create(req.user.id, id, dto.expiresAt);
   }
 
+  @Funcao('compartilharPorLink')
   @Get('people/:id/links')
   listarLinks(@Req() req: any, @Param('id') id: string) {
     return this.links.findByPerson(req.user.id, id);

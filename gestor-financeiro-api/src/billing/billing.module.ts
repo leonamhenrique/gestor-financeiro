@@ -10,6 +10,7 @@ import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { BillingService } from './billing.service';
 import { LimitesService } from './limites.service';
+import { FuncaoDoPlanoGuard } from './funcao-do-plano.guard';
 import { BillingController } from './billing.controller';
 import { SubscriptionActiveGuard } from './subscription-active.guard';
 import { PAYMENT_PROVIDER } from './payment-provider.port';
@@ -24,6 +25,7 @@ import { garantirPlanosPadrao } from './default-plans';
   providers: [
     BillingService,
     LimitesService,
+    FuncaoDoPlanoGuard,
     SubscriptionActiveGuard,
     {
       provide: PAYMENT_PROVIDER,
@@ -38,7 +40,7 @@ import { garantirPlanosPadrao } from './default-plans';
       },
     },
   ],
-  exports: [BillingService, LimitesService, SubscriptionActiveGuard],
+  exports: [BillingService, LimitesService, FuncaoDoPlanoGuard, SubscriptionActiveGuard],
 })
 export class BillingModule implements OnModuleInit {
   private readonly logger = new Logger(BillingModule.name);

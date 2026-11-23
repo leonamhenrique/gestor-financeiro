@@ -18,6 +18,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingService } from './billing.service';
 import { cabeMais } from './entitlements';
+import { hojeNoFuso } from '../credit-cards/invoice-statement';
 
 /** O que se conta, e como se chama na frase do erro. */
 type Recurso = 'contas' | 'cartoes' | 'objetivos' | 'bancos';
@@ -62,6 +63,29 @@ export class LimitesService {
     return this.conferir(userId, 'bancos', () =>
       this.prisma.openFinanceConnection.count({ where: { userId, revokedAt: null } }),
     );
+  }
+
+  /**
+   * O planejamento do grátis vale só para o mês corrente.
+   *
+   * Não é guard de rota como as outras funções: a rota é a mesma para
+   * qualquer mês, e quem decide é o `:month` que veio. O mês corrente sai do
+   * fuso do app, e não do relógio do servidor — virada de mês em UTC
+   * aconteceria três horas antes aqui.
+   */
+  async conferirMesDoPlanejamento(userId: string, mes: string) {
+    const direitos = await this.billing.direitos(userId);
+    if (direitos.planejamentoCompleto) return;
+
+    const atual = hojeNoFuso().slice(0, 7);
+    if (mes === atual) return;
+
+    throw new ForbiddenException({
+      code: 'PLAN_FEATURE',
+      funcao: 'planejamentoCompleto',
+      mesPermitido: atual,
+      message: 'No seu plano o planejamento vale para o mês corrente. Planejar outros meses é do Pro.',
+    });
   }
 
   private async conferir(userId: string, recurso: Recurso, contar: () => Promise<number>) {

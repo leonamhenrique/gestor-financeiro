@@ -21,6 +21,7 @@ export function limitesLiberados(): Partial<LimitesService> {
     conferirCartao: jest.fn().mockResolvedValue(undefined),
     conferirObjetivo: jest.fn().mockResolvedValue(undefined),
     conferirBanco: jest.fn().mockResolvedValue(undefined),
+    conferirMesDoPlanejamento: jest.fn().mockResolvedValue(undefined),
   };
 }
 

@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { PushController } from './push.controller';
 import { PushService } from './push.service';
 import { ENVIADOR_DE_PUSH } from './push.port';
 import { WebPushEnviador } from './webpush.enviador';
 
 @Module({
+  imports: [BillingModule],
   controllers: [PushController],
   providers: [
     PushService,

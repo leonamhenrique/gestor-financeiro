@@ -19,6 +19,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { LimitesService } from '../billing/limites.service';
 import {
   aplicarTotalDasFilhas,
   comprometido,
@@ -44,7 +45,10 @@ export interface SalvarPlanejamento {
 
 @Injectable()
 export class BudgetsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly limites: LimitesService,
+  ) {}
 
   /** Todos os planejamentos da pessoa, com as metas dentro. São uma linha por
    * mês e algumas dezenas de metas em cada — ordens de grandeza menos que a
@@ -66,6 +70,7 @@ export class BudgetsService {
    */
   async save(input: SalvarPlanejamento) {
     this.conferirMes(input.month);
+    await this.limites.conferirMesDoPlanejamento(input.userId, input.month);
     if (input.total < 0) throw new BadRequestException('O planejamento não pode ser negativo.');
 
     const metas = await this.metasConferidas(input.userId, input.items, input.total);
@@ -129,6 +134,10 @@ export class BudgetsService {
   async copy(userId: string, fromMonth: string, toMonth: string) {
     this.conferirMes(fromMonth);
     this.conferirMes(toMonth);
+    /* Só o DESTINO: copiar de um mês antigo para o corrente é o caminho
+     * normal de quem repete o planejamento do mês passado, e nele não há
+     * nada do Pro sendo usado. */
+    await this.limites.conferirMesDoPlanejamento(userId, toMonth);
     if (fromMonth === toMonth) {
       throw new BadRequestException('Escolha um mês diferente para copiar.');
     }

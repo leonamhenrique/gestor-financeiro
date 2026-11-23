@@ -7,13 +7,18 @@
 // quem trocasse um parâmetro na URL.
 // ============================================================
 
-import { BadRequestException, Controller, Get, Query, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ReportsService } from './reports.service';
+import { Funcao, FuncaoDoPlanoGuard } from '../billing/funcao-do-plano.guard';
 
+@UseGuards(FuncaoDoPlanoGuard)
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
+  /* A tela inteira é a função: sem ela no plano, não há meia resposta que
+   * valha — meio fluxo de caixa é um gráfico que mente. */
+  @Funcao('fluxoDeCaixa')
   @Get('cashflow')
   cashflow(@Req() req: any, @Query('year') year?: string) {
     const ano = year === undefined ? new Date().getUTCFullYear() : Number(year);

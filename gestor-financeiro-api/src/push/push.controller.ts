@@ -17,6 +17,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Funcao, FuncaoDoPlanoGuard } from '../billing/funcao-do-plano.guard';
 import { IsString, IsNotEmpty, MaxLength, ValidateNested, IsDefined } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -61,7 +62,7 @@ class DesinscreverDto {
   endpoint!: string;
 }
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, FuncaoDoPlanoGuard)
 @Controller('push')
 export class PushController {
   constructor(private readonly push: PushService) {}
@@ -92,6 +93,11 @@ export class PushController {
     return { inscrito: await this.push.temInscricao(req.user.id) };
   }
 
+  /* Só INSCREVER é do plano. `key` e `me` continuam abertas: a tela precisa
+   * saber se o recurso existe e se esta pessoa já estava inscrita antes de
+   * decidir o que mostrar — e quem perdeu o plano tem de poder se
+   * DESinscrever do que já tinha ligado. */
+  @Funcao('avisos')
   @Post('subscribe')
   @HttpCode(204)
   async inscrever(@Req() req: any, @Body() dto: InscreverDto) {

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { TransactionsModule } from '../transactions/transactions.module';
 import { PeopleController } from './people.controller';
 import { PeopleService } from './people.service';
@@ -12,7 +13,7 @@ import { PublicSharedController } from './public-shared.controller';
 @Module({
   // TransactionsService entra para o gasto e a divisão nascerem juntos,
   // numa transação de banco só.
-  imports: [TransactionsModule],
+  imports: [BillingModule, TransactionsModule],
   controllers: [PeopleController, SharedExpensesController, PublicSharedController],
   providers: [PeopleService, SharedExpensesService, SettlementsService, SharedSummaryService, ShareLinksService],
   // Exportados para o WhatsApp: "gastei 200 no mercado dividido com a Ana"
