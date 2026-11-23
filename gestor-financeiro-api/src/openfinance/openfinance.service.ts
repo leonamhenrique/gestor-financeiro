@@ -59,6 +59,22 @@ export interface PropostaDeImportacao {
   jaSincronizados: number;
 }
 
+/**
+ * O apelido como ele é gravado: aparado, ou NULO.
+ *
+ * Vazio vira nulo de propósito — "" e `null` contariam a mesma coisa de dois
+ * jeitos, e a tela teria de testar os dois para decidir se mostra o nome do
+ * banco. Nulo é a ausência, e é só ela que existe aqui.
+ *
+ * O limite de 40 é o que cabe na linha da lista sem empurrar os botões; o
+ * corte acontece aqui, e não só no validador, porque o serviço também é
+ * chamado pelo teste e pelo próprio app.
+ */
+export function limparApelido(apelido?: string | null): string | null {
+  const limpo = (apelido ?? '').trim().slice(0, 40);
+  return limpo || null;
+}
+
 @Injectable()
 export class OpenFinanceService {
   private readonly logger = new Logger('OpenFinance');
@@ -167,7 +183,7 @@ export class OpenFinanceService {
    * nunca vê senha, e nunca deve pedir uma. E o CPF não é guardado: ele
    * atravessa até o provedor e some. Ver a nota em `criarConsentimento`.
    */
-  async conectar(userId: string, dados: { institutionId: string; cpf: string }) {
+  async conectar(userId: string, dados: { institutionId: string; cpf: string; apelido?: string | null }) {
     const cpf = (dados.cpf || '').replace(/\D/g, '');
     if (cpf.length !== 11) throw new BadRequestException('CPF inválido.');
 
@@ -188,7 +204,9 @@ export class OpenFinanceService {
       throw e;
     }
 
-    const conexao = await this.guardarConexao(userId, instituicao, criado.consentId, criado.status);
+    const conexao = await this.guardarConexao(
+      userId, instituicao, criado.consentId, criado.status, dados.apelido,
+    );
 
     return {
       id: conexao.id,
@@ -267,6 +285,7 @@ export class OpenFinanceService {
     instituicao: { id: string; nome: string },
     consentId: string,
     status: string,
+    apelido?: string | null,
   ) {
     /* O índice único é por (provider, consentId), sem o dono. Se a linha
      * existe e é de OUTRA pessoa, isto não pode virar um "upsert" silencioso
@@ -286,6 +305,7 @@ export class OpenFinanceService {
         consentId,
         institutionId: instituicao.id,
         institutionName: instituicao.nome,
+        nickname: limparApelido(apelido),
         status,
         products: ['ACCOUNT', 'CREDIT_CARD_ACCOUNT'],
       },
@@ -341,12 +361,35 @@ export class OpenFinanceService {
     return frescas.map((c) => ({
       id: c.id,
       instituicao: c.institutionName,
+      apelido: c.nickname,
       status: c.status,
       autorizadaEm: c.authorizedAt,
       sincronizadaEm: c.lastSyncedAt,
       pendentes: c.pendingCount,
       conferidoEm: c.pendingCheckedAt,
     }));
+  }
+
+  /**
+   * O apelido da conexão: como a PESSOA chama esta ligação com o banco.
+   *
+   * Renomear existe, e não só "nomear ao conectar", porque criar
+   * consentimento QUEIMA COTA do CPF naquela instituição — obrigar a
+   * reconectar para corrigir um nome cobraria caro por um erro de digitação.
+   *
+   * Nada aqui fala com o provedor: o apelido é nosso, não dele.
+   */
+  async renomear(userId: string, id: string, apelido?: string | null) {
+    const conexao = await this.prisma.openFinanceConnection.findFirst({
+      where: { id, userId, revokedAt: null },
+    });
+    if (!conexao) throw new NotFoundException('Conexão não encontrada.');
+
+    const atualizada = await this.prisma.openFinanceConnection.update({
+      where: { id: conexao.id },
+      data: { nickname: limparApelido(apelido) },
+    });
+    return { id: atualizada.id, apelido: atualizada.nickname };
   }
 
   /**

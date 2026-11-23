@@ -875,6 +875,61 @@ describe('OpenFinance', () => {
   });
 
   // ----------------------------------------------------------------------
+  /* Duas conexoes do mesmo banco ficam identicas na lista: o CPF nao e
+   * guardado. O apelido e a unica coisa que as distingue -- e e o que
+   * permite ligar o Open Finance de OUTRO titular (o conjuge) na mesma
+   * conta do app sem transformar "Desconectar" numa roleta. */
+  describe('apelido da conexao', () => {
+    it('grava o apelido ao conectar', async () => {
+      await service.conectar('u1', { institutionId: 'inst-1', cpf: '12345678901', apelido: ' Ana ' });
+      const criado = prisma.openFinanceConnection.upsert.mock.calls[0][0].create;
+      expect(criado.nickname).toBe('Ana');
+    });
+
+    it('sem apelido grava nulo, e nao vazio', async () => {
+      await service.conectar('u1', { institutionId: 'inst-1', cpf: '12345678901' });
+      expect(prisma.openFinanceConnection.upsert.mock.calls[0][0].create.nickname).toBeNull();
+    });
+
+    it('a lista devolve o apelido junto com o banco', async () => {
+      prisma.openFinanceConnection.findMany.mockResolvedValue([
+        { ...CONEXAO, nickname: 'Ana', pendingCount: 0, pendingCheckedAt: null, lastSyncedAt: null },
+      ]);
+      const r = await service.listar('u1');
+      expect(r[0]).toMatchObject({ instituicao: 'Banco Inter PF', apelido: 'Ana' });
+    });
+
+    it('renomeia sem falar com o provedor', async () => {
+      const r = await service.renomear('u1', 'cx1', 'Ana');
+      expect(r.apelido).toBe('Ana');
+      expect(prisma.openFinanceConnection.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { nickname: 'Ana' } }),
+      );
+      expect(polp.consentimento).not.toHaveBeenCalled();
+      expect(polp.criarConsentimento).not.toHaveBeenCalled();
+    });
+
+    it('apelido vazio limpa, e volta a valer o nome do banco', async () => {
+      await service.renomear('u1', 'cx1', '   ');
+      expect(prisma.openFinanceConnection.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { nickname: null } }),
+      );
+    });
+
+    it('corta em 40 para nao empurrar os botoes da linha', async () => {
+      await service.renomear('u1', 'cx1', 'a'.repeat(60));
+      const data = prisma.openFinanceConnection.update.mock.calls[0][0].data;
+      expect(data.nickname).toHaveLength(40);
+    });
+
+    it('conexao de outra pessoa nao se renomeia', async () => {
+      prisma.openFinanceConnection.findFirst.mockResolvedValue(null);
+      await expect(service.renomear('u2', 'cx1', 'Ana')).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.openFinanceConnection.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ----------------------------------------------------------------------
   describe('instituicoes', () => {
     it('sem busca, so as que dao para conectar agora', async () => {
       const r = await service.instituicoes();

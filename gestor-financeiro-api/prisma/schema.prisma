@@ -1113,6 +1113,12 @@ model OpenFinanceConnection {
   /// provedor muda, e uma conexão antiga tem de continuar sabendo dizer de
   /// que banco ela era.
   institutionName String?   @map("institution_name")
+  /// Como a PESSOA chama esta conexão. Existe porque duas conexões do mesmo
+  /// banco ficam indistinguíveis na lista: o CPF não é guardado (de
+  /// propósito), e sem apelido "Desconectar" vira uma roleta entre a conexão
+  /// de quem conectou e a de outro titular — o cônjuge, por exemplo, que
+  /// autoriza no banco dele e cujo extrato passa a entrar aqui.
+  nickname        String?   @map("nickname")
   status          String
   products        String[]  @default([])
   /// Quando a autorização concluiu. Nulo enquanto espera o banco — e é só

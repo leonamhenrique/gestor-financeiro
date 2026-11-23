@@ -27,6 +27,7 @@ import {
   NotFoundException,
   Get,
   Post,
+  Patch,
   HttpCode,
   Delete,
   Body,
@@ -91,6 +92,21 @@ export class ConectarDto {
   @IsString()
   @Matches(/^\d{11}$/, { message: 'CPF deve ter 11 dígitos.' })
   cpf: string;
+
+  /* Opcional, e é a única coisa que distingue duas conexões do mesmo banco
+   * na lista — o CPF não é guardado. Ver `OpenFinanceConnection.nickname`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  apelido?: string;
+}
+
+/** Renomear depois, sem reconectar — reconectar queima cota do CPF. */
+export class RenomearDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  apelido?: string;
 }
 
 export class VincularDto {
@@ -172,6 +188,11 @@ export class OpenFinanceController {
   @Post('connections')
   conectar(@Req() req: any, @Body() dto: ConectarDto) {
     return this.openFinance.conectar(req.user.id, dto);
+  }
+
+  @Patch('connections/:id')
+  renomear(@Req() req: any, @Param('id') id: string, @Body() dto: RenomearDto) {
+    return this.openFinance.renomear(req.user.id, id, dto.apelido ?? null);
   }
 
   @Get('connections/:id')

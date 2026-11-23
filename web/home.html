@@ -2957,6 +2957,13 @@
           <label class="lbl" for="of-cpf" style="margin-top:12px">CPF do titular</label>
           <input type="text" id="of-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" autocomplete="off">
           <div class="field-help">Ele vai para o banco e não fica guardado aqui.</div>
+          <!-- O apelido existe porque o CPF NÃO fica: duas conexões do mesmo
+               banco ficariam idênticas na lista, e "Desconectar" viraria uma
+               roleta. É também o que permite ligar o banco de outro titular
+               (o cônjuge, por exemplo) sem confundir as duas. -->
+          <label class="lbl" for="of-apelido" style="margin-top:12px">Apelido (opcional)</label>
+          <input type="text" id="of-apelido" maxlength="40" placeholder="Ex.: minha conta, conta da Ana" autocomplete="off">
+          <div class="field-help">Só para você distinguir, quando houver mais de uma conexão no mesmo banco.</div>
           <div class="field-error" id="of-erro"></div>
           <div class="acoes-linha" style="margin-top:12px">
             <button type="button" class="ghost" id="of-cancelar">Cancelar</button>
@@ -4146,6 +4153,24 @@
   <div class="layer-body" id="ajuda-corpo"></div>
   <div class="layer-foot">
     <button type="button" class="primary" data-fechar>Entendi</button>
+  </div>
+</dialog>
+
+<!-- Renomear a conexão. Existe como camada própria porque reconectar para
+     corrigir um nome QUEIMA A COTA do CPF naquele banco — o apelido tem de
+     ser corrigível sem falar com o provedor. -->
+<dialog id="dlg-apelido">
+  <div class="layer-head"><h3>Apelido da conexão</h3><div class="ctx" id="ap-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-body">
+    <div class="field">
+      <label class="lbl" for="ap-nome">Como você chama esta conexão</label>
+      <input type="text" id="ap-nome" maxlength="40" placeholder="Ex.: conta da Ana" autocomplete="off">
+      <div class="field-help">Em branco volta a mostrar o nome do banco.</div>
+    </div>
+    <div class="field-error" id="ap-erro"></div>
+  </div>
+  <div class="layer-foot">
+    <button type="button" class="primary" id="ap-salvar">Salvar</button>
   </div>
 </dialog>
 
@@ -11940,11 +11965,21 @@
         var quando = c.sincronizadaEm
           ? "sincronizado em " + fmtDataBR(String(c.sincronizadaEm).slice(0, 10))
           : "nunca sincronizado";
+        var banco = c.instituicao || "Banco";
+        /* Com apelido, é ELE quem manda na linha: o nome do banco se repete
+         * entre duas conexões, o apelido é o que as separa. Sem apelido nada
+         * muda — continua o banco em cima e o estado embaixo. */
         return '<div class="imp-lote" data-id="' + esc(c.id) + '">' +
-          '<span class="imp-lote-txt"><b>' + esc(c.instituicao || "Banco") + "</b>" +
+          '<span class="imp-lote-txt"><b>' + esc(c.apelido || banco) + "</b>" +
           '<span class="imp-lote-meta">' +
+            (c.apelido ? esc(banco) + " · " : "") +
             (pronta ? esc(quando) : "aguardando a sua autorização no banco") + "</span></span>" +
           '<span class="of-botoes">' +
+            /* `data-of`, como os vizinhos: o ouvinte da lista procura
+             * `button[data-of]`, e um `data-of-apelido` do `botaoIcone`
+             * passaria despercebido por ele — botão que não faz nada. */
+            '<button type="button" class="icon-btn" data-of="apelido" title="Dar um apelido" aria-label="Dar um apelido">' +
+              svgIcone("edit") + "</button>" +
             (pronta
               ? '<button type="button" class="ghost" data-of="sincronizar">Buscar</button>'
               : '<button type="button" class="ghost" data-of="conferir">Já autorizei</button>') +
@@ -11992,6 +12027,7 @@
     ofEl("of-form").hidden = true;
     ofEl("of-acoes").hidden = false;
     ofEl("of-cpf").value = "";
+    ofEl("of-apelido").value = "";
     ofEl("of-erro").textContent = "";
   }
 
@@ -12006,7 +12042,9 @@
     var botao = ofEl("of-gerar");
     botao.disabled = true;
     try {
-      of.pendente = await api("/openfinance/connections", { institutionId: banco, cpf: cpf });
+      of.pendente = await api("/openfinance/connections", {
+        institutionId: banco, cpf: cpf, apelido: ofEl("of-apelido").value.trim(),
+      });
     } catch (e) {
       erro.textContent = e.message;
       return;
@@ -12678,6 +12716,38 @@
   ofEl("of-abrir").addEventListener("click", ofAbrirBanco);
   ofEl("of-conferir").addEventListener("click", function (e) { ofConferir(null, e.currentTarget); });
 
+  /* O apelido da conexão. Nada aqui fala com o provedor: o nome é nosso. */
+  var apelidoDe = null;
+  function ofAbrirApelido(id) {
+    var c = byId(of.conexoes, id);
+    if (!c) return;
+    apelidoDe = id;
+    document.getElementById("ap-ctx").textContent = c.instituicao || "Banco";
+    document.getElementById("ap-nome").value = c.apelido || "";
+    document.getElementById("ap-erro").textContent = "";
+    abrir("dlg-apelido");
+    document.getElementById("ap-nome").focus();
+  }
+  document.getElementById("ap-salvar").addEventListener("click", async function (e) {
+    if (!apelidoDe) return;
+    var botao = e.currentTarget;
+    botao.disabled = true;
+    try {
+      await api("/openfinance/connections/" + apelidoDe,
+        { apelido: document.getElementById("ap-nome").value.trim() }, "PATCH");
+    } catch (err) {
+      document.getElementById("ap-erro").textContent = err.message;
+      return;
+    } finally {
+      botao.disabled = false;
+    }
+    fechar("dlg-apelido");
+    apelidoDe = null;
+    /* Relê do servidor em vez de remendar a lista na mão: é ele quem apara e
+     * corta o nome, e a tela tem de mostrar o que ficou gravado. */
+    await ofRecarregarLista();
+  });
+
   ofEl("of-lista").addEventListener("click", function (e) {
     var botao = e.target.closest("button[data-of]");
     if (!botao) return;
@@ -12691,6 +12761,7 @@
     if (!id) return;
     if (acao === "sincronizar") ofSincronizar(id, botao);
     else if (acao === "conferir") ofConferir(id, botao);
+    else if (acao === "apelido") ofAbrirApelido(id);
     else if (acao === "desconectar") ofDesconectar(id);
   });
 
