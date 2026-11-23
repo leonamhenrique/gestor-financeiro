@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { BankAccountsModule } from '../bank-accounts/bank-accounts.module';
 import { CategoriesModule } from '../categories/categories.module';
 import { CreditCardsModule } from '../credit-cards/credit-cards.module';
@@ -15,7 +16,7 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappWebhookController } from './webhook.controller';
 
 @Module({
-  imports: [
+  imports: [BillingModule, 
     TransactionsModule,
     TransfersModule,
     RelatorioModule,

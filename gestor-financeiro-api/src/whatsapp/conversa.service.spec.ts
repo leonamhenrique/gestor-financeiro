@@ -93,6 +93,7 @@ describe('ConversaService', () => {
   /* A conta entre as duas pessoas, como o serviço a devolve. O saldo
    * POSITIVO é ela devendo; o negativo sou eu. */
   let contaEntreNos: any;
+  let limitesDoPlano: any;
   let resumoDasDivisoes: any;
   let extratoDaPessoa: any;
   /** Os objetivos como o banco os devolve para o contexto. */
@@ -467,6 +468,17 @@ describe('ConversaService', () => {
       }),
     };
 
+    /* A cota do plano: liberada por padrão, para os testes falarem do que
+     * eles testam. Quem prova a cota em si é o teste logo abaixo, que troca
+     * esta resposta. */
+    limitesDoPlano = {
+      registrarMensagemDoWhatsapp: jest.fn(async () => ({
+        permitido: true,
+        limite: 100,
+        usadas: 1,
+      })),
+    };
+
     service = new ConversaService(
       prisma,
       transactions,
@@ -482,7 +494,57 @@ describe('ConversaService', () => {
       servicoDePessoas as PeopleService,
       servicoDeDivididas as SharedExpensesService,
       contaEntreNos as SharedSummaryService,
+      limitesDoPlano as any,
     );
+  });
+
+  /* A cota do plano. O que importa: a recusa RESPONDE em vez de calar, e ela
+   * acontece ANTES de transcrever audio ou ler cupom, que custam por
+   * chamada. */
+  describe('cota de mensagens do plano', () => {
+    it('sem cota, responde dizendo e nao processa a frase', async () => {
+      limitesDoPlano.registrarMensagemDoWhatsapp.mockResolvedValue({
+        permitido: false,
+        limite: 100,
+        usadas: 101,
+      });
+      const r = await service.responderA(msg('gastei 40 no mercado pelo debito'));
+      expect(r?.texto).toMatch(/100 mensagens deste m/i);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('no plano sem WhatsApp, a frase e outra e aponta o caminho', async () => {
+      limitesDoPlano.registrarMensagemDoWhatsapp.mockResolvedValue({
+        permitido: false,
+        limite: 0,
+        usadas: 0,
+      });
+      const r = await service.responderA(msg('gastei 40 no mercado pelo debito'));
+      expect(r?.texto).toMatch(/do plano Pro/i);
+      expect(criados).toHaveLength(0);
+    });
+
+    it('audio nao e transcrito quando a cota acabou', async () => {
+      limitesDoPlano.registrarMensagemDoWhatsapp.mockResolvedValue({
+        permitido: false,
+        limite: 100,
+        usadas: 120,
+      });
+      await service.responderA({ ...msg(''), audioId: 'a1' } as any);
+      expect(audio.ouvir).not.toHaveBeenCalled();
+    });
+
+    /* Com cota, a mensagem segue o caminho de sempre: a frase vira uma
+     * proposta para confirmar, e o "sim" grava -- como em qualquer outra. */
+    it('com cota, segue o caminho normal ate a gravacao', async () => {
+      const proposta = await service.responderA(
+        msg('gastei 40 reais no mercado pelo debito da conta Nubank categoria alimentacao'),
+      );
+      expect(proposta?.texto).not.toMatch(/mensagens deste m/i);
+      await service.responderA(msg('sim'));
+      expect(criados).toHaveLength(1);
+      expect(limitesDoPlano.registrarMensagemDoWhatsapp).toHaveBeenCalledWith('user-1');
+    });
   });
 
   describe('quem ainda nao conectou', () => {

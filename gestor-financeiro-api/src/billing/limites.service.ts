@@ -88,6 +88,40 @@ export class LimitesService {
     });
   }
 
+  /**
+   * Conta a mensagem do WhatsApp e diz se ela cabe na cota do mês.
+   *
+   * Não lança exceção como as outras travas, e isso é de propósito: do outro
+   * lado há alguém esperando uma RESPOSTA no WhatsApp. Um 500 viraria
+   * silêncio, e silêncio é a pior resposta possível para quem escreveu.
+   *
+   * No ilimitado nem conta: seria uma escrita no banco por mensagem para
+   * chegar num número que ninguém vai consultar.
+   *
+   * O incremento é atômico (`upsert` com `increment`), porque duas mensagens
+   * no mesmo segundo são comuns — quem manda três frases seguidas faz isso
+   * sempre — e ler-somar-gravar perderia uma das duas.
+   */
+  async registrarMensagemDoWhatsapp(
+    userId: string,
+  ): Promise<{ permitido: boolean; limite: number | null; usadas: number }> {
+    const direitos = await this.billing.direitos(userId);
+    const limite = direitos.whatsappPorMes;
+
+    if (limite === null) return { permitido: true, limite: null, usadas: 0 };
+    /* Cota zero nem conta: o plano não tem WhatsApp, e a resposta é a mesma
+     * na primeira e na milésima mensagem. */
+    if (limite === 0) return { permitido: false, limite: 0, usadas: 0 };
+
+    const mes = hojeNoFuso().slice(0, 7);
+    const uso = await this.prisma.whatsappUsage.upsert({
+      where: { userId_month: { userId, month: mes } },
+      create: { userId, month: mes, count: 1 },
+      update: { count: { increment: 1 } },
+    });
+    return { permitido: uso.count <= limite, limite, usadas: uso.count };
+  }
+
   private async conferir(userId: string, recurso: Recurso, contar: () => Promise<number>) {
     const direitos = await this.billing.direitos(userId);
     const limite = direitos[recurso] as number | null;

@@ -118,6 +118,62 @@ describe('LimitesService', () => {
     });
   });
 
+  /* A cota do WhatsApp não lança exceção: do outro lado há alguém esperando
+   * resposta, e um 500 viraria silêncio. */
+  describe('cota de mensagens', () => {
+    beforeEach(() => {
+      prisma.whatsappUsage = {
+        upsert: jest.fn().mockResolvedValue({ count: 1 }),
+      };
+    });
+
+    it('ilimitado nem conta', async () => {
+      billing.direitos.mockResolvedValue({ ...GRATIS, whatsappPorMes: null });
+      await expect(limites.registrarMensagemDoWhatsapp('u1')).resolves.toMatchObject({
+        permitido: true,
+        limite: null,
+      });
+      expect(prisma.whatsappUsage.upsert).not.toHaveBeenCalled();
+    });
+
+    it('cota zero recusa sem contar', async () => {
+      billing.direitos.mockResolvedValue({ ...GRATIS, whatsappPorMes: 0 });
+      await expect(limites.registrarMensagemDoWhatsapp('u1')).resolves.toMatchObject({
+        permitido: false,
+        limite: 0,
+      });
+      expect(prisma.whatsappUsage.upsert).not.toHaveBeenCalled();
+    });
+
+    it('dentro da cota, conta e deixa passar', async () => {
+      billing.direitos.mockResolvedValue({ ...GRATIS, whatsappPorMes: 100 });
+      prisma.whatsappUsage.upsert.mockResolvedValue({ count: 100 });
+      await expect(limites.registrarMensagemDoWhatsapp('u1')).resolves.toMatchObject({
+        permitido: true,
+        usadas: 100,
+      });
+    });
+
+    it('a 101 nao passa', async () => {
+      billing.direitos.mockResolvedValue({ ...GRATIS, whatsappPorMes: 100 });
+      prisma.whatsappUsage.upsert.mockResolvedValue({ count: 101 });
+      await expect(limites.registrarMensagemDoWhatsapp('u1')).resolves.toMatchObject({
+        permitido: false,
+        usadas: 101,
+      });
+    });
+
+    /* Duas mensagens no mesmo segundo são comuns: quem manda três frases
+     * seguidas faz isso sempre. Ler-somar-gravar perderia uma. */
+    it('o incremento é atômico, pelo banco', async () => {
+      billing.direitos.mockResolvedValue({ ...GRATIS, whatsappPorMes: 100 });
+      await limites.registrarMensagemDoWhatsapp('u1');
+      const chamada = prisma.whatsappUsage.upsert.mock.calls[0][0];
+      expect(chamada.update).toEqual({ count: { increment: 1 } });
+      expect(chamada.where.userId_month.month).toMatch(/^\d{4}-\d{2}$/);
+    });
+  });
+
   it('arquivado não conta: o limite é sobre o que está de pé', async () => {
     await limites.conferirConta('u1');
     expect(prisma.bankAccount.count).toHaveBeenCalledWith({ where: { userId: 'u1', isActive: true } });

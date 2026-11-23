@@ -14,6 +14,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { LimitesService } from '../billing/limites.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { TransfersService } from '../transfers/transfers.service';
 import {
@@ -714,6 +715,9 @@ export class ConversaService {
     // Quem soma a conta entre duas pessoas. A mesma do topo da tela de
     // Compartilhadas — a dívida não se recalcula aqui.
     private readonly contaEntreNos: SharedSummaryService,
+    // A cota de mensagens do plano. Pergunta feita AQUI, e não no webhook,
+    // porque é aqui que já se sabe de quem é a mensagem.
+    private readonly limites: LimitesService,
   ) {}
 
   /** Devolve o texto da resposta, ou `null` quando não há o que responder.
@@ -727,6 +731,24 @@ export class ConversaService {
     if (!userId) return this.semVinculo(m);
 
     await this.whatsapp.registrarUso(userId);
+
+    /* A cota do mês, antes de qualquer trabalho: transcrever áudio e ler
+     * cupom custam dinheiro por chamada, e gastá-los para depois dizer "sua
+     * cota acabou" seria pagar para recusar.
+     *
+     * A recusa RESPONDE, e não cala. Silêncio no WhatsApp é a pior resposta
+     * possível: a pessoa fica achando que o lançamento entrou. */
+    const cota = await this.limites.registrarMensagemDoWhatsapp(userId);
+    if (!cota.permitido) {
+      return {
+        texto:
+          cota.limite === 0
+            ? 'Lançar pelo WhatsApp é do plano Pro. No app, em Perfil, dá para ver os planos — ' +
+              'e lançar por lá continua liberado.'
+            : 'Você já usou as ' + cota.limite + ' mensagens deste mês. ' +
+              'A cota volta no dia 1º, e lançar pelo app continua liberado.',
+      };
+    }
 
     // Áudio vira texto e segue pelo MESMO caminho da frase digitada. Nada
     // abaixo daqui sabe se a pessoa falou ou escreveu — e é isso que faz o

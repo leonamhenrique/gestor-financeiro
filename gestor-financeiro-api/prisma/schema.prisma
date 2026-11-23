@@ -143,6 +143,7 @@ model User {
   categoryRules       CategoryRule[]
   whatsappLink        WhatsappLink?
   whatsappPairings    WhatsappPairing[]
+  whatsappUsage       WhatsappUsage[]
   openFinanceConnections OpenFinanceConnection[]
   openFinanceRefusals    OpenFinanceRefusal[]
 
@@ -1210,6 +1211,27 @@ model WhatsappLink {
 // Guardado como SHA-256, como todo token deste schema. Aqui o hash puro basta
 // porque o codigo e aleatorio de verdade (8 caracteres de um alfabeto de 32,
 // ~10^12 combinacoes), e nao um numero de telefone.
+// Quantas mensagens esta conta mandou no mes. UM NUMERO, e nada mais: nem
+// texto, nem telefone, nem quando. O app nao guarda conversa, e um contador
+// de cota nao e desculpa para comecar a guardar.
+//
+// A linha nasce na primeira mensagem do mes e nunca e apagada: o historico
+// de uso cabe em 30 bytes por mes e responde "quanto eu usei em setembro?"
+// sem guardar nada do que foi dito.
+model WhatsappUsage {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  /// AAAA-MM, no fuso do app — virada de mes em UTC daria a cota nova tres
+  /// horas antes para quem escreve de madrugada.
+  month  String
+  count  Int    @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
+  @@map("whatsapp_usage")
+}
+
 model WhatsappPairing {
   id        String    @id @default(uuid())
   userId    String    @map("user_id")
