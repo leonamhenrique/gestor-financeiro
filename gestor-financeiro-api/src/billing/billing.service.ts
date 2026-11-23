@@ -23,7 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionStatus, SubscriptionInvoiceStatus, Prisma } from '@prisma/client';
 import { PAYMENT_PROVIDER, PaymentProviderPort, EventoWebhook } from './payment-provider.port';
 import { acessoLiberado, fimDoCicloPago } from './acesso';
-import { Direitos, EstadoDoPlano, direitosDe, noTeste, diasDeTeste } from './entitlements';
+import { Direitos, EstadoDoPlano, direitosDe, noTeste, diasDeTeste, temCortesia } from './entitlements';
 
 /** Estados em que a conta segue podendo criar registros SEM mais perguntas.
  * Cancelada com ciclo pago correndo também libera — ver `acessoLiberado`. */
@@ -82,9 +82,13 @@ export class BillingService {
   private async estadoDoPlano(userId: string): Promise<EstadoDoPlano> {
     const [assinatura, usuario] = await Promise.all([
       this.prisma.subscription.findUnique({ where: { userId }, include: { plan: true } }),
-      this.prisma.user.findUnique({ where: { id: userId }, select: { trialEndsAt: true } }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, trialEndsAt: true },
+      }),
     ]);
     return {
+      cortesia: !!usuario && temCortesia(usuario),
       codigo: assinatura?.plan?.code ?? null,
       /* `acessoLiberado` trata "sem assinatura" como liberado — é a regra do
        * bloqueio por inadimplência, e lá isso está certo. Aqui não: sem

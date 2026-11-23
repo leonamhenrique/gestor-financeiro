@@ -101,6 +101,8 @@ const POR_CODIGO: Record<string, Direitos> = {
 };
 
 export interface EstadoDoPlano {
+  /** Premium de cortesia, pela lista do painel. Ver `quemTemCortesia`. */
+  cortesia?: boolean;
   /** O `code` do plano assinado, ou nulo para quem nunca assinou. */
   codigo?: string | null;
   /** Se a assinatura dá acesso agora (paga, em cortesia de cancelamento…). */
@@ -123,6 +125,11 @@ export interface EstadoDoPlano {
  * o código ainda não conhece não pode virar acesso total por omissão.
  */
 export function direitosDe(estado: EstadoDoPlano, agora: Date = new Date()): Direitos {
+  /* A cortesia vem primeiro e não expira: é a conta de quem mantém o app, e
+   * ela não pode perder função no oitavo dia por não ter passado pelo
+   * checkout. Não é assinatura — não gera cobrança, fatura nem cancelamento,
+   * e some tirando o e-mail da lista. */
+  if (estado.cortesia) return PREMIUM;
   if (estado.liberada && estado.codigo && POR_CODIGO[estado.codigo]) {
     return POR_CODIGO[estado.codigo];
   }
@@ -132,6 +139,7 @@ export function direitosDe(estado: EstadoDoPlano, agora: Date = new Date()): Dir
 
 /** O teste está correndo? A tela mostra quantos dias faltam. */
 export function noTeste(estado: EstadoDoPlano, agora: Date = new Date()): boolean {
+  if (estado.cortesia) return false;
   if (estado.liberada && estado.codigo && POR_CODIGO[estado.codigo]) return false;
   return !!estado.testeAte && estado.testeAte.getTime() > agora.getTime();
 }
@@ -145,6 +153,37 @@ export function diasDeTeste(estado: EstadoDoPlano, agora: Date = new Date()): nu
 
 /** Quantos dias o teste dura, contados do cadastro. */
 export const DIAS_DE_TESTE = 7;
+
+/**
+ * Quem tem Premium de cortesia: ids ou e-mails, separados por vírgula, na
+ * variável `PREMIUM_USERS`.
+ *
+ * Mesma forma da lista do Open Finance, e pelo mesmo motivo: quem configura
+ * sabe o próprio e-mail e não sabe o próprio id. Fica no painel, e não no
+ * código, para ligar e desligar sem deploy e para nenhum e-mail acabar
+ * versionado num repositório público.
+ *
+ * Lista VAZIA quer dizer "ninguém" — ao contrário da do Open Finance, onde
+ * vazia quer dizer "todo mundo". A diferença é de propósito: lá a lista
+ * RESTRINGE quem enxerga; aqui ela CONCEDE acesso pago. Um default que
+ * conceda a todos seria dar o app de graça por esquecimento.
+ */
+export function quemTemCortesia(): string[] {
+  return (process.env.PREMIUM_USERS || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Este usuário está na lista? */
+export function temCortesia(usuario: { id?: string | null; email?: string | null }): boolean {
+  const lista = quemTemCortesia();
+  if (!lista.length) return false;
+  return [usuario.id, usuario.email]
+    .filter(Boolean)
+    .map((x) => String(x).toLowerCase())
+    .some((x) => lista.includes(x));
+}
 
 /**
  * Cabe mais um?

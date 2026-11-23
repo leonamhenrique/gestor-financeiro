@@ -9,7 +9,7 @@
 // 4. limite cheio não cria mais um, e `null` não limita nada.
 // ============================================================
 
-import { direitosDe, noTeste, diasDeTeste, cabeMais } from './entitlements';
+import { direitosDe, noTeste, diasDeTeste, cabeMais, temCortesia } from './entitlements';
 
 const AGORA = new Date('2026-11-22T12:00:00Z');
 const DAQUI_A = (dias: number) => new Date(AGORA.getTime() + dias * 86400000);
@@ -85,6 +85,37 @@ describe('direitos do plano', () => {
 
   it('teste vencido é grátis', () => {
     expect(direitosDe({ testeAte: DAQUI_A(-1) }, AGORA).bancos).toBe(0);
+  });
+});
+
+/* A conta de quem mantém o app não pode perder função no oitavo dia por
+ * nunca ter passado pelo checkout — e também não pode virar uma assinatura
+ * de mentira, com fatura e cancelamento que ninguém vai honrar. */
+describe('Premium de cortesia', () => {
+  const guardado = process.env.PREMIUM_USERS;
+  afterEach(() => { process.env.PREMIUM_USERS = guardado; });
+
+  it('sem a lista, ninguém tem cortesia', () => {
+    delete process.env.PREMIUM_USERS;
+    expect(temCortesia({ email: 'alguem@exemplo.com' })).toBe(false);
+  });
+
+  it('reconhece por e-mail e por id, sem ligar para maiúscula', () => {
+    process.env.PREMIUM_USERS = ' Dono@Exemplo.com , u-123 ';
+    expect(temCortesia({ email: 'dono@exemplo.com' })).toBe(true);
+    expect(temCortesia({ id: 'u-123' })).toBe(true);
+    expect(temCortesia({ email: 'outro@exemplo.com' })).toBe(false);
+  });
+
+  it('cortesia dá Premium, e ganha do teste e da falta de assinatura', () => {
+    const d = direitosDe({ cortesia: true }, AGORA);
+    expect(d.bancos).toBe(12);
+    expect(d.whatsappPorMes).toBeNull();
+    expect(noTeste({ cortesia: true, testeAte: DAQUI_A(3) }, AGORA)).toBe(false);
+  });
+
+  it('cortesia não expira com o teste vencido', () => {
+    expect(direitosDe({ cortesia: true, testeAte: DAQUI_A(-30) }, AGORA).bancos).toBe(12);
   });
 });
 
