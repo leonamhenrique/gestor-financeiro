@@ -7,6 +7,7 @@
 // ============================================================
 
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { OpenFinanceController, OpenFinanceAtivo } from './openfinance.controller';
 import { OpenFinanceWebhookController } from './openfinance.webhook.controller';
 import { OpenFinanceService } from './openfinance.service';
@@ -22,7 +23,7 @@ import { CreditCardsModule } from '../credit-cards/credit-cards.module';
    * dias de verdade, e alinhar o cartão com eles passa pela MESMA correção
    * que o formulário usa — nenhuma regra de fatura nasce aqui dentro. A
    * dependência é de mão única, e apagar esta pasta continua bastando. */
-  imports: [PushModule, CreditCardsModule],
+  imports: [BillingModule, PushModule, CreditCardsModule],
   /* O webhook fica em controller próprio porque não tem pessoa logada:
    * quem bate é o provedor. Pôr a rota junto das outras obrigaria a
    * afrouxar o guard que protege todas elas. */

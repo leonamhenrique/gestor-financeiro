@@ -30,6 +30,7 @@
 
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { LimitesService } from '../billing/limites.service';
 import { AccountType } from '@prisma/client';
 import { ORDEM_DA_LISTA, gravarOrdem, novaOrdem } from '../common/ordering';
 
@@ -52,9 +53,16 @@ interface UpdateBankAccountInput {
 
 @Injectable()
 export class BankAccountsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly limites: LimitesService,
+  ) {}
 
   async create(input: CreateBankAccountInput) {
+    /* Antes de qualquer coisa: o limite do plano. Aqui, e não no controller,
+     * porque o WhatsApp cria conta pelo MESMO serviço — a trava tem de valer
+     * para as duas portas. */
+    await this.limites.conferirConta(input.userId);
     const initialBalance = input.initialBalance ?? 0;
     const ultima = await this.prisma.bankAccount.findFirst({
       where: { userId: input.userId },

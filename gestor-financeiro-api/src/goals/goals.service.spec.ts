@@ -11,6 +11,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { GoalsService } from './goals.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PROVIDER_LIMITES_LIBERADOS } from '../billing/limites.dobro';
 
 const d = (n: number | string) => new Prisma.Decimal(n);
 const dia = (s: string) => new Date(s + 'T00:00:00.000Z');
@@ -45,7 +46,7 @@ describe('GoalsService', () => {
     };
 
     const mod: TestingModule = await Test.createTestingModule({
-      providers: [GoalsService, { provide: PrismaService, useValue: prismaMock }],
+      providers: [GoalsService, { provide: PrismaService, useValue: prismaMock }, PROVIDER_LIMITES_LIBERADOS],
     }).compile();
     service = mod.get(GoalsService);
   });

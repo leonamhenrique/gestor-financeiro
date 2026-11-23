@@ -23,6 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionStatus, SubscriptionInvoiceStatus, Prisma } from '@prisma/client';
 import { PAYMENT_PROVIDER, PaymentProviderPort, EventoWebhook } from './payment-provider.port';
 import { acessoLiberado, fimDoCicloPago } from './acesso';
+import { Direitos, EstadoDoPlano, direitosDe, noTeste, diasDeTeste } from './entitlements';
 
 /** Estados em que a conta segue podendo criar registros SEM mais perguntas.
  * Cancelada com ciclo pago correndo também libera — ver `acessoLiberado`. */
@@ -50,6 +51,47 @@ export class BillingService {
   async podeCriarRegistros(userId: string): Promise<boolean> {
     const assinatura = await this.prisma.subscription.findUnique({ where: { userId } });
     return acessoLiberado(assinatura);
+  }
+
+  /**
+   * O que ESTE usuário pode, agora: a tabela de direitos resolvida contra a
+   * assinatura dele e o teste de 7 dias.
+   *
+   * Uma consulta só, e o `include` do plano porque é o `code` que decide —
+   * não o nome nem o preço, que mudam.
+   */
+  async direitos(userId: string): Promise<Direitos> {
+    return direitosDe(await this.estadoDoPlano(userId));
+  }
+
+  /**
+   * O mesmo, com o que a TELA precisa dizer: quanto falta de teste e qual o
+   * plano. Uma chamada, para a tela não ter de montar isso de três pedaços.
+   */
+  async limites(userId: string) {
+    const estado = await this.estadoDoPlano(userId);
+    return {
+      plano: estado.codigo ?? null,
+      liberada: !!estado.liberada,
+      emTeste: noTeste(estado),
+      diasDeTeste: diasDeTeste(estado),
+      direitos: direitosDe(estado),
+    };
+  }
+
+  private async estadoDoPlano(userId: string): Promise<EstadoDoPlano> {
+    const [assinatura, usuario] = await Promise.all([
+      this.prisma.subscription.findUnique({ where: { userId }, include: { plan: true } }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { trialEndsAt: true } }),
+    ]);
+    return {
+      codigo: assinatura?.plan?.code ?? null,
+      /* `acessoLiberado` trata "sem assinatura" como liberado — é a regra do
+       * bloqueio por inadimplência, e lá isso está certo. Aqui não: sem
+       * assinatura não há plano para liberar, e quem manda é o teste. */
+      liberada: !!assinatura && acessoLiberado(assinatura),
+      testeAte: usuario?.trialEndsAt ?? null,
+    };
   }
 
   /** O catálogo, para a tela não guardar preço próprio. Preço duplicado no

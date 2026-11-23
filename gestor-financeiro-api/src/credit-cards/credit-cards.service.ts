@@ -26,6 +26,7 @@
 
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { LimitesService } from '../billing/limites.service';
 import { InvoiceStatus } from '@prisma/client';
 import { CicloDoCartao, cicloDoDia, datasDoMesChave, referenciaComVencimentoEm } from './billing-cycle';
 import { resolveInvoicePeriod } from '../transactions/transaction.utils';
@@ -51,9 +52,13 @@ interface UpdateCreditCardInput {
 
 @Injectable()
 export class CreditCardsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly limites: LimitesService,
+  ) {}
 
   async create(input: CreateCreditCardInput) {
+    await this.limites.conferirCartao(input.userId);
     if (input.bankAccountId) {
       await this.assertBankAccountBelongsToUser(input.userId, input.bankAccountId);
     }

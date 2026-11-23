@@ -31,6 +31,7 @@
 
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { LimitesService } from '../billing/limites.service';
 import { PolpClient, LancamentoDoProvedor, ConflitoDeConsentimento } from './polp.client';
 import { CreditCardsService } from '../credit-cards/credit-cards.service';
 
@@ -83,6 +84,7 @@ export class OpenFinanceService {
     private readonly prisma: PrismaService,
     private readonly polp: PolpClient,
     private readonly cartoes: CreditCardsService,
+    private readonly limites: LimitesService,
   ) {}
 
 
@@ -186,6 +188,12 @@ export class OpenFinanceService {
   async conectar(userId: string, dados: { institutionId: string; cpf: string; apelido?: string | null }) {
     const cpf = (dados.cpf || '').replace(/\D/g, '');
     if (cpf.length !== 11) throw new BadRequestException('CPF inválido.');
+
+    /* O limite do plano vem ANTES de falar com o provedor: criar
+     * consentimento queima a cota mensal do CPF naquela instituição e é
+     * cobrado na nossa conta. Recusar depois de criar custaria dinheiro por
+     * um "não" que a gente já sabia dar. */
+    await this.limites.conferirBanco(userId);
 
     const instituicao = (await this.polp.instituicoes()).find((i) => i.id === dados.institutionId);
     if (!instituicao) throw new NotFoundException('Instituição não encontrada.');

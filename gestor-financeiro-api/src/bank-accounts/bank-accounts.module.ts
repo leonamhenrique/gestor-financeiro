@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { BankAccountsController } from './bank-accounts.controller';
 import { BankAccountsService } from './bank-accounts.service';
 
 @Module({
+  imports: [BillingModule],
   controllers: [BankAccountsController],
   providers: [BankAccountsService],
   // Exportado para o WhatsApp: a conta que nasce de uma mensagem passa pelo

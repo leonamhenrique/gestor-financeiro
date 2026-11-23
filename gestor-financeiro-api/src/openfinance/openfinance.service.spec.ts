@@ -20,6 +20,7 @@ import { OpenFinanceAtivo } from './openfinance.controller';
 import { CreditCardsService } from '../credit-cards/credit-cards.service';
 import { PolpClient, ConflitoDeConsentimento } from './polp.client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PROVIDER_LIMITES_LIBERADOS } from '../billing/limites.dobro';
 
 describe('OpenFinance', () => {
   let service: OpenFinanceService;
@@ -111,6 +112,7 @@ describe('OpenFinance', () => {
          * correção de ciclo do formulário. O que se confere aqui é quando
          * ele chama; como ela corrige tem suíte própria. */
         { provide: CreditCardsService, useValue: cartoes },
+        PROVIDER_LIMITES_LIBERADOS,
       ],
     }).compile();
 

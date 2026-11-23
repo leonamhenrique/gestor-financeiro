@@ -26,6 +26,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { LimitesService } from '../billing/limites.service';
 import {
   aplicadoDasContas,
   emReais,
@@ -72,13 +73,17 @@ const hojeUTC = (agora = new Date()) =>
 
 @Injectable()
 export class GoalsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly limites: LimitesService,
+  ) {}
 
   // ----------------------------------------------------------
   // Cadastro
   // ----------------------------------------------------------
 
   async create(input: CriarObjetivo) {
+    await this.limites.conferirObjetivo(input.userId);
     const inicio = new Date(input.startDate);
     const prazo = new Date(input.targetDate);
     if (prazo < inicio) {

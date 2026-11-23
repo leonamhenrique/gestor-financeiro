@@ -40,6 +40,19 @@ export class BillingController {
     return this.billing.planos();
   }
 
+  /**
+   * O que este usuário pode, agora.
+   *
+   * A tela lê daqui para apagar o que não está no plano e dizer "no Pro" ANTES
+   * do clique — em vez de deixar a pessoa preencher um formulário inteiro para
+   * receber 403 no fim. A trava de verdade continua no servidor: isto é para
+   * não mentir na tela, não para proteger nada.
+   */
+  @Get('limits')
+  limites(@Req() req: RequisicaoAutenticada) {
+    return this.billing.limites(req.user.id ?? req.user.sub!);
+  }
+
   @Get('subscription')
   async minhaAssinatura(@Req() req: RequisicaoAutenticada) {
     const userId = req.user.id ?? req.user.sub!;

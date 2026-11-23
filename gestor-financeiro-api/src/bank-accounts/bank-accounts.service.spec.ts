@@ -6,6 +6,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { BankAccountsService } from './bank-accounts.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PROVIDER_LIMITES_LIBERADOS } from '../billing/limites.dobro';
 import { AccountType } from '@prisma/client';
 
 describe('BankAccountsService', () => {
@@ -30,7 +31,7 @@ describe('BankAccountsService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [BankAccountsService, { provide: PrismaService, useValue: prismaMock }],
+      providers: [BankAccountsService, { provide: PrismaService, useValue: prismaMock }, PROVIDER_LIMITES_LIBERADOS],
     }).compile();
 
     service = module.get<BankAccountsService>(BankAccountsService);

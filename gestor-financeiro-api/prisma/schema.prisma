@@ -115,6 +115,10 @@ model User {
   failedLoginAttempts Int          @default(0) @map("failed_login_attempts")
   lockedUntil         DateTime?    @map("locked_until")
   createdAt           DateTime     @default(now()) @map("created_at")
+  /// Quando o teste de 7 dias acaba. Coluna, e não "cadastro + 7 dias"
+  /// calculado: com a data gravada dá para estender o teste de alguém sem
+  /// mexer em código, e para dar teste a quem já existia antes dela.
+  trialEndsAt         DateTime?    @map("trial_ends_at")
   updatedAt           DateTime     @updatedAt @map("updated_at")
 
   bankAccounts        BankAccount[]
