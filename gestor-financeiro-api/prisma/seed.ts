@@ -10,7 +10,7 @@
 // só na primeira vez.
 // ============================================================
 
-import { PrismaClient, BillingInterval } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { garantirCategoriasPadrao } from '../src/categories/default-categories';
 
 const prisma = new PrismaClient();
@@ -18,38 +18,14 @@ const prisma = new PrismaClient();
 // ------------------------------------------------------------
 // PLANOS DE ASSINATURA
 // ------------------------------------------------------------
-// `amount` é o valor cobrado A CADA CICLO, não a mensalidade equivalente.
-// No plano anual isso significa o total do ano: guardar 23.90 aqui faria o
-// gateway cobrar R$ 23,90 uma vez por ano em vez de R$ 286,80.
-//
-// `code` é a chave estável usada pelo código e pelo gateway — mudar um code
-// depois de existir assinatura órfã a assinatura. O `name` e o `amount` podem
-// mudar à vontade; o code, não.
-//
-// Ajuste os valores aqui antes de ligar um gateway de verdade.
-const PLANOS = [
-  {
-    code: 'free',
-    name: 'Gratuito',
-    amount: 0,
-    interval: BillingInterval.MONTHLY,
-  },
-  {
-    code: 'pro-mensal',
-    name: 'Pro',
-    amount: 29.9,
-    interval: BillingInterval.MONTHLY,
-  },
-  {
-    code: 'pro-anual',
-    name: 'Pro Anual',
-    amount: 286.8, // 23,90/mês × 12 — o desconto está embutido no total
-    interval: BillingInterval.YEARLY,
-  },
-];
+// A lista mora em `src/billing/default-plans.ts`, e não aqui: ela é
+// conferida na SUBIDA da API, porque o `prisma db seed` não roda no deploy
+// do Render. Duas listas divergiriam no primeiro ajuste de preço, e o
+// catálogo do banco passaria a depender de qual das duas rodou por último.
+import { PLANOS_PADRAO } from '../src/billing/default-plans';
 
 async function seedPlanos() {
-  for (const plano of PLANOS) {
+  for (const plano of PLANOS_PADRAO) {
     // `update` só mexe no que é seguro mudar. Deixar o code fora do update é
     // proposital: ele é a identidade do plano.
     await prisma.plan.upsert({
