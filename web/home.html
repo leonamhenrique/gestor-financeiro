@@ -12013,7 +12013,24 @@
           '<button type="button" class="ghost" data-of="usar" data-i="' + i + '">Conferir</button>' +
           "</div>";
       }).join("") +
-      '<div class="field-help">O que você já importou antes não volta: cada lançamento traz o id do banco, e o que já entrou fica de fora.</div>';
+      '<div class="field-help">O que você já importou antes não volta: cada lançamento traz o id do banco, e o que já entrou fica de fora.</div>' +
+      mesesForaDoPlanoHTML();
+  }
+
+  /* O banco manda doze meses; o plano decide quantos descem. Dizer QUANTOS
+   * ficaram de fora é diferente de esconder: sem o número, quem está no
+   * teste olha uma fatura só e conclui que o banco não tinha mais nada.
+   *
+   * O corte é do servidor — o que o plano não dá nem chega aqui. Esta linha
+   * só conta o que aconteceu lá. */
+  function mesesForaDoPlanoHTML() {
+    var n = of.proposta && of.proposta.mesesForaDoPlano;
+    if (!n) return "";
+    return '<div class="field-help">' +
+      (n === 1
+        ? "Mais 1 mês veio do banco e não entra no seu plano."
+        : "Mais " + n + " meses vieram do banco e não entram no seu plano.") +
+      " No Pro são 12 meses de histórico.</div>";
   }
 
   // ------------------------------------------------------------- conectar

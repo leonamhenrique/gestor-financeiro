@@ -37,6 +37,12 @@ export class LimitesService {
     private readonly billing: BillingService,
   ) {}
 
+  /** Os direitos deste usuário, para quem precisa de um NÚMERO e não de um
+   * sim-ou-não — o teto de histórico do Open Finance, por exemplo. */
+  async direitosPara(userId: string) {
+    return this.billing.direitos(userId);
+  }
+
   /** Cabe mais uma conta? Senão, 403 com o limite e o que ele tem. */
   async conferirConta(userId: string) {
     return this.conferir(userId, 'contas', () =>

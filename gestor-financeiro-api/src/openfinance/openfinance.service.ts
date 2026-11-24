@@ -32,6 +32,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LimitesService } from '../billing/limites.service';
+import { cortarPorHistorico } from './historico';
 import { PolpClient, LancamentoDoProvedor, ConflitoDeConsentimento } from './polp.client';
 import { CreditCardsService } from '../credit-cards/credit-cards.service';
 
@@ -58,6 +59,9 @@ export interface PropostaDeImportacao {
   }>;
   /** Quantas o provedor mandou e o app já tinha pelo id. Ver nota 1. */
   jaSincronizados: number;
+  /** Meses que o banco mandou e o PLANO não deixa importar. Zero quando o
+   * plano alcança tudo o que veio. */
+  mesesForaDoPlano: number;
 }
 
 /**
@@ -625,6 +629,26 @@ export class OpenFinanceService {
     for (const c of contas) c.lancamentos = limpar(c.lancamentos);
     for (const k of cartoes) k.lancamentos = limpar(k.lancamentos);
 
+    /* O teto de histórico do plano. Corta DEPOIS de tirar o que já entrou:
+     * senão um mês inteiro já importado gastaria uma das vagas e esconderia
+     * um mês que a pessoa ainda não viu.
+     *
+     * Os meses cortados são contados distintos no conjunto todo: dois
+     * cartões sem o mesmo setembro são um setembro só na frase que a tela
+     * mostra. */
+    const { mesesDeHistorico } = await this.limites.direitosPara(userId);
+    const cortados = new Set<string>();
+    for (const c of contas) {
+      const r = cortarPorHistorico(c.lancamentos, mesesDeHistorico, false);
+      c.lancamentos = r.ficaram;
+      r.mesesCortados.forEach((m) => cortados.add(m));
+    }
+    for (const k of cartoes) {
+      const r = cortarPorHistorico(k.lancamentos, mesesDeHistorico, true);
+      k.lancamentos = r.ficaram;
+      r.mesesCortados.forEach((m) => cortados.add(m));
+    }
+
     await this.prisma.openFinanceConnection.update({
       where: { id: conexao.id },
       data: { lastSyncedAt: new Date() },
@@ -637,6 +661,7 @@ export class OpenFinanceService {
       contas,
       cartoes,
       jaSincronizados: jaTenho.size,
+      mesesForaDoPlano: cortados.size,
     };
   }
 

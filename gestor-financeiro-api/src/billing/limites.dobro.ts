@@ -22,6 +22,10 @@ export function limitesLiberados(): Partial<LimitesService> {
     conferirObjetivo: jest.fn().mockResolvedValue(undefined),
     conferirBanco: jest.fn().mockResolvedValue(undefined),
     conferirMesDoPlanejamento: jest.fn().mockResolvedValue(undefined),
+    registrarMensagemDoWhatsapp: jest.fn().mockResolvedValue({ permitido: true, limite: null, usadas: 0 }),
+    /* Sem teto de histórico: o dublê libera, e quem prova o corte é
+     * `historico.spec.ts`. */
+    direitosPara: jest.fn().mockResolvedValue({ mesesDeHistorico: null }),
   };
 }
 

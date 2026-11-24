@@ -20,13 +20,15 @@ import { OpenFinanceAtivo } from './openfinance.controller';
 import { CreditCardsService } from '../credit-cards/credit-cards.service';
 import { PolpClient, ConflitoDeConsentimento } from './polp.client';
 import { PrismaService } from '../prisma/prisma.service';
-import { PROVIDER_LIMITES_LIBERADOS } from '../billing/limites.dobro';
+import { limitesLiberados } from '../billing/limites.dobro';
+import { LimitesService } from '../billing/limites.service';
 
 describe('OpenFinance', () => {
   let service: OpenFinanceService;
   let cartoes: any;
   let polp: any;
   let prisma: any;
+  let limitesDoPlano: any;
 
   const CONEXAO = {
     id: 'cx1',
@@ -102,6 +104,8 @@ describe('OpenFinance', () => {
     };
 
     cartoes = { corrigirCiclo: jest.fn().mockResolvedValue({}) };
+    /* O dublê da trava, local: estes testes mexem no teto de histórico. */
+    limitesDoPlano = limitesLiberados() as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -112,7 +116,7 @@ describe('OpenFinance', () => {
          * correção de ciclo do formulário. O que se confere aqui é quando
          * ele chama; como ela corrige tem suíte própria. */
         { provide: CreditCardsService, useValue: cartoes },
-        PROVIDER_LIMITES_LIBERADOS,
+        { provide: LimitesService, useValue: limitesDoPlano },
       ],
     }).compile();
 
@@ -873,6 +877,45 @@ describe('OpenFinance', () => {
       await service.situacao('u1', 'cx1');
       const data = prisma.openFinanceConnection.update.mock.calls[0][0].data;
       expect(data.authorizedAt).toBeUndefined();
+    });
+  });
+
+  // ----------------------------------------------------------------------
+  /* O teto de historico do plano. O corte em si tem suite propria
+   * (`historico.spec.ts`); aqui se prova a LIGACAO: a busca corta e conta. */
+  describe('historico que o plano alcanca', () => {
+    beforeEach(() => {
+      polp.cartoes.mockResolvedValue([{ providerAccountId: 'k-la', nome: 'INTER' }]);
+      polp.transacoesDoCartao.mockResolvedValue([
+        { providerTxId: 'a', data: '2026-09-10', valor: 10, tipo: 'EXPENSE', descricao: 'A', faturada: true, faturaPrevista: '2026-10' },
+        { providerTxId: 'b', data: '2026-10-11', valor: 20, tipo: 'EXPENSE', descricao: 'B', faturada: true, faturaPrevista: '2026-11' },
+        { providerTxId: 'c', data: '2026-11-12', valor: 30, tipo: 'EXPENSE', descricao: 'C', faturada: true, faturaPrevista: '2026-12' },
+      ]);
+      prisma.creditCard.findFirst.mockResolvedValue({ id: 'card-1' });
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 30, dueDay: 7, cycleEditedByUser: true, cycles: [{}],
+      });
+    });
+
+    it('sem teto, vem tudo', async () => {
+      const p = await service.paraImportar('u1', 'cx1');
+      expect(p.cartoes[0].lancamentos).toHaveLength(3);
+      expect(p.mesesForaDoPlano).toBe(0);
+    });
+
+    it('com teto de 1 mes, so a fatura mais recente desce', async () => {
+      limitesDoPlano.direitosPara.mockResolvedValue({ mesesDeHistorico: 1 });
+      const p = await service.paraImportar('u1', 'cx1');
+      expect(p.cartoes[0].lancamentos.map((t: any) => t.providerTxId)).toEqual(['c']);
+      expect(p.mesesForaDoPlano).toBe(2);
+    });
+
+    /* O que o plano nao da nem desce para o navegador: corte na tela seria
+     * uma linha de console para contornar. */
+    it('o que foi cortado nao viaja', async () => {
+      limitesDoPlano.direitosPara.mockResolvedValue({ mesesDeHistorico: 1 });
+      const p = await service.paraImportar('u1', 'cx1');
+      expect(JSON.stringify(p)).not.toContain('2026-09-10');
     });
   });
 

@@ -27,7 +27,9 @@ export interface Direitos {
   objetivos: number | null;
   /** Quantos bancos ligados por Open Finance ao mesmo tempo. */
   bancos: number;
-  /** Quantos meses a primeira busca traz do banco. */
+  /** Quantos meses de histórico a busca no banco oferece. Vale em TODA
+   * busca, e não só na primeira: é o que o plano alcança, não uma cortesia
+   * de estreia. */
   mesesDeHistorico: number;
   /** Mensagens de WhatsApp por mês. */
   whatsappPorMes: number | null;
