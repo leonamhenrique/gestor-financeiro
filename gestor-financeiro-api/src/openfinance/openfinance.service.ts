@@ -550,11 +550,8 @@ export class OpenFinanceService {
     for (const c of contasLá) {
       const lancamentos = await this.polp.transacoesDaConta(c.providerAccountId);
       todos.push(...lancamentos);
-      const daqui = await this.prisma.bankAccount.findFirst({
-        where: { userId, connectionId: conexao.id, providerAccountId: c.providerAccountId },
-        select: { id: true },
-      });
-      contas.push({ ...c, bankAccountId: daqui?.id ?? null, lancamentos });
+      const daqui = await this.reencontrarDestino('bankAccount', userId, conexao.id, c.providerAccountId);
+      contas.push({ ...c, bankAccountId: daqui, lancamentos });
     }
 
     for (const k of cartoesLá) {
@@ -563,22 +560,19 @@ export class OpenFinanceService {
         this.polp.diasDoCartao(k.providerAccountId),
       ]);
       todos.push(...lancamentos);
-      const daqui = await this.prisma.creditCard.findFirst({
-        where: { userId, connectionId: conexao.id, providerAccountId: k.providerAccountId },
-        select: { id: true },
-      });
+      const daqui = await this.reencontrarDestino('creditCard', userId, conexao.id, k.providerAccountId);
       /* O banco acabou de dizer os dias: grava, e alinha o ciclo quando não
        * há escolha de ninguém para respeitar. */
-      if (daqui?.id) {
+      if (daqui) {
         await this.alinharCicloComOBanco(
-          userId, daqui.id, dias.fechamento, dias.vencimento, dias.sempreOsMesmos,
+          userId, daqui, dias.fechamento, dias.vencimento, dias.sempreOsMesmos,
         );
       }
 
       cartoes.push({
         providerAccountId: k.providerAccountId,
         nome: k.nome,
-        creditCardId: daqui?.id ?? null,
+        creditCardId: daqui,
         fechamento: dias.fechamento,
         vencimento: dias.vencimento,
         lancamentos,
@@ -809,6 +803,50 @@ export class OpenFinanceService {
       data: { revokedAt: new Date(), status: 'REVOKED' },
     });
     return { id: conexao.id, desconectada: true };
+  }
+
+  /**
+   * Para onde esta conta (ou cartão) do banco vai, no app.
+   *
+   * Primeiro pelo par (conexão, conta no provedor), que é o vínculo normal.
+   * Não achou, procura só pelo id da conta NO PROVEDOR, em qualquer conexão
+   * da pessoa — e, achando, traz o vínculo para a conexão de agora.
+   *
+   * POR QUE A SEGUNDA BUSCA EXISTE: desconectar e conectar de novo cria um
+   * consentimento novo, com outro id. Sem isto, o app perguntava outra vez
+   * para onde vai cada conta e cada cartão, como se nunca tivesse visto
+   * aquele banco — e quem reconecta já respondeu isso uma vez.
+   *
+   * O id da conta no provedor é o que amarra: ele é o mesmo banco, a mesma
+   * agência e a mesma conta do outro lado. Se o provedor emitir um id novo a
+   * cada consentimento, a segunda busca não acha nada e a tela volta a
+   * perguntar — que é o comportamento de antes, e não um erro novo.
+   */
+  private async reencontrarDestino(
+    tabela: 'bankAccount' | 'creditCard',
+    userId: string,
+    connectionId: string,
+    providerAccountId: string,
+  ): Promise<string | null> {
+    const repo: any = this.prisma[tabela];
+    const atual = await repo.findFirst({
+      where: { userId, connectionId, providerAccountId },
+      select: { id: true },
+    });
+    if (atual) return atual.id;
+
+    const antigo = await repo.findFirst({
+      where: { userId, providerAccountId },
+      select: { id: true },
+    });
+    if (!antigo) return null;
+
+    /* Reaponta para a conexão de agora: sem isto a busca de amanhã cairia de
+     * novo no caminho longo, e o vínculo ficaria preso a um consentimento
+     * revogado para sempre. */
+    await repo.update({ where: { id: antigo.id }, data: { connectionId } });
+    this.logger.log('reencontrei o destino de ' + providerAccountId + ' por reconexão');
+    return antigo.id;
   }
 
   // ------------------------------------------------------------ privado

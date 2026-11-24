@@ -881,6 +881,58 @@ describe('OpenFinance', () => {
   });
 
   // ----------------------------------------------------------------------
+  /* Reconectar o mesmo banco cria um consentimento NOVO, com outro id.
+   * Sem reencontrar o destino pelo id da conta no provedor, o app
+   * perguntaria outra vez para onde vai cada conta e cada cartao -- e quem
+   * reconecta ja respondeu isso uma vez. */
+  describe('o vinculo sobrevive a reconexao', () => {
+    beforeEach(() => {
+      polp.cartoes.mockResolvedValue([{ providerAccountId: 'k-la', nome: 'INTER' }]);
+      polp.transacoesDoCartao.mockResolvedValue([]);
+      prisma.creditCard.findUnique.mockResolvedValue({
+        closingDay: 30, dueDay: 7, cycleEditedByUser: true, cycles: [{}],
+      });
+    });
+
+    it('acha pelo par (conexao, conta) quando o vinculo e desta conexao', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue({ id: 'card-1' });
+      const p = await service.paraImportar('u1', 'cx1');
+      expect(p.cartoes[0].creditCardId).toBe('card-1');
+      expect(prisma.creditCard.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { connectionId: 'cx1' } }),
+      );
+    });
+
+    it('reencontra pelo id da conta no provedor e reaponta para a conexao de agora', async () => {
+      prisma.creditCard.findFirst
+        .mockResolvedValueOnce(null)        // nao e desta conexao
+        .mockResolvedValueOnce({ id: 'card-1' }); // mas e desta pessoa
+      const p = await service.paraImportar('u1', 'cx1');
+      expect(p.cartoes[0].creditCardId).toBe('card-1');
+      expect(prisma.creditCard.update).toHaveBeenCalledWith({
+        where: { id: 'card-1' },
+        data: { connectionId: 'cx1' },
+      });
+    });
+
+    /* Provedor que emite id novo a cada consentimento cai aqui: a tela volta
+     * a perguntar, que e o comportamento de antes e nao um erro novo. */
+    it('sem nada para reencontrar, segue sem destino', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue(null);
+      const p = await service.paraImportar('u1', 'cx1');
+      expect(p.cartoes[0].creditCardId).toBeNull();
+    });
+
+    it('a busca larga e sempre do DONO: nunca acha conta de outra pessoa', async () => {
+      prisma.creditCard.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+      await service.paraImportar('u1', 'cx1');
+      const larga = prisma.creditCard.findFirst.mock.calls[1][0];
+      expect(larga.where).toMatchObject({ userId: 'u1', providerAccountId: 'k-la' });
+      expect(larga.where.connectionId).toBeUndefined();
+    });
+  });
+
+  // ----------------------------------------------------------------------
   /* O teto de historico do plano. O corte em si tem suite propria
    * (`historico.spec.ts`); aqui se prova a LIGACAO: a busca corta e conta. */
   describe('historico que o plano alcanca', () => {
