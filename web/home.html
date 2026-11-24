@@ -1851,6 +1851,14 @@
   .layer-foot { padding: 0 24px 22px; display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
   .layer-foot .primary { width: auto; height: 44px; padding: 0 20px; font-size: 13px; }
   .layer-foot .esquerda { margin-right: auto; }
+  /* Só aqui o rodapé gruda no fundo. Esta camada tem três blocos e rola
+   * 1866px num aparelho de 812 (medido): o botão de assinar nascia depois
+   * do fim do Premium, e quem estava no teste nunca chegava nele. Nas outras
+   * camadas o corpo é curto e uma barra permanente só roubaria altura. */
+  #dlg-planos .layer-foot {
+    position: sticky; bottom: 0; z-index: 2;
+    background: var(--bg); padding-top: 14px;
+  }
   .opt-list { display: flex; flex-direction: column; gap: 10px; }
   .opt {
     text-align: left; padding: 14px 16px; border: 1px solid var(--controle-borda);
@@ -18419,11 +18427,19 @@
           : "Teste do Pro — faltam " + planoAtual.diasDeTeste + " dias")
       : "O seu plano: " + (NOME_DA_COLUNA[planoAtual.coluna] || "—");
 
+    /* No teste o Pro está EMPRESTADO, e a etiqueta precisa dizer isso.
+     * Chamar de "seu plano" o que acaba em sete dias é a própria razão de
+     * ninguém procurar como pagar antes do prazo. */
+    var meu = planoAtual.emTeste ? "gratis" : planoAtual.coluna;
+
     corpo.innerHTML = planoAtual.tabela.map(function (c) {
       var atual = c.plano === planoAtual.coluna;
       return '<div class="blk" style="margin-bottom:12px">' +
         '<div class="lbl-row"><div class="lbl">' + esc(NOME_DA_COLUNA[c.plano]) + "</div>" +
-          (atual ? '<div class="lbl-total"><span class="tag ok">seu plano</span></div>' : "") +
+          (atual
+            ? '<div class="lbl-total"><span class="tag ' + (planoAtual.emTeste ? "warn" : "ok") +
+              '">' + (planoAtual.emTeste ? "no teste" : "seu plano") + "</span></div>"
+            : "") +
         "</div>" +
         '<div class="list">' +
           frasesDoPlano(c.direitos).map(function (par) {
@@ -18431,12 +18447,40 @@
               '<span class="row-name">' + esc(par[0]) + "</span></span></span>" +
               '<span class="row-val num">' + esc(String(par[1])) + "</span></div>";
           }).join("") +
-        "</div></div>";
+        "</div>" + acaoDoPlano(c.plano, meu) + "</div>";
     }).join("");
 
-    /* Assinar só onde dá para cobrar. Dentro do app da Play, e com o gateway
-     * desligado, o botão prometeria um caminho que termina em erro. */
+    /* Sem gateway não há botão nenhum — e, sem uma palavra, a tela de quem
+     * está no teste fica idêntica à de quem já é Premium. A falta é nossa, e
+     * dizer isso é melhor do que um silêncio que parece recusa.
+     *
+     * Dentro do app da Play nem esta frase aparece: lá não se pode sequer
+     * mencionar cobrança fora do faturamento do Play. */
+    /* Assinar só onde dá para cobrar. O do rodapé é genérico de propósito:
+     * ele abre a tela que ESCOLHE o plano e o ciclo, e prometer "o Pro" num
+     * botão que leva a um menu seria escolher pela pessoa. */
     document.getElementById("plano-assinar").hidden = !temComoCobrar();
+
+    if (podeAssinarAqui() && !servidorTemCheckout(cobranca)) {
+      corpo.innerHTML += '<div class="empty">A assinatura está indisponível ' +
+        "agora. Tente de novo em alguns minutos.</div>";
+    }
+  }
+
+  /** A escada dos planos. Só se sobe: oferecer o Pro a quem paga o Premium é
+   * oferecer um downgrade que o servidor recusa ("já tem assinatura ativa"). */
+  var ESCADA = { gratis: 0, pro: 1, premium: 2 };
+
+  /** O botão de assinar mora NO bloco do plano, e não no rodapé da camada.
+   * Medido: o `dialog` inteiro é que rola — só o cabeçalho é `sticky` —, então
+   * um botão no rodapé nasce três blocos abaixo da dobra. Quem estava no teste
+   * lia o que o Pro dá e não via como assiná-lo. */
+  function acaoDoPlano(coluna, meu) {
+    if (!temComoCobrar()) return "";
+    if (ESCADA[coluna] <= ESCADA[meu]) return "";
+    return '<div class="acoes-linha" style="margin-top:14px">' +
+      '<button type="button" class="primary" data-assinar-coluna="' + esc(coluna) + '">' +
+      "Assinar o " + esc(NOME_DA_COLUNA[coluna] || coluna) + "</button></div>";
   }
 
   function abrirPlanos() {
@@ -18444,12 +18488,17 @@
     abrir("dlg-planos");
   }
 
-  document.getElementById("plano-assinar").addEventListener("click", function () {
+  document.getElementById("plano-assinar").addEventListener("click", irParaAssinatura);
+  document.getElementById("plano-corpo").addEventListener("click", function (e) {
+    if (e.target.closest("[data-assinar-coluna]")) irParaAssinatura();
+  });
+
+  function irParaAssinatura() {
     fechar("dlg-planos");
     /* Uma tela de assinatura só: é lá que o preço vem do servidor e o
      * checkout acontece. Esta aqui compara; aquela cobra. */
     abrirAssinatura();
-  });
+  }
 
   /** A recusa por plano, com o caminho em vez de só o "não". */
   function perguntarSobrePlano(mensagem) {
