@@ -24,9 +24,10 @@ export const PLANOS_PADRAO = [
   { code: 'free', name: 'Gratuito', amount: 0, interval: BillingInterval.MONTHLY },
   { code: 'pro-mensal', name: 'Pro', amount: 29.9, interval: BillingInterval.MONTHLY },
   { code: 'pro-anual', name: 'Pro Anual', amount: 286.8, interval: BillingInterval.YEARLY },
-  { code: 'premium-mensal', name: 'Premium', amount: 199, interval: BillingInterval.MONTHLY },
-  // 169/mês × 12. O desconto está embutido no total, como no Pro anual.
-  { code: 'premium-anual', name: 'Premium Anual', amount: 2028, interval: BillingInterval.YEARLY },
+  { code: 'premium-mensal', name: 'Premium', amount: 69.9, interval: BillingInterval.MONTHLY },
+  // 55,90/mês × 12. O desconto está embutido no total, como no Pro anual, e é
+  // a mesma proporção: o Pro cai 20,1% no anual, o Premium 20,0%.
+  { code: 'premium-anual', name: 'Premium Anual', amount: 670.8, interval: BillingInterval.YEARLY },
   // Houve aqui um 'teste-cobranca' de R$ 5,00, para provar a cobrança em
   // produção com dinheiro de verdade sem gastar 29,90. Saiu desta lista
   // depois do teste e foi desativado sozinho na subida seguinte — o
