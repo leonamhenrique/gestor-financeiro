@@ -9,7 +9,15 @@
 // 4. limite cheio não cria mais um, e `null` não limita nada.
 // ============================================================
 
-import { direitosDe, noTeste, diasDeTeste, cabeMais, temCortesia } from './entitlements';
+import {
+  direitosDe,
+  noTeste,
+  diasDeTeste,
+  cabeMais,
+  temCortesia,
+  colunaDoPlano,
+  TABELA_DE_PLANOS,
+} from './entitlements';
 
 const AGORA = new Date('2026-11-22T12:00:00Z');
 const DAQUI_A = (dias: number) => new Date(AGORA.getTime() + dias * 86400000);
@@ -116,6 +124,39 @@ describe('Premium de cortesia', () => {
 
   it('cortesia não expira com o teste vencido', () => {
     expect(direitosDe({ cortesia: true, testeAte: DAQUI_A(-30) }, AGORA).bancos).toBe(12);
+  });
+});
+
+/* A tela de planos desenha o que vier daqui. Se a tabela sair com uma coluna
+ * a menos, ou com a coluna errada acesa, a tela promete o que o servidor não
+ * dá — e isso só aparece no clique. */
+describe('a tabela que a tela desenha', () => {
+  it('tem as três colunas, nesta ordem', () => {
+    expect(TABELA_DE_PLANOS.map((c) => c.plano)).toEqual(['gratis', 'pro', 'premium']);
+  });
+
+  it('cada coluna leva os direitos daquele plano', () => {
+    const porPlano = Object.fromEntries(TABELA_DE_PLANOS.map((c) => [c.plano, c.direitos]));
+    expect(porPlano.gratis.bancos).toBe(0);
+    expect(porPlano.pro.bancos).toBe(5);
+    expect(porPlano.premium.bancos).toBe(12);
+  });
+
+  it('acende a coluna de quem assinou', () => {
+    expect(colunaDoPlano({ codigo: 'pro-anual', liberada: true }, AGORA)).toBe('pro');
+    expect(colunaDoPlano({ codigo: 'premium-mensal', liberada: true }, AGORA)).toBe('premium');
+    expect(colunaDoPlano({ cortesia: true }, AGORA)).toBe('premium');
+  });
+
+  /* Quem está no teste vê o PRO aceso: é o que ele está usando, e é o plano
+   * que ele mantém se assinar. */
+  it('no teste, acende o Pro', () => {
+    expect(colunaDoPlano({ testeAte: DAQUI_A(3) }, AGORA)).toBe('pro');
+  });
+
+  it('sem nada, acende o grátis', () => {
+    expect(colunaDoPlano({}, AGORA)).toBe('gratis');
+    expect(colunaDoPlano({ testeAte: DAQUI_A(-1) }, AGORA)).toBe('gratis');
   });
 });
 

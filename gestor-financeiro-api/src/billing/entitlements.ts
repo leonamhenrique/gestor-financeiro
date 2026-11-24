@@ -94,6 +94,30 @@ const GRATIS: Direitos = {
 /* O grátis DURANTE os 7 dias: o Pro inteiro, menos o histórico longo. */
 const TESTE: Direitos = { ...PRO, bancos: 1, mesesDeHistorico: 1 };
 
+/**
+ * A tabela inteira, para a tela de planos.
+ *
+ * Vai daqui para o cliente em vez de ser reescrita lá: duas cópias da mesma
+ * tabela divergem no primeiro ajuste, e aí a tela promete o que o servidor
+ * não dá. A tela só traduz número em frase.
+ */
+export const TABELA_DE_PLANOS: Array<{ plano: 'gratis' | 'pro' | 'premium'; direitos: Direitos }> = [
+  { plano: 'gratis', direitos: GRATIS },
+  { plano: 'pro', direitos: PRO },
+  { plano: 'premium', direitos: PREMIUM },
+];
+
+/** Em qual coluna da tabela este estado cai. */
+export function colunaDoPlano(estado: EstadoDoPlano, agora: Date = new Date()): 'gratis' | 'pro' | 'premium' {
+  const d = direitosDe(estado, agora);
+  if (d === PREMIUM) return 'premium';
+  if (d === PRO) return 'pro';
+  /* O teste mostra a coluna do Pro acesa: é o que a pessoa está usando, e é
+   * o plano que ela mantém se assinar. */
+  if (d === TESTE) return 'pro';
+  return 'gratis';
+}
+
 /** Os códigos que valem como Pro e como Premium, mensal ou anual. */
 const POR_CODIGO: Record<string, Direitos> = {
   'pro-mensal': PRO,

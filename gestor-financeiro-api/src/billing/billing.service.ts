@@ -23,7 +23,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionStatus, SubscriptionInvoiceStatus, Prisma } from '@prisma/client';
 import { PAYMENT_PROVIDER, PaymentProviderPort, EventoWebhook } from './payment-provider.port';
 import { acessoLiberado, fimDoCicloPago } from './acesso';
-import { Direitos, EstadoDoPlano, direitosDe, noTeste, diasDeTeste, temCortesia } from './entitlements';
+import {
+  Direitos,
+  EstadoDoPlano,
+  direitosDe,
+  noTeste,
+  diasDeTeste,
+  temCortesia,
+  colunaDoPlano,
+  TABELA_DE_PLANOS,
+} from './entitlements';
 
 /** Estados em que a conta segue podendo criar registros SEM mais perguntas.
  * Cancelada com ciclo pago correndo também libera — ver `acessoLiberado`. */
@@ -76,6 +85,11 @@ export class BillingService {
       emTeste: noTeste(estado),
       diasDeTeste: diasDeTeste(estado),
       direitos: direitosDe(estado),
+      /* A tabela inteira vai junto: a tela de planos precisa das três
+       * colunas, e reescrevê-la no cliente seria ter duas verdades sobre o
+       * que cada plano dá. */
+      coluna: colunaDoPlano(estado),
+      tabela: TABELA_DE_PLANOS,
     };
   }
 

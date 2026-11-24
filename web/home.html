@@ -4169,6 +4169,18 @@
 <!-- Renomear a conexão. Existe como camada própria porque reconectar para
      corrigir um nome QUEIMA A COTA do CPF naquele banco — o apelido tem de
      ser corrigível sem falar com o provedor. -->
+<!-- Os planos, desenhados a partir da tabela que o SERVIDOR manda. Reescrever
+     a tabela aqui seria ter duas verdades sobre o que cada plano dá, e a
+     divergência só apareceria no clique. -->
+<dialog id="dlg-planos">
+  <div class="layer-head"><h3>Planos</h3><div class="ctx" id="plano-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-body"><div id="plano-corpo"></div></div>
+  <div class="layer-foot">
+    <button type="button" class="primary" id="plano-assinar" hidden>Assinar</button>
+    <button type="button" class="ghost" data-fechar>Fechar</button>
+  </div>
+</dialog>
+
 <dialog id="dlg-apelido">
   <div class="layer-head"><h3>Apelido da conexão</h3><div class="ctx" id="ap-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
   <div class="layer-body">
@@ -4229,6 +4241,13 @@
       <button type="button" class="opt" data-perfil="meu">Meu perfil<span class="opt-meta">Nome e e-mail da conta.</span></button>
       <!-- Só aparece onde dá para cobrar: no navegador, nunca dentro do app
            da Play. Ver `podeAssinarAqui`, no script, para o porquê. -->
+      <!-- Os planos aparecem SEMPRE, com ou sem como cobrar: uma conta
+           grátis precisa de um lugar para descobrir por que o fluxo de caixa
+           não abre. Assinar é que depende do gateway. -->
+      <button type="button" class="opt" data-perfil="planos" hidden>
+        <span class="opt-linha">Planos<span class="tag" id="plano-tag"></span></span>
+        <span class="opt-meta">O que cada plano inclui.</span>
+      </button>
       <button type="button" class="opt" data-perfil="assinatura" hidden>
         <span class="opt-linha">Minha assinatura<span class="tag" id="pf-status"></span></span>
         <span class="opt-meta" id="pf-plano"></span>
@@ -7856,7 +7875,14 @@
       expirou.sessaoMorta = true;
       throw expirou;
     }
-    if (!r.ok) throw new Error(mensagemDaApi(r.json, r.status));
+    if (!r.ok) {
+      var erro = new Error(mensagemDaApi(r.json, r.status));
+      /* O código do servidor atravessa. É ele que distingue "não dá" de
+       * "não dá NESTE PLANO" — e só com ele a tela consegue oferecer o
+       * caminho em vez de repetir a recusa. */
+      if (r.json && r.json.code) erro.code = r.json.code;
+      throw erro;
+    }
     return r.json;
   }
 
@@ -7905,7 +7931,9 @@
     aplicarFilaNoEstado();
     // A cobrança vem na mesma carga: é ela que diz se criar registro está
     // liberado, e esse número precisa chegar junto com o resto, não depois.
-    await cobrancaCarregar();
+    /* Em paralelo: são duas leituras independentes, e a segunda não pode
+     * atrasar a tela por esperar a primeira. */
+    await Promise.all([cobrancaCarregar(), planoCarregar()]);
     persist();
   }
 
@@ -8194,6 +8222,13 @@
         sairDaConta(e.message);
         return false;
       }
+      /* Recusa POR PLANO não é erro de operação: a ação não falhou, ela não
+       * está incluída. A diferença importa na frase e no que vem depois —
+       * aqui a tela abre os planos em vez de só repetir o "não". */
+      if (e && (e.code === "PLAN_LIMIT" || e.code === "PLAN_FEATURE")) {
+        perguntarSobrePlano(e.message);
+        return false;
+      }
       avisar("Não deu para " + oQue, (e && e.message) || "Tente de novo em instantes.");
       return false;
     } finally {
@@ -8234,7 +8269,7 @@
     // que não é de quem acabou de entrar.
     cpMes = { y: HOJE.getFullYear(), m: HOJE.getMonth() };
     cpPessoaAberta = null; cpExtrato = null; cpResumo = null; cpPessoas = [];
-    cobranca = null; cobrancaPlanos = [];
+    cobranca = null; cobrancaPlanos = []; planoAtual = null;
     cartaoSel = null; faturaMes = null;
     carregarFila();
     try {
@@ -18262,8 +18297,16 @@
     // assinatura, que é onde o preço vem do servidor.
     var bAss = document.querySelector('[data-perfil="assinatura"]');
     if (bAss) bAss.hidden = !temComoCobrar();
+    /* Os planos aparecem sempre que há servidor: é onde a conta grátis
+     * descobre por que uma tela não abre, e onde quem está no teste vê
+     * quantos dias faltam. */
     var bPlanos = document.querySelector('[data-perfil="planos"]');
-    if (bPlanos) bPlanos.hidden = true;
+    if (bPlanos) bPlanos.hidden = !MODO_API || !planoAtual;
+    var tagPlano = document.getElementById("plano-tag");
+    if (tagPlano) {
+      tagPlano.textContent = nomeDoPlano();
+      tagPlano.className = "tag " + (planoAtual && planoAtual.emTeste ? "warn" : "ok");
+    }
     document.getElementById("pf-nome-head").textContent = p.nome;
     document.getElementById("pf-email-head").textContent = p.email;
     var pill = document.getElementById("pf-status");
@@ -18316,6 +18359,106 @@
       frase: "Não haverá nova cobrança. O acesso continua até o fim do período já pago." }
   };
 
+  /* O que ESTE plano dá, e a tabela inteira para a tela comparar. Vem numa
+   * chamada só, e é lida mesmo onde não dá para cobrar: dentro do app da
+   * Play não se assina, mas se precisa saber por que uma tela não abre. */
+  var planoAtual = null;
+
+  async function planoCarregar() {
+    if (!MODO_API) { planoAtual = null; return; }
+    try {
+      planoAtual = await api("/billing/limits");
+    } catch (e) {
+      planoAtual = null;
+    }
+  }
+
+  /** O rótulo curto do plano, para a etiqueta do menu. */
+  function nomeDoPlano() {
+    if (!planoAtual) return "";
+    if (planoAtual.emTeste) {
+      return planoAtual.diasDeTeste === 1 ? "último dia de teste" : planoAtual.diasDeTeste + " dias de teste";
+    }
+    return { gratis: "Grátis", pro: "Pro", premium: "Premium" }[planoAtual.coluna] || "";
+  }
+
+  /** Um direito vira frase. A tabela é de números; a tela é de palavras. */
+  function frasesDoPlano(d) {
+    var quantos = function (n, um, muitos) {
+      if (n === null) return "ilimitad" + muitos;
+      if (!n) return "—";
+      return n + " " + (n === 1 ? um : muitos === "os" ? um + "s" : um + "s");
+    };
+    return [
+      ["Bancos conectados", d.bancos ? d.bancos : "—"],
+      ["Histórico do banco", d.mesesDeHistorico ? d.mesesDeHistorico + (d.mesesDeHistorico === 1 ? " mês" : " meses") : "—"],
+      ["Contas e cartões", d.contas === null ? "ilimitados" : d.contas + " e " + d.cartoes],
+      ["Objetivos", d.objetivos === null ? "ilimitados" : String(d.objetivos)],
+      ["WhatsApp", d.whatsappPorMes === null ? "ilimitado" : (d.whatsappPorMes ? d.whatsappPorMes + " mensagens/mês" : "—")],
+      ["Planejamento", d.planejamentoCompleto ? "qualquer mês" : "mês corrente"],
+      ["Fluxo de caixa do ano", d.fluxoDeCaixa ? "sim" : "—"],
+      ["Despesas compartilhadas", d.compartilhadas ? "sim" : "—"],
+      ["Avisos de conferência", d.avisos ? "sim" : "—"],
+      ["Link de leitura", d.compartilharPorLink ? "sim" : "—"],
+    ];
+  }
+
+  var NOME_DA_COLUNA = { gratis: "Grátis", pro: "Pro", premium: "Premium" };
+
+  function desenharPlanos() {
+    var corpo = document.getElementById("plano-corpo");
+    if (!planoAtual || !planoAtual.tabela) {
+      corpo.innerHTML = '<div class="empty">Não consegui ler os planos agora.</div>';
+      return;
+    }
+    /* No teste a frase conta o que ACABA, e não o que se tem: quem está no
+     * sétimo dia precisa do prazo, não do nome do plano. */
+    document.getElementById("plano-ctx").textContent = planoAtual.emTeste
+      ? (planoAtual.diasDeTeste === 1
+          ? "Último dia de teste do Pro"
+          : "Teste do Pro — faltam " + planoAtual.diasDeTeste + " dias")
+      : "O seu plano: " + (NOME_DA_COLUNA[planoAtual.coluna] || "—");
+
+    corpo.innerHTML = planoAtual.tabela.map(function (c) {
+      var atual = c.plano === planoAtual.coluna;
+      return '<div class="blk" style="margin-bottom:12px">' +
+        '<div class="lbl-row"><div class="lbl">' + esc(NOME_DA_COLUNA[c.plano]) + "</div>" +
+          (atual ? '<div class="lbl-total"><span class="tag ok">seu plano</span></div>' : "") +
+        "</div>" +
+        '<div class="list">' +
+          frasesDoPlano(c.direitos).map(function (par) {
+            return '<div class="row"><span class="row-main"><span class="row-title">' +
+              '<span class="row-name">' + esc(par[0]) + "</span></span></span>" +
+              '<span class="row-val num">' + esc(String(par[1])) + "</span></div>";
+          }).join("") +
+        "</div></div>";
+    }).join("");
+
+    /* Assinar só onde dá para cobrar. Dentro do app da Play, e com o gateway
+     * desligado, o botão prometeria um caminho que termina em erro. */
+    document.getElementById("plano-assinar").hidden = !temComoCobrar();
+  }
+
+  function abrirPlanos() {
+    desenharPlanos();
+    abrir("dlg-planos");
+  }
+
+  document.getElementById("plano-assinar").addEventListener("click", function () {
+    fechar("dlg-planos");
+    /* Uma tela de assinatura só: é lá que o preço vem do servidor e o
+     * checkout acontece. Esta aqui compara; aquela cobra. */
+    abrirAssinatura();
+  });
+
+  /** A recusa por plano, com o caminho em vez de só o "não". */
+  function perguntarSobrePlano(mensagem) {
+    pedirConfirmacao(
+      { titulo: "Isto é de outro plano", detalhe: mensagem, acao: "Ver planos" },
+      abrirPlanos,
+    );
+  }
+
   function rotuloDaAssinatura() {
     if (!cobranca || !cobranca.assinatura) return "Sem assinatura";
     return "Plano " + (cobranca.assinatura.plan ? cobranca.assinatura.plan.name : "—");
@@ -18332,7 +18475,7 @@
     } catch (e) {
       // Falha ao ler cobrança não pode derrubar o resto: o app continua
       // servindo os dados, e só a tela de assinatura fica indisponível.
-      cobranca = null; cobrancaPlanos = [];
+      cobranca = null; cobrancaPlanos = []; planoAtual = null;
     }
   }
 
@@ -18678,6 +18821,7 @@
     if (acao === "whatsapp") abrirWhatsapp();
     if (acao === "meu") abrirMeuPerfil();
     if (acao === "assinatura") abrirAssinatura();
+    if (acao === "planos") abrirPlanos();
     if (acao === "instalar") instalarApp();
     if (acao === "zerar") comecarDoZero();
     if (acao === "sair") sairDaConta();
@@ -18783,7 +18927,7 @@
     state.objetivos = [];
     state.planejamentos = [];
     state.perfil = { nome: "", email: "" };
-    cobranca = null; cobrancaPlanos = [];
+    cobranca = null; cobrancaPlanos = []; planoAtual = null;
     sairDaConta("Conta excluída. Seus dados foram apagados do servidor.");
   }
 
