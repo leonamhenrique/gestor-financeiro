@@ -22,7 +22,7 @@ import { Inject, Injectable, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionStatus, SubscriptionInvoiceStatus, Prisma } from '@prisma/client';
 import { PAYMENT_PROVIDER, PaymentProviderPort, EventoWebhook } from './payment-provider.port';
-import { acessoLiberado, fimDoCicloPago } from './acesso';
+import { acessoLiberado, assinaturaDaDireitos, fimDoCicloPago } from './acesso';
 import { hojeNoFuso } from '../credit-cards/invoice-statement';
 import {
   Direitos,
@@ -123,10 +123,14 @@ export class BillingService {
     return {
       cortesia: !!usuario && temCortesia(usuario),
       codigo: assinatura?.plan?.code ?? null,
-      /* `acessoLiberado` trata "sem assinatura" como liberado — é a regra do
-       * bloqueio por inadimplência, e lá isso está certo. Aqui não: sem
-       * assinatura não há plano para liberar, e quem manda é o teste. */
-      liberada: !!assinatura && acessoLiberado(assinatura),
+      /* NÃO é `acessoLiberado`. Aquela responde "isto bloqueia criar
+       * registro?", e lá `INCOMPLETE` — checkout aberto e não pago — libera
+       * com razão: olhar o preço não pode travar o app.
+       *
+       * Aqui a pergunta é outra: "isto DÁ o plano?". Medido em produção:
+       * com a lista do bloqueio, tocar em Assinar e voltar bastava para a
+       * conta virar Pro aos olhos do servidor, sem um centavo pago. */
+      liberada: assinaturaDaDireitos(assinatura),
       testeAte: usuario?.trialEndsAt ?? null,
     };
   }

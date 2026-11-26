@@ -7,7 +7,7 @@
 // ============================================================
 
 import { BillingInterval, SubscriptionStatus } from '@prisma/client';
-import { acessoLiberado, fimDoCicloPago } from './acesso';
+import { acessoLiberado, assinaturaDaDireitos, fimDoCicloPago } from './acesso';
 
 const EM = (iso: string) => new Date(iso + 'T12:00:00.000Z');
 
@@ -161,5 +161,84 @@ describe('fimDoCicloPago()', () => {
   it('31 de agosto no anual continua 31 de agosto', () => {
     expect(fimDoCicloPago(EM('2026-08-31'), BillingInterval.YEARLY).toISOString().slice(0, 10))
       .toBe('2027-08-31');
+  });
+});
+
+// ============================================================
+// O buraco do checkout aberto
+// ============================================================
+// Medido em produção em 26/11/2026: ele tocou em "Assinar o Pro", voltou sem
+// pagar, e o contador de teste sumiu do menu — a conta tinha virado Pro aos
+// olhos do servidor. A causa era UMA lista respondendo a DUAS perguntas:
+// `INCOMPLETE` (checkout aberto, nada pago) está em `LIBERADOS`, que é a
+// lista do bloqueio, e isso ali está certo. Ela nunca podia ser a lista de
+// quem GANHA o plano.
+//
+// O que estava em jogo, além do contador: 5 bancos e 12 meses de histórico
+// de graça, o desligamento do banco no fim do mês nunca acontecendo (custo
+// recorrente nosso), e o primeiro débito deixando de ser adiado para o fim
+// do teste. E qualquer pessoa conseguia tudo isso clicando e fechando a aba.
+describe('checkout aberto não é plano pago', () => {
+  const EM = (iso: string) => new Date(iso + 'T12:00:00.000Z');
+  const AGORA = EM('2026-11-26');
+
+  const assinatura = (status: SubscriptionStatus, extra: any = {}) => ({
+    status,
+    cancelAtPeriodEnd: false,
+    currentPeriodEnd: null,
+    ...extra,
+  });
+
+  it('INCOMPLETE não dá o plano — mas também não bloqueia nada', () => {
+    const a = assinatura(SubscriptionStatus.INCOMPLETE);
+    expect(assinaturaDaDireitos(a, AGORA)).toBe(false);
+    // A outra pergunta continua respondida como antes: olhar o preço não trava o app.
+    expect(acessoLiberado(a, AGORA)).toBe(true);
+  });
+
+  it('sem assinatura, nenhum direito — e nenhum bloqueio', () => {
+    expect(assinaturaDaDireitos(null, AGORA)).toBe(false);
+    expect(acessoLiberado(null, AGORA)).toBe(true);
+  });
+
+  it('paga e em teste do gateway dão o plano', () => {
+    expect(assinaturaDaDireitos(assinatura(SubscriptionStatus.ACTIVE), AGORA)).toBe(true);
+    expect(assinaturaDaDireitos(assinatura(SubscriptionStatus.TRIALING), AGORA)).toBe(true);
+  });
+
+  it('inadimplente não dá o plano', () => {
+    expect(assinaturaDaDireitos(assinatura(SubscriptionStatus.PAST_DUE), AGORA)).toBe(false);
+  });
+
+  /* O dinheiro daquele ciclo entrou: tirar o acesso antes do fim seria ficar
+   * com o pagamento e com o serviço. */
+  it('cancelada com ciclo pago correndo ainda dá o plano', () => {
+    const viva = assinatura(SubscriptionStatus.CANCELED, {
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: EM('2026-12-20'),
+    });
+    expect(assinaturaDaDireitos(viva, AGORA)).toBe(true);
+
+    const vencida = assinatura(SubscriptionStatus.CANCELED, {
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: EM('2026-11-01'),
+    });
+    expect(assinaturaDaDireitos(vencida, AGORA)).toBe(false);
+  });
+
+  /* A diferença entre as duas listas é exatamente um estado. Se um dia
+   * alguém acrescentar INCOMPLETE à lista de direitos, este teste cai. */
+  it('a única diferença entre as duas perguntas é o INCOMPLETE', () => {
+    const estados = [
+      SubscriptionStatus.ACTIVE,
+      SubscriptionStatus.TRIALING,
+      SubscriptionStatus.INCOMPLETE,
+      SubscriptionStatus.PAST_DUE,
+    ];
+    const divergem = estados.filter(
+      (s) => acessoLiberado(assinatura(s), AGORA) !== assinaturaDaDireitos(assinatura(s), AGORA),
+    );
+    // PAST_DUE bloqueia E não dá direito: as duas perguntas concordam nele.
+    expect(divergem).toEqual([SubscriptionStatus.INCOMPLETE]);
   });
 });

@@ -68,6 +68,63 @@ describe('BillingService', () => {
     });
   });
 
+  /* Medido em produção em 26/11/2026: tocar em "Assinar o Pro" e voltar sem
+   * pagar apagava o contador de teste do menu — a conta tinha virado Pro aos
+   * olhos do servidor. Com ela vinham 5 bancos e 12 meses de histórico de
+   * graça, o banco nunca mais desligado no fim do mês (custo recorrente
+   * nosso) e o primeiro débito deixando de ser adiado. Bastava clicar e
+   * fechar a aba. */
+  describe('checkout aberto e não pago não vira plano', () => {
+    const comTeste = (status: SubscriptionStatus | null) => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'ana@ex.com',
+        trialEndsAt: new Date(Date.now() + 27 * 86400000),
+      });
+      prisma.subscription.findUnique.mockResolvedValue(
+        status === null
+          ? null
+          : {
+              status,
+              cancelAtPeriodEnd: false,
+              currentPeriodEnd: null,
+              plan: { code: 'pro-mensal' },
+            },
+      );
+    };
+
+    it('com checkout aberto, o teste continua correndo e aparecendo', async () => {
+      comTeste(SubscriptionStatus.INCOMPLETE);
+      const r = await service.limites('u1');
+      expect(r.emTeste).toBe(true);
+      expect(r.diasDeTeste).toBeGreaterThan(0);
+      // E os direitos continuam os do TESTE: 1 banco, 1 mês de histórico.
+      expect(r.direitos.bancos).toBe(1);
+      expect(r.direitos.mesesDeHistorico).toBe(1);
+    });
+
+    it('e a conta não conta como pagante, então o banco ainda será desligado', async () => {
+      comTeste(SubscriptionStatus.INCOMPLETE);
+      await expect(service.estaPagando('u1')).resolves.toBe(false);
+    });
+
+    it('pago de verdade encerra o teste e dá o Pro inteiro', async () => {
+      comTeste(SubscriptionStatus.ACTIVE);
+      const r = await service.limites('u1');
+      expect(r.emTeste).toBe(false);
+      expect(r.direitos.bancos).toBe(5);
+      expect(r.direitos.mesesDeHistorico).toBe(12);
+      await expect(service.estaPagando('u1')).resolves.toBe(true);
+    });
+
+    it('sem assinatura nenhuma, o teste manda — como sempre mandou', async () => {
+      comTeste(null);
+      const r = await service.limites('u1');
+      expect(r.emTeste).toBe(true);
+      expect(r.direitos.bancos).toBe(1);
+    });
+  });
+
   describe('webhook', () => {
     const evento = {
       providerEventId: 'evt_1',

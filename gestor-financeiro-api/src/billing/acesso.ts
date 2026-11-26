@@ -30,6 +30,28 @@ const LIBERADOS: SubscriptionStatus[] = [
   SubscriptionStatus.INCOMPLETE,
 ];
 
+/**
+ * Estados que DÃO os direitos do plano.
+ *
+ * `INCOMPLETE` não entra, e é toda a diferença entre esta lista e
+ * `LIBERADOS`. As duas respondem a perguntas diferentes:
+ *
+ *   LIBERADOS     "esta assinatura BLOQUEIA criar registro?" — abrir o
+ *                 checkout não pode bloquear nada, então INCOMPLETE libera.
+ *   DAO_DIREITOS  "esta assinatura DÁ o plano?" — abrir o checkout e fechar
+ *                 a aba não pode dar o Pro de graça.
+ *
+ * Usar uma lista para as duas perguntas foi um buraco de verdade, medido em
+ * produção: bastava tocar em Assinar e voltar para a conta virar Pro aos
+ * olhos do servidor — ganhando 5 bancos e 12 meses de histórico, perdendo o
+ * contador de teste da tela, e nunca mais tendo o banco desligado no fim do
+ * mês, que é custo recorrente nosso por alguém que não pagou.
+ */
+const DAO_DIREITOS: SubscriptionStatus[] = [
+  SubscriptionStatus.TRIALING,
+  SubscriptionStatus.ACTIVE,
+];
+
 export interface AssinaturaParaAcesso {
   status: SubscriptionStatus;
   cancelAtPeriodEnd: boolean;
@@ -52,6 +74,31 @@ export function acessoLiberado(
   if (LIBERADOS.includes(assinatura.status)) return true;
 
   // Cancelada, mas o ciclo pago ainda corre.
+  return (
+    assinatura.status === SubscriptionStatus.CANCELED &&
+    assinatura.cancelAtPeriodEnd === true &&
+    !!assinatura.currentPeriodEnd &&
+    assinatura.currentPeriodEnd.getTime() > agora.getTime()
+  );
+}
+
+/**
+ * Esta assinatura dá os direitos do plano?
+ *
+ * Sem assinatura, NÃO — ao contrário de `acessoLiberado`, onde "sem
+ * assinatura" é liberado. Lá a pergunta é sobre bloqueio; aqui é sobre
+ * conceder, e quem nunca passou pelo checkout não tem plano para conceder.
+ *
+ * Cancelada com ciclo pago correndo ainda dá: o dinheiro daquele ciclo
+ * entrou, e tirar o acesso antes do fim seria ficar com o pagamento e o
+ * serviço.
+ */
+export function assinaturaDaDireitos(
+  assinatura: AssinaturaParaAcesso | null | undefined,
+  agora: Date = new Date(),
+): boolean {
+  if (!assinatura) return false;
+  if (DAO_DIREITOS.includes(assinatura.status)) return true;
   return (
     assinatura.status === SubscriptionStatus.CANCELED &&
     assinatura.cancelAtPeriodEnd === true &&
