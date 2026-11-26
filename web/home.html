@@ -4561,8 +4561,20 @@
   var cobranca = null;
   var cobrancaPlanos = [];
 
+  /* O app da Play é um TWA, e TWA é ANDROID — sempre. Exigir as duas coisas
+   * fecha um falso positivo que custava caro: `getDigitalGoodsService`
+   * também existe em alguns Chrome de desktop e em PWA instalado pela loja
+   * da Microsoft, e lá ele dava "estamos dentro da Play". O efeito era o
+   * pior possível: o botão de assinar sumia, a frase que explica a falta
+   * também (porque ela é calada dentro da Play, por política), e a tela de
+   * Planos ficava sem caminho nenhum para pagar, sem dizer por quê.
+   *
+   * A trava da Play não afrouxa: dentro do app instalado da loja o
+   * navegador é Chrome no Android, e as duas condições valem. O que deixa
+   * de ser confundido com a Play é o computador, que nunca foi. */
   function dentroDoAppDaPlay() {
-    return typeof window.getDigitalGoodsService === "function";
+    return typeof window.getDigitalGoodsService === "function"
+      && /Android/i.test(navigator.userAgent || "");
   }
   function podeAssinarAqui() {
     return MODO_API && !dentroDoAppDaPlay();
@@ -18496,7 +18508,7 @@
      * ninguém procurar como pagar antes do prazo. */
     var meu = planoAtual.emTeste ? "gratis" : planoAtual.coluna;
 
-    corpo.innerHTML = planoAtual.tabela.map(function (c) {
+    corpo.innerHTML = ofertaDoTeste() + planoAtual.tabela.map(function (c) {
       var atual = c.plano === planoAtual.coluna;
       return '<div class="blk" style="margin-bottom:12px">' +
         '<div class="lbl-row"><div class="lbl">' + esc(NOME_DA_COLUNA[c.plano]) + "</div>" +
@@ -18545,6 +18557,28 @@
     return '<div class="acoes-linha" style="margin-top:14px">' +
       '<button type="button" class="primary" data-assinar-coluna="' + esc(coluna) + '">' +
       "Assinar o " + esc(NOME_DA_COLUNA[coluna] || coluna) + "</button></div>";
+  }
+
+  /**
+   * Por que assinar HOJE não custa os dias que faltam.
+   *
+   * Sem esta frase, o conselho racional para quem está no teste é esperar o
+   * último dia — e o último dia é justamente quando a pessoa esquece. O
+   * servidor marca o primeiro débito para o fim do teste (`primeiroVencimento`
+   * no checkout), e isso só vira decisão se estiver escrito ao lado do botão.
+   *
+   * A data sai de `diasDeTeste`, que é a contagem de dias de CALENDÁRIO que
+   * o servidor manda: hoje mais ela é o último dia do teste, o mesmo que o
+   * checkout vai usar.
+   */
+  function ofertaDoTeste() {
+    if (!planoAtual || !planoAtual.emTeste || !planoAtual.diasDeTeste) return "";
+    if (!temComoCobrar()) return "";
+    var fim = new Date();
+    fim.setDate(fim.getDate() + planoAtual.diasDeTeste);
+    return '<div class="field-help" style="margin:0 0 12px">' +
+      "Assinando agora você não perde os dias que faltam: o primeiro débito é só em " +
+      esc(fmtDataBR(isoDate(fim))) + ".</div>";
   }
 
   function abrirPlanos() {
