@@ -4376,6 +4376,14 @@
     </div>
     <div class="field" id="as-planos-wrap" hidden>
       <label class="lbl">Escolha o plano</label>
+      <!-- Mensal ou anual decide o CICLO, e a lista mostra só os planos
+           daquele ciclo. Antes eram quatro opções — os dois planos vezes os
+           dois ciclos —, e comparar Pro com Premium obrigava a pular por
+           cima de uma linha que não interessava. -->
+      <div class="pills" id="as-ciclo" hidden>
+        <button type="button" class="pill on" data-ciclo="MONTHLY" aria-pressed="true">Mensal</button>
+        <button type="button" class="pill" data-ciclo="YEARLY" aria-pressed="false">Anual</button>
+      </div>
       <div class="opt-list" id="as-planos"></div>
       <div class="field-help">O pagamento acontece na tela do gateway. Nem o número do cartão nem o CPF passam por este app.</div>
     </div>
@@ -18661,13 +18669,13 @@
     // escrito na tela é preço que um dia diverge do que o cartão recebe.
     var pagos = cobrancaPlanos.filter(function (p) { return Number(p.amount) > 0; });
     document.getElementById("as-planos-wrap").hidden = ativa || !pagos.length;
-    document.getElementById("as-planos").innerHTML = pagos.map(function (p) {
-      return '<button type="button" class="opt" data-assinar="' + esc(p.code) + '">' +
-        '<span class="opt-linha">' + esc(p.name) +
-        '<span class="tag">' + brl(Number(p.amount)) + '</span></span>' +
-        '<span class="opt-meta">' + (p.interval === "YEARLY" ? "cobrado uma vez por ano" : "cobrado todo mês") +
-        ' · cartão de crédito</span></button>';
-    }).join("");
+
+    document.getElementById("as-ciclo").hidden = !temOsDoisCiclos(pagos);
+    cicloEscolhido = cicloQueExiste(pagos, cicloEscolhido);
+    pintarCiclo();
+
+    document.getElementById("as-planos").innerHTML =
+      doCiclo(pagos, cicloEscolhido).map(opcaoDePlano).join("");
 
     var cobrancas = (a && a.invoices) || [];
     document.getElementById("as-historico-wrap").hidden = !cobrancas.length;
@@ -18686,6 +18694,72 @@
   }
 
   var COBRANCA_STATUS = { PAID: "Paga", PENDING: "Em aberto", FAILED: "Não paga", REFUNDED: "Estornada" };
+
+  /** Mensal ou anual. Vive só enquanto a tela está aberta: é uma escolha de
+   * leitura, não uma preferência da conta. */
+  var cicloEscolhido = "MONTHLY";
+
+  /** O seletor só existe se houver os dois ciclos para escolher. Com um só
+   * no catálogo ele seria um botão que não faz nada. */
+  function temOsDoisCiclos(pagos) {
+    return ["MONTHLY", "YEARLY"].every(function (c) {
+      return pagos.some(function (p) { return p.interval === c; });
+    });
+  }
+
+  /** Ciclo que não existe no catálogo não pode ficar escolhido: a lista
+   * ficaria vazia e a tela, sem explicação. */
+  function cicloQueExiste(pagos, ciclo) {
+    var tem = pagos.some(function (p) { return p.interval === ciclo; });
+    return tem ? ciclo : "MONTHLY";
+  }
+
+  function doCiclo(pagos, ciclo) {
+    return pagos.filter(function (p) { return p.interval === ciclo; });
+  }
+
+  /**
+   * Uma opção da lista.
+   *
+   * No anual, o número que DECIDE é o mês equivalente — é por ele que a
+   * pessoa compara com o mensal que acabou de ver no outro lado do seletor.
+   * O total do ano fica na etiqueta, porque é o que o cartão recebe de uma
+   * vez, e esconder isso seria a surpresa mais cara da tela.
+   *
+   * O nome vem do catálogo do servidor, inclusive o "Anual" repetido: é o
+   * nome que vai aparecer na cobrança e no recibo, e trocá-lo aqui faria a
+   * tela prometer um produto com outro nome.
+   */
+  function opcaoDePlano(p) {
+    var valor = Number(p.amount);
+    var comoCobra = p.interval === "YEARLY"
+      ? brl(valor / 12) + " por mês, cobrados uma vez por ano"
+      : "cobrado todo mês";
+    return '<button type="button" class="opt" data-assinar="' + esc(p.code) + '">' +
+      '<span class="opt-linha">' + esc(p.name) +
+      '<span class="tag">' + brl(valor) + '</span></span>' +
+      '<span class="opt-meta">' + esc(comoCobra) +
+      ' · cartão de crédito</span></button>';
+  }
+
+  function pintarCiclo() {
+    var botoes = document.querySelectorAll("#as-ciclo .pill");
+    for (var i = 0; i < botoes.length; i++) {
+      var on = botoes[i].dataset.ciclo === cicloEscolhido;
+      botoes[i].classList.toggle("on", on);
+      botoes[i].setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  document.getElementById("as-ciclo").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-ciclo]");
+    if (!b || b.dataset.ciclo === cicloEscolhido) return;
+    cicloEscolhido = b.dataset.ciclo;
+    /* Redesenha a tela inteira, e não só a lista: o seletor e os planos
+     * saem do MESMO desenho, e atualizar metade seria criar uma segunda
+     * versão da regra de qual plano aparece. */
+    desenharAssinatura();
+  });
 
   /** Abre a tela de pagamento do gateway e manda o navegador para lá.
    *
