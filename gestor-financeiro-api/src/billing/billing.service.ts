@@ -23,6 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionStatus, SubscriptionInvoiceStatus, Prisma } from '@prisma/client';
 import { PAYMENT_PROVIDER, PaymentProviderPort, EventoWebhook } from './payment-provider.port';
 import { acessoLiberado, fimDoCicloPago } from './acesso';
+import { hojeNoFuso } from '../credit-cards/invoice-statement';
 import {
   Direitos,
   EstadoDoPlano,
@@ -93,7 +94,25 @@ export class BillingService {
     };
   }
 
-  private async estadoDoPlano(userId: string): Promise<EstadoDoPlano> {
+  /**
+   * Esta conta PAGA (ou tem cortesia)?
+   *
+   * É a pergunta que poupa o banco conectado do desligamento de fim de mês,
+   * e a que decide se a tela mostra uma data de validade na conexão. Note
+   * que estar no TESTE não é pagar: é justamente de quem está no teste que
+   * o banco é desligado antes da virada.
+   */
+  async estaPagando(userId: string): Promise<boolean> {
+    const estado = await this.estadoDoPlano(userId);
+    if (estado.cortesia) return true;
+    return !!(estado.liberada && estado.codigo);
+  }
+
+  /** O estado de plano de uma pessoa, cru. Público porque o agendador do
+   * fim do teste precisa saber se ESTA conta paga antes de desligar o banco
+   * dela — e repetir a montagem desse estado lá seria ter duas respostas
+   * para a mesma pergunta. */
+  async estadoDoPlano(userId: string): Promise<EstadoDoPlano> {
     const [assinatura, usuario] = await Promise.all([
       this.prisma.subscription.findUnique({ where: { userId }, include: { plan: true } }),
       this.prisma.user.findUnique({
@@ -268,6 +287,14 @@ export class BillingService {
       throw new BadRequestException('Este usuário já tem uma assinatura ativa.');
     }
 
+    /* Assinar NO MEIO DO TESTE não custa os dias que faltam: o primeiro
+     * débito é marcado para o último dia do teste. Sem isto, decidir cedo
+     * seria pagar por dias que já eram grátis — e o conselho racional seria
+     * esperar o último dia, que é quando a pessoa esquece. */
+    const estado = await this.estadoDoPlano(userId);
+    const primeiroVencimento =
+      noTeste(estado) && estado.testeAte ? hojeNoFuso(estado.testeAte) : undefined;
+
     const checkout = await this.gateway.criarCheckout({
       userId,
       nome: usuario.name,
@@ -276,6 +303,7 @@ export class BillingService {
       planoNome: plano.name,
       valor: Number(plano.amount),
       intervalo: plano.interval === 'YEARLY' ? 'YEARLY' : 'MONTHLY',
+      primeiroVencimento,
       urlSucesso: ENDERECO_DO_APP + '?assinatura=ok',
       urlCancelamento: ENDERECO_DO_APP + '?assinatura=cancelada',
     });

@@ -35,6 +35,8 @@ import { LimitesService } from '../billing/limites.service';
 import { cortarPorHistorico } from './historico';
 import { PolpClient, LancamentoDoProvedor, ConflitoDeConsentimento } from './polp.client';
 import { CreditCardsService } from '../credit-cards/credit-cards.service';
+import { hojeNoFuso } from '../credit-cards/invoice-statement';
+import { diaDoDesligamento } from './janela-do-banco';
 
 /** Está ligada? Sem a variável, o app se comporta exatamente como antes. */
 export const openFinanceLigado = (): boolean => process.env.OPENFINANCE_ENABLED === 'true';
@@ -233,6 +235,16 @@ export class OpenFinanceService {
       urlParaAutorizar: criado.urlParaAutorizar,
       urlExpiraEm: criado.urlExpiraEm,
       reaproveitado: criado.reaproveitado,
+      /* Até quando este banco fica ligado, para a tela dizer AGORA e não
+       * numa manhã em que os lançamentos simplesmente param.
+       *
+       * Calculada sobre HOJE, e não sobre a autorização, que ainda não
+       * aconteceu. Se a pessoa deixar para autorizar no dia seguinte, a
+       * data real é a que `listar` devolve — e esta era uma previsão certa
+       * em todo caso que não atravessa a fronteira dos 10 dias. */
+      conectadaAte: (await this.limites.estaPagando(userId))
+        ? null
+        : diaDoDesligamento(hojeNoFuso()),
     };
   }
 
@@ -370,6 +382,17 @@ export class OpenFinanceService {
       }),
     );
 
+    /* A VALIDADE DA CONEXÃO NÃO É LETRA MIÚDA.
+     *
+     * Quem não paga tem o banco desligado antes de o mês virar — cada
+     * consentimento é cobrado na nossa conta do provedor, e um que
+     * atravessa o dia 1º pode ser cobrado de novo. A data vai na lista
+     * para a tela poder dizê-la, em vez de a pessoa descobrir numa manhã
+     * que os lançamentos pararam.
+     *
+     * Uma pergunta de plano por listagem, não uma por conexão. */
+    const paga = await this.limites.estaPagando(userId);
+
     return frescas.map((c) => ({
       id: c.id,
       instituicao: c.institutionName,
@@ -379,6 +402,10 @@ export class OpenFinanceService {
       sincronizadaEm: c.lastSyncedAt,
       pendentes: c.pendingCount,
       conferidoEm: c.pendingCheckedAt,
+      /* Nula para quem paga e para a que ainda espera autorização: antes do
+       * "sim" do banco não há consentimento cobrado, e prometer uma data
+       * para o que pode nem existir confunde. */
+      conectadaAte: !paga && c.authorizedAt ? diaDoDesligamento(hojeNoFuso(c.authorizedAt)) : null,
     }));
   }
 

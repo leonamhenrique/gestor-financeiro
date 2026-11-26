@@ -133,7 +133,36 @@ export class PushService {
    * aparelho inscrito, ou todos já foram avisados hoje.
    */
   async avisar(userId: string, total: number): Promise<number> {
-    if (!pushLigado() || total <= 0) return 0;
+    if (total <= 0) return 0;
+    return this.entregar(
+      userId,
+      JSON.stringify({
+        titulo: total === 1 ? '1 lançamento esperando você' : total + ' lançamentos esperando você',
+        texto: 'O banco mandou novidade. Confira antes de importar.',
+        total,
+      }),
+    );
+  }
+
+  /**
+   * Um aviso de texto livre, pelo mesmo caminho e com o mesmo teto diário.
+   *
+   * Existe para o fim do teste: "faltam 7 dias", "o banco se desconecta em
+   * 3". Passa pelo MESMO `entregar` de propósito — duas filas de push para
+   * a mesma pessoa é como se chega a cinco notificações num dia.
+   *
+   * Quem chama escolhe a ordem: o primeiro do dia leva a vaga. Por isso o
+   * agendador manda o aviso do fim do teste ANTES da contagem de pendentes,
+   * que volta amanhã sem prejuízo.
+   */
+  async avisarTexto(userId: string, titulo: string, texto: string): Promise<number> {
+    return this.entregar(userId, JSON.stringify({ titulo, texto }));
+  }
+
+  /** O caminho único até os aparelhos: um aviso por aparelho por dia, e a
+   * inscrição morta sai da tabela. */
+  private async entregar(userId: string, corpo: string): Promise<number> {
+    if (!pushLigado()) return 0;
 
     const limite = new Date(Date.now() - 20 * 60 * 60 * 1000);
     const aparelhos = await this.prisma.pushSubscription.findMany({
@@ -143,12 +172,6 @@ export class PushService {
       },
     });
     if (!aparelhos.length) return 0;
-
-    const corpo = JSON.stringify({
-      titulo: total === 1 ? '1 lançamento esperando você' : total + ' lançamentos esperando você',
-      texto: 'O banco mandou novidade. Confira antes de importar.',
-      total,
-    });
 
     let avisados = 0;
     for (const a of aparelhos) {

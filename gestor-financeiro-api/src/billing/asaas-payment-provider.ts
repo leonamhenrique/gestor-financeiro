@@ -154,7 +154,13 @@ export class AsaasPaymentProvider implements PaymentProviderPort {
       ],
       subscription: {
         cycle: CICLO[input.intervalo] ?? 'MONTHLY',
-        nextDueDate: hojeISO(),
+        /* Data no futuro só quando quem chamou pediu, e nunca no passado:
+         * o Asaas recusa vencimento vencido, e um teste que acabou ontem
+         * derrubaria o checkout inteiro. */
+        nextDueDate:
+          input.primeiroVencimento && input.primeiroVencimento > hojeISO()
+            ? input.primeiroVencimento
+            : hojeISO(),
       },
       // Nossa etiqueta na compra. O Asaas pode não devolvê-la no webhook de
       // checkout, por isso ela é a SEGUNDA via: a primeira é o id do checkout,

@@ -22,6 +22,7 @@ import {
 import { PasswordHasher } from './password-hasher';
 import { Mailer, MailerDesligado } from './mailer.port';
 import { hashDoToken } from './token.utils';
+import { DIAS_DE_TESTE } from '../billing/entitlements';
 
 type Linha = Record<string, any>;
 
@@ -141,6 +142,19 @@ describe('AuthService', () => {
       expect(banco).not.toContain('segura123');
       expect(banco).not.toContain(s.refreshToken);
       expect(prisma._tabelas.refreshToken[0].tokenHash).toBe(hashDoToken(s.refreshToken));
+    });
+
+    /* O teste de 30 dias nasce AQUI. A primeira versão só existia numa
+     * migração, e toda conta criada depois daquela subida entrou direto no
+     * grátis — sem teste, sem erro, sem nada no log. */
+    it('o cadastro já grava quando o teste acaba', async () => {
+      const antes = Date.now();
+      const s = await service.register(cadastro);
+      const criado = prisma._tabelas.user.find((u: any) => u.id === s.user.id);
+      expect(criado.trialEndsAt).toBeInstanceOf(Date);
+      const dias = (criado.trialEndsAt.getTime() - antes) / 86400000;
+      expect(dias).toBeGreaterThan(DIAS_DE_TESTE - 0.01);
+      expect(dias).toBeLessThan(DIAS_DE_TESTE + 0.01);
     });
 
     it('recusa e-mail repetido, sem diferenciar maiúsculas', async () => {

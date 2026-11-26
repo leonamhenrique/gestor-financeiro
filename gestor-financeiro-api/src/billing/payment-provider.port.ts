@@ -37,6 +37,15 @@ export interface CriarCheckoutInput {
   planoNome: string;
   valor: number;
   intervalo: 'MONTHLY' | 'YEARLY';
+  /**
+   * Quando cai a PRIMEIRA cobrança, 'AAAA-MM-DD'. Ausente é hoje.
+   *
+   * Existe para quem assina DURANTE o teste: cobrar no ato tiraria da
+   * pessoa os dias grátis que ela ainda tem, e é por isso que se espera o
+   * último dia para pagar — o que dá em muita gente esquecendo. Com o
+   * débito marcado para o fim do teste, decidir cedo não custa nada.
+   */
+  primeiroVencimento?: string;
   /** Para onde o gateway devolve o usuário. Não confirmam pagamento: quem
    * confirma é o webhook. */
   urlSucesso: string;

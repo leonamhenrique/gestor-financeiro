@@ -12,6 +12,7 @@ import { OpenFinanceController, OpenFinanceAtivo } from './openfinance.controlle
 import { OpenFinanceWebhookController } from './openfinance.webhook.controller';
 import { OpenFinanceService } from './openfinance.service';
 import { OpenFinanceScheduler } from './openfinance.scheduler';
+import { FimDoTesteScheduler } from './fim-do-teste.scheduler';
 import { PolpClient } from './polp.client';
 import { PushModule } from '../push/push.module';
 import { CreditCardsModule } from '../credit-cards/credit-cards.module';
@@ -30,6 +31,16 @@ import { CreditCardsModule } from '../credit-cards/credit-cards.module';
   controllers: [OpenFinanceController, OpenFinanceWebhookController],
   /* O trabalho diário entra aqui e em lugar nenhum mais: desistir do
    * experimento continua sendo apagar esta pasta. */
-  providers: [OpenFinanceService, PolpClient, OpenFinanceAtivo, OpenFinanceScheduler],
+  /* O segundo trabalho diário desliga o banco de quem não paga antes da
+   * virada do mês, e avisa do fim do teste. Mora aqui, e não em `billing`,
+   * porque quem ele desliga é conexão — e porque `billing` não pode importar
+   * este módulo sem fechar um ciclo. */
+  providers: [
+    OpenFinanceService,
+    PolpClient,
+    OpenFinanceAtivo,
+    OpenFinanceScheduler,
+    FimDoTesteScheduler,
+  ],
 })
 export class OpenFinanceModule {}

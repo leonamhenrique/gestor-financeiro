@@ -885,6 +885,51 @@ describe('OpenFinance', () => {
    * Sem reencontrar o destino pelo id da conta no provedor, o app
    * perguntaria outra vez para onde vai cada conta e cada cartao -- e quem
    * reconecta ja respondeu isso uma vez. */
+  /* A validade da conexao nao e letra miuda: quem nao paga tem o banco
+   * desligado antes de o mes virar, e a lista carrega a data para a tela
+   * poder dize-la. */
+  describe('a janela do banco aparece na lista', () => {
+    beforeEach(() => {
+      prisma.openFinanceConnection.findMany.mockResolvedValue([
+        { ...CONEXAO, authorizedAt: new Date('2026-11-05T12:00:00Z') },
+      ]);
+    });
+
+    it('quem nao paga ve ate quando o banco fica', async () => {
+      limitesDoPlano.estaPagando.mockResolvedValue(false);
+      const lista = await service.listar('u1');
+      expect(lista[0].conectadaAte).toBe('2026-11-30');
+    });
+
+    it('quem paga nao ve data nenhuma: a conexao nao tem prazo', async () => {
+      limitesDoPlano.estaPagando.mockResolvedValue(true);
+      const lista = await service.listar('u1');
+      expect(lista[0].conectadaAte).toBeNull();
+    });
+
+    /* Antes do "sim" do banco nao ha consentimento cobrado, e prometer data
+     * para o que pode nem existir confunde. */
+    it('conexao ainda sem autorizacao nao tem data', async () => {
+      limitesDoPlano.estaPagando.mockResolvedValue(false);
+      prisma.openFinanceConnection.findMany.mockResolvedValue([
+        { ...CONEXAO, status: 'AUTHORISED', authorizedAt: null },
+      ]);
+      const lista = await service.listar('u1');
+      expect(lista[0].conectadaAte).toBeNull();
+    });
+
+    it('pergunta o plano UMA vez por listagem, nao uma por conexao', async () => {
+      limitesDoPlano.estaPagando.mockResolvedValue(false);
+      prisma.openFinanceConnection.findMany.mockResolvedValue([
+        { ...CONEXAO, id: 'a', authorizedAt: new Date('2026-11-05T12:00:00Z') },
+        { ...CONEXAO, id: 'b', authorizedAt: new Date('2026-11-05T12:00:00Z') },
+        { ...CONEXAO, id: 'c', authorizedAt: new Date('2026-11-05T12:00:00Z') },
+      ]);
+      await service.listar('u1');
+      expect(limitesDoPlano.estaPagando).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('o vinculo sobrevive a reconexao', () => {
     beforeEach(() => {
       polp.cartoes.mockResolvedValue([{ providerAccountId: 'k-la', nome: 'INTER' }]);

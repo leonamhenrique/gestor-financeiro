@@ -31,6 +31,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PasswordHasher } from './password-hasher';
 import { gerarTokenOpaco, hashDoToken } from './token.utils';
 import { MAILER, Mailer } from './mailer.port';
+import { DIAS_DE_TESTE } from '../billing/entitlements';
 
 export const ACESSO_SEGUNDOS = 15 * 60;
 export const SESSAO_DIAS = 30;
@@ -89,8 +90,20 @@ export class AuthService {
 
     const passwordHash = await this.hasher.gerar(dados.password);
     try {
+      /* O teste comeca AQUI, e nao numa migracao.
+       *
+       * A coluna nasceu preenchida por um UPDATE unico, e nada a preenchia
+       * no cadastro: toda conta criada depois daquela subida entrou direto
+       * no gratis, sem teste nenhum e sem erro em lugar algum. Gravar a data
+       * no mesmo `create` que faz a conta e o que impede o buraco de voltar
+       * -- nao ha segundo caminho de cadastro neste app. */
       const user = await this.prisma.user.create({
-        data: { name: dados.name.trim(), email, passwordHash },
+        data: {
+          name: dados.name.trim(),
+          email,
+          passwordHash,
+          trialEndsAt: new Date(Date.now() + DIAS_DE_TESTE * 86400000),
+        },
       });
       return this.abrirSessao(user);
     } catch (erro: any) {

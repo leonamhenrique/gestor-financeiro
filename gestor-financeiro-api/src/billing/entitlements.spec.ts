@@ -161,10 +161,35 @@ describe('a tabela que a tela desenha', () => {
 });
 
 describe('quanto falta de teste', () => {
-  it('conta os dias para cima, e zera quando acaba', () => {
-    expect(diasDeTeste({ testeAte: DAQUI_A(6.2) }, AGORA)).toBe(7);
+  it('conta DIAS DE CALENDÁRIO, e zera quando acaba', () => {
+    expect(diasDeTeste({ testeAte: DAQUI_A(7) }, AGORA)).toBe(7);
+    expect(diasDeTeste({ testeAte: DAQUI_A(6.2) }, AGORA)).toBe(6);
     expect(diasDeTeste({ testeAte: DAQUI_A(0.1) }, AGORA)).toBe(1);
-    expect(diasDeTeste({ testeAte: DAQUI_A(-0.1) }, AGORA)).toBe(0);
+    expect(diasDeTeste({ testeAte: DAQUI_A(-1) }, AGORA)).toBe(0);
+  });
+
+  /* A hora gravada é a do CADASTRO. Quem criou a conta às 3h teria o teste
+   * encerrado às 3h do último dia — e é nesse dia que cai a primeira
+   * cobrança de quem assinou durante o teste. Uma cobrança que confirma às
+   * 8h chegaria depois de a conta já ter virado grátis. O último dia vale
+   * inteiro justamente para essa fresta não existir. */
+  it('o último dia vale inteiro, mesmo com a hora já vencida', () => {
+    expect(noTeste({ testeAte: DAQUI_A(-0.1) }, AGORA)).toBe(true);
+    expect(diasDeTeste({ testeAte: DAQUI_A(-0.1) }, AGORA)).toBe(1);
+    // No dia seguinte acabou, sem meio-termo.
+    expect(noTeste({ testeAte: DAQUI_A(-1) }, AGORA)).toBe(false);
+  });
+
+  /* Os dois degraus de aviso saem daqui: num teste de 30 dias, `faltam 7`
+   * cai no dia 23 e `faltam 3` no dia 27. */
+  it('os dias de aviso caem onde a proposta diz', () => {
+    const cadastro = new Date('2026-11-01T12:00:00Z');
+    const fim = new Date(cadastro.getTime() + 30 * 86400000);
+    const noDia = (n: number) => new Date(cadastro.getTime() + n * 86400000);
+    expect(diasDeTeste({ testeAte: fim }, noDia(23))).toBe(7);
+    expect(diasDeTeste({ testeAte: fim }, noDia(27))).toBe(3);
+    expect(diasDeTeste({ testeAte: fim }, noDia(30))).toBe(1);
+    expect(diasDeTeste({ testeAte: fim }, noDia(31))).toBe(0);
   });
 
   it('quem assinou não está mais "em teste", mesmo com a data correndo', () => {

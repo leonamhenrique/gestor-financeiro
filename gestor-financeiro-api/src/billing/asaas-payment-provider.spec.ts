@@ -364,6 +364,35 @@ describe('AsaasPaymentProvider — o dia é o de Brasília, não o de UTC', () =
     });
     expect(JSON.parse(chamadas[0].init.body).subscription.nextDueDate).toBe('2026-10-22');
   });
+
+  /* Quem assina DURANTE o teste não perde os dias que faltam: o débito é
+   * marcado para o último dia. Sem isso, decidir cedo custaria dinheiro, e
+   * o conselho racional seria esperar o dia em que se esquece. */
+  it('com vencimento pedido no futuro, a primeira cobrança espera', async () => {
+    jest.useFakeTimers({ now: new Date('2026-10-23T00:25:00.000Z') });
+    const { f, chamadas } = fetchFalso({ id: 'chk_1', link: 'https://x' });
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
+    await g.criarCheckout({
+      userId: 'u1', nome: 'H', email: 'h@x.com', planoCode: 'p', planoNome: 'P',
+      valor: 5, intervalo: 'MONTHLY', urlSucesso: 'https://a', urlCancelamento: 'https://b',
+      primeiroVencimento: '2026-11-15',
+    });
+    expect(JSON.parse(chamadas[0].init.body).subscription.nextDueDate).toBe('2026-11-15');
+  });
+
+  /* O Asaas recusa vencimento no passado, e um teste que acabou ontem
+   * derrubaria o checkout inteiro — justamente de quem decidiu pagar. */
+  it('vencimento no passado é ignorado: volta a ser hoje', async () => {
+    jest.useFakeTimers({ now: new Date('2026-10-23T00:25:00.000Z') });
+    const { f, chamadas } = fetchFalso({ id: 'chk_1', link: 'https://x' });
+    const g = new AsaasPaymentProvider(CHAVE, TOKEN, 'https://api-sandbox.asaas.com/v3', f);
+    await g.criarCheckout({
+      userId: 'u1', nome: 'H', email: 'h@x.com', planoCode: 'p', planoNome: 'P',
+      valor: 5, intervalo: 'MONTHLY', urlSucesso: 'https://a', urlCancelamento: 'https://b',
+      primeiroVencimento: '2026-09-01',
+    });
+    expect(JSON.parse(chamadas[0].init.body).subscription.nextDueDate).toBe('2026-10-22');
+  });
 });
 
 describe('AsaasPaymentProvider — o que ele se recusa a fazer', () => {

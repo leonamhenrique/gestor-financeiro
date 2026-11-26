@@ -241,6 +241,25 @@ describe('BillingService — checkout hospedado', () => {
     expect(gravado.status).toBe(SubscriptionStatus.INCOMPLETE);
   });
 
+  /* Assinar no meio do teste não pode custar os dias que ainda faltam —
+   * senão o conselho racional é esperar o último dia, que é quando se
+   * esquece. O débito vai para o dia em que o teste acabaria. */
+  it('no teste, a primeira cobrança é marcada para o fim do teste', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1', name: 'Henrique', email: 'h@x.com',
+      trialEndsAt: new Date('2026-12-20T12:00:00Z'),
+    });
+
+    await service.iniciarCheckout('u1', 'pro-mensal');
+
+    expect(gateway.criarCheckout.mock.calls[0][0].primeiroVencimento).toBe('2026-12-20');
+  });
+
+  it('fora do teste, não manda vencimento nenhum: o gateway cobra hoje', async () => {
+    await service.iniciarCheckout('u1', 'pro-mensal');
+    expect(gateway.criarCheckout.mock.calls[0][0].primeiroVencimento).toBeUndefined();
+  });
+
   it('nenhum dado de pagamento é pedido ao app: nem CPF, nem cartão', async () => {
     await service.iniciarCheckout('u1', 'pro-mensal');
     const enviado = gateway.criarCheckout.mock.calls[0][0];

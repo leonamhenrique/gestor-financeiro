@@ -43,6 +43,13 @@ export class LimitesService {
     return this.billing.direitos(userId);
   }
 
+  /** Esta conta paga (ou tem cortesia)? Estar no TESTE não é pagar — é de
+   * quem está no teste que o banco conectado é desligado antes de o mês
+   * virar, e é a ele que a tela mostra a data de validade da conexão. */
+  async estaPagando(userId: string) {
+    return this.billing.estaPagando(userId);
+  }
+
   /** Cabe mais uma conta? Senão, 403 com o limite e o que ele tem. */
   async conferirConta(userId: string) {
     return this.conferir(userId, 'contas', () =>

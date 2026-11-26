@@ -26,6 +26,10 @@ export function limitesLiberados(): Partial<LimitesService> {
     /* Sem teto de histórico: o dublê libera, e quem prova o corte é
      * `historico.spec.ts`. */
     direitosPara: jest.fn().mockResolvedValue({ mesesDeHistorico: null }),
+    /* O dublê NÃO paga: é o caso em que a janela do banco aparece, e é o
+     * que os testes do Open Finance precisam enxergar. Quem prova o outro
+     * lado é `fim-do-teste.scheduler.spec.ts`. */
+    estaPagando: jest.fn().mockResolvedValue(false),
   };
 }
 

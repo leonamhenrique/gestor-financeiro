@@ -11,11 +11,42 @@
 // ele não pode é criar a sexta. Tirar acesso a dado que a pessoa registrou
 // seria cobrar com o dado dela como refém.
 //
-// O TESTE DE 7 DIAS
+// O TESTE DE 30 DIAS
 // Enquanto corre, o grátis tem os direitos do Pro, com UMA diferença: a
 // busca no banco traz 1 mês, e não 12. O teste é para experimentar, e doze
 // meses de histórico é o trabalho que o Pro compra.
+//
+// Era de 7 dias. Virou 30 porque o que vende este app é ver a fatura entrar
+// sozinha, e isso leva um ciclo de cartão inteiro para acontecer — em sete
+// dias a pessoa conecta o banco e o teste acaba antes de a primeira fatura
+// fechar. O relógio é UM só: não há "30 dias de app e 7 de banco".
+//
+// O banco conectado, esse, tem prazo de CALENDÁRIO e não de teste: ver
+// `openfinance/janela-do-banco.ts`.
 // ============================================================
+
+import { hojeNoFuso } from '../credit-cards/invoice-statement';
+
+/**
+ * O teste vale pelo DIA DE CALENDÁRIO, e não pelo instante.
+ *
+ * `trial_ends_at` guarda a hora do cadastro: quem criou a conta às 3h da
+ * manhã teria o teste encerrado às 3h da manhã do trigésimo dia. Pior, é
+ * nesse dia que cai a primeira cobrança de quem assinou durante o teste —
+ * e uma cobrança que confirma às 8h chegaria depois de a conta já ter
+ * caído para o grátis. Contado por dia inteiro, não existe essa fresta.
+ *
+ * O fuso é o do app: a virada do dia tem de ser a mesma que a pessoa vê.
+ */
+function testeCobreHoje(testeAte: Date, agora: Date): boolean {
+  return hojeNoFuso(agora) <= hojeNoFuso(testeAte);
+}
+
+/** Quantos dias de calendário separam dois dias 'AAAA-MM-DD'. */
+function diasEntre(de: string, ate: string): number {
+  const ms = new Date(ate + 'T00:00:00Z').getTime() - new Date(de + 'T00:00:00Z').getTime();
+  return Math.round(ms / 86400000);
+}
 
 /** `null` quer dizer SEM limite. Zero quer dizer que o plano não tem aquilo. */
 export interface Direitos {
@@ -91,7 +122,7 @@ const GRATIS: Direitos = {
   compartilharPorLink: false,
 };
 
-/* O grátis DURANTE os 7 dias: o Pro inteiro, menos o histórico longo. */
+/* O grátis DURANTE os 30 dias: o Pro inteiro, menos o histórico longo. */
 const TESTE: Direitos = { ...PRO, bancos: 1, mesesDeHistorico: 1 };
 
 /**
@@ -159,7 +190,7 @@ export function direitosDe(estado: EstadoDoPlano, agora: Date = new Date()): Dir
   if (estado.liberada && estado.codigo && POR_CODIGO[estado.codigo]) {
     return POR_CODIGO[estado.codigo];
   }
-  if (estado.testeAte && estado.testeAte.getTime() > agora.getTime()) return TESTE;
+  if (estado.testeAte && testeCobreHoje(estado.testeAte, agora)) return TESTE;
   return GRATIS;
 }
 
@@ -167,18 +198,26 @@ export function direitosDe(estado: EstadoDoPlano, agora: Date = new Date()): Dir
 export function noTeste(estado: EstadoDoPlano, agora: Date = new Date()): boolean {
   if (estado.cortesia) return false;
   if (estado.liberada && estado.codigo && POR_CODIGO[estado.codigo]) return false;
-  return !!estado.testeAte && estado.testeAte.getTime() > agora.getTime();
+  return !!estado.testeAte && testeCobreHoje(estado.testeAte, agora);
 }
 
-/** Quantos dias de teste faltam, arredondando para cima. Zero quando acabou. */
+/**
+ * Quantos dias de teste faltam, em dias de calendário. Zero quando acabou,
+ * 1 no último dia — nunca 0 para quem ainda tem teste, senão a tela diria
+ * "faltam 0 dias" para quem ainda pode usar tudo.
+ */
 export function diasDeTeste(estado: EstadoDoPlano, agora: Date = new Date()): number {
   if (!noTeste(estado, agora)) return 0;
-  const ms = estado.testeAte!.getTime() - agora.getTime();
-  return Math.max(1, Math.ceil(ms / 86400000));
+  return Math.max(1, diasEntre(hojeNoFuso(agora), hojeNoFuso(estado.testeAte!)));
 }
 
 /** Quantos dias o teste dura, contados do cadastro. */
-export const DIAS_DE_TESTE = 7;
+export const DIAS_DE_TESTE = 30;
+
+/** Quantos dias ANTES do fim o app avisa. Dois avisos, e não um: o do dia 23
+ * dá tempo de experimentar o que falta, e o do dia 27 é o que traz a oferta.
+ * Mais que dois é a notificação que a pessoa desliga. */
+export const AVISOS_DO_FIM_DO_TESTE = [7, 3];
 
 /**
  * Quem tem Premium de cortesia: ids ou e-mails, separados por vírgula, na
