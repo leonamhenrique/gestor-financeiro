@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>saldonline · controle financeiro pelo WhatsApp</title>
-<meta name="description" content="Lance gastos pelo WhatsApp com texto, áudio ou foto do cupom e consulte saldo, faturas e metas numa mensagem. Sem anúncios e sem acesso ao seu banco.">
+<meta name="description" content="Lance gastos pelo WhatsApp com texto, áudio ou foto do cupom e consulte saldo, faturas e metas numa mensagem. Conecte seus bancos por Open Finance e acompanhe tudo atualizado ao longo do dia.">
 <link rel="canonical" href="https://saldonline.com.br/">
 <link rel="icon" href="icons/icone-192.png">
 <link rel="apple-touch-icon" href="icons/icone-180.png">
@@ -298,6 +298,38 @@ footer nav{display:flex;gap:20px;flex-wrap:wrap}
 @media (max-width:860px){.painel{grid-template-columns:minmax(0,1fr);gap:28px}}
 @media (max-width:560px){.seg.seg3{grid-template-columns:minmax(0,1fr)}.palco{padding:18px}}
 
+/* Open Finance: bancos conectados alimentando o app */
+.of{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:56px;align-items:start}
+.of-palco{display:grid;gap:22px;min-width:0;padding:24px;border:1px solid var(--hairline-strong);border-radius:var(--r-lg);background:var(--superficie)}
+.of-palco .seg div{background:var(--superficie)}
+.bancos{display:grid}
+.banco{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding-block:10px;border-top:1px solid var(--hairline);font-size:13px}
+.banco small{grid-column:2;color:var(--fg-subtle);font-size:11px}
+.banco .sync{grid-column:3;grid-row:1 / span 2;font-size:11px;color:var(--fg-subtle);text-align:right;transition:color .4s}
+.vivo{grid-row:1 / span 2;width:8px;height:8px;border-radius:50%;background:var(--positive)}
+.banco.chegou .sync{color:var(--accent)}
+.of-cab{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:6px}
+.of-cab span{font-size:12px;color:var(--fg-muted)}
+.lista small b{font-weight:400}
+.st-auto{color:var(--positive)} .st-conf{color:var(--warning)}
+.seg .conf{color:var(--warning)}
+.aviso{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;align-items:center;padding:12px 14px;border:1px solid var(--hairline-strong);border-radius:14px;background:var(--bg);box-shadow:0 16px 32px -20px var(--sombra);transition:opacity .4s,transform .4s cubic-bezier(.2,.8,.2,1)}
+.aviso svg{grid-row:1 / span 2;width:28px;height:28px}
+.aviso small{font-size:11px;color:var(--fg-subtle)}
+.aviso p{font-size:13px}
+.aviso.esp{opacity:0;transform:translateY(-12px)}
+.lote{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;color:var(--fg-subtle);padding-top:14px;border-top:1px solid var(--hairline);flex-wrap:wrap;transition:opacity .4s}
+.lote b{font-weight:500;color:var(--accent)}
+.lote.esp{opacity:.15}
+.nota{font-size:12px;color:var(--fg-subtle);padding-top:14px;border-top:1px solid var(--hairline)}
+.grupos.g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (prefers-reduced-motion:no-preference){
+  .banco.chegou .vivo{animation:vivo 1s ease}
+  @keyframes vivo{0%{box-shadow:0 0 0 0 var(--accent-tinte);background:var(--accent)}60%{box-shadow:0 0 0 8px var(--accent-tinte);background:var(--accent)}100%{box-shadow:0 0 0 0 transparent}}
+}
+@media (max-width:860px){.of{grid-template-columns:minmax(0,1fr);gap:28px}}
+@media (max-width:560px){.of-palco{padding:18px}.grupos.g4{grid-template-columns:minmax(0,1fr)}}
+
 /* revelação ao rolar: o que está abaixo da dobra começa esmaecido e entra no lugar quando chega na tela */
 @media (prefers-reduced-motion:no-preference){
   .rv{opacity:.12;transform:translateY(32px);filter:blur(5px);
@@ -338,12 +370,12 @@ footer nav{display:flex;gap:20px;flex-wrap:wrap}
     <div class="hero-txt">
       <p class="lbl">Controle financeiro pelo WhatsApp</p>
       <h1>Gastou? Manda no <em>WhatsApp</em>. O saldonline lança pra você.</h1>
-      <p class="lead">Escreva, grave um áudio ou fotografe o cupom. O saldonline entende o valor, a conta e a categoria, mostra o resumo e só grava depois do seu “sim”. E se quiser saber o saldo, é só perguntar.</p>
+      <p class="lead">Escreva, grave um áudio ou fotografe o cupom. O saldonline entende o valor, a conta e a categoria, mostra o resumo e só grava depois do seu “sim”. Conecte seu banco por Open Finance e o que você gastou chega sozinho, ao longo do dia.</p>
       <div class="ctas">
         <a class="btn btn-primario" href="https://saldonline.com.br/home">Começar agora</a>
         <a class="btn" href="#como">Como funciona</a>
       </div>
-      <div class="formas"><span>Texto</span><span>Áudio</span><span>Foto do cupom</span><span>Consultas</span></div>
+      <div class="formas"><span>Texto</span><span>Áudio</span><span>Foto do cupom</span><span>Consultas</span><span>Open Finance</span></div>
     </div>
 
     <div class="conversa">
@@ -363,6 +395,52 @@ footer nav{display:flex;gap:20px;flex-wrap:wrap}
     </div>
   </div>
 </header>
+
+<section id="open-finance">
+  <div class="wrap">
+    <div class="cab"><p class="lbl">Open Finance</p><h2>Conecte seu banco e pare de digitar.</h2><p>Autorize uma vez, no app do seu banco. Ao longo do dia, o que você gastou chega sozinho no saldonline: o que não deixa dúvida já entra, e o resto espera você conferir.</p></div>
+    <div class="of">
+      <div class="painel-txt">
+        <ul>
+          <li>Autorização pelo Open Finance, o sistema regulado pelo Banco Central. A conexão só lê seus dados, não movimenta dinheiro.</li>
+          <li>O banco sincroniza várias vezes ao dia, e um aviso no celular diz quando há lançamentos esperando.</li>
+          <li>Entra sozinho só o que segue uma regra que você ensinou. Parcela, transferência e o que parece repetido esperam você.</li>
+          <li>Pix entre as suas contas vira transferência, não receita.</li>
+          <li>Faturas com os dias de fechamento e vencimento que o próprio banco informa.</li>
+          <li>Até 12 meses de histórico, escolhendo mês a mês o que trazer.</li>
+          <li>Tudo o que entrou sozinho tem Desfazer, e o que você recusa não volta.</li>
+          <li>Prefere lançar à mão? Funciona igual, e dá para misturar banco conectado com conta manual.</li>
+        </ul>
+        <p class="nota">Nos planos Pro (até 5 bancos) e Premium (até 12). No teste grátis de 7 dias, conecte 1 banco.</p>
+      </div>
+      <div class="of-palco" id="of-palco">
+        <div>
+          <p class="lbl" style="margin-bottom:4px">Bancos conectados</p>
+          <div class="bancos">
+            <div class="banco" id="bk-nubank"><span class="vivo"></span><b>Nubank</b><small>conta e cartão</small><span class="sync num">agora</span></div>
+            <div class="banco" id="bk-itau"><span class="vivo"></span><b>Itaú</b><small>conta corrente</small><span class="sync num">agora</span></div>
+            <div class="banco" id="bk-inter"><span class="vivo"></span><b>Inter</b><small>conta</small><span class="sync num">agora</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="of-cab"><span class="lbl">Chegando dos bancos</span><span class="num" id="of-hora">hoje</span></div>
+          <ul class="lista" id="of-lista"></ul>
+        </div>
+        <div class="seg">
+          <div><span class="lbl">Automáticos</span><strong class="num st-auto" id="of-auto">2</strong></div>
+          <div><span class="lbl">Para conferir</span><strong class="num conf" id="of-conf">3</strong></div>
+        </div>
+        <div class="lote" id="of-lote"><span>Importação de hoje · 2 lançamentos</span><b>Desfazer</b></div>
+        <div class="aviso" id="of-aviso" aria-hidden="true">
+          <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="41.6" fill="none" stroke="var(--accent)" stroke-width="12.8"/><circle cx="50" cy="50" r="19.2" fill="var(--accent)"/></svg>
+          <small>saldonline · agora</small>
+          <p id="of-aviso-txt">3 lançamentos esperando conferência</p>
+        </div>
+        <p class="exemplo">bancos e lançamentos de exemplo</p>
+      </div>
+    </div>
+  </div>
+</section>
 
 <section id="como">
   <div class="wrap">
@@ -483,11 +561,12 @@ footer nav{display:flex;gap:20px;flex-wrap:wrap}
 
 <section>
   <div class="wrap">
-    <div class="cab"><p class="lbl">Privacidade</p><h2>Prático no WhatsApp, cuidadoso com seus dados.</h2></div>
-    <div class="grupos">
+    <div class="cab"><p class="lbl">Privacidade</p><h2>Prático no WhatsApp e no banco, cuidadoso com seus dados.</h2></div>
+    <div class="grupos g4">
       <div class="grupo"><div class="cena" id="cena-sim" aria-hidden="true"><span class="pend ok"><span>📉 Mercado 87,40</span><span class="st">no saldo ✓</span></span><span class="bolhinha">sim</span></div><h3>Nada sem o seu “sim”</h3><ul><li>Toda mensagem vira um resumo antes de virar lançamento. Leitura errada não entra calada no seu saldo.</li></ul></div>
       <div class="grupo"><div class="cena" id="cena-audio" aria-hidden="true"><span class="onda2 some"><i style="--h:8px;--k:0"></i><i style="--h:14px;--k:1"></i><i style="--h:20px;--k:2"></i><i style="--h:11px;--k:3"></i><i style="--h:17px;--k:4"></i><i style="--h:22px;--k:5"></i><i style="--h:9px;--k:6"></i><i style="--h:15px;--k:7"></i><i style="--h:19px;--k:8"></i><i style="--h:7px;--k:9"></i><i style="--h:13px;--k:10"></i></span><span class="seta">→</span><span class="transc">uber 23,50 no itaú</span><span class="lixo">áudio descartado depois de lido</span></div><h3>Áudio e foto não ficam guardados</h3><ul><li>São lidos, viram os campos do lançamento e são descartados. A conversa não é armazenada.</li></ul></div>
       <div class="grupo"><div class="cena" id="cena-cad" aria-hidden="true"><span class="codigo pq"><b>4</b><b>8</b><b>T</b><b>X</b><b>2</b><b>R</b></span><svg class="cadeado" viewBox="0 0 24 24"><path class="arco" d="M7.5 11V8a4.5 4.5 0 0 1 9 0v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="5" y="11" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="16" r="1.5" fill="currentColor"/></svg></div><h3>Só o seu número lança</h3><ul><li>O vínculo nasce de um código gerado dentro da sua conta. Você desconecta quando quiser.</li></ul></div>
+      <div class="grupo"><div class="cena" id="cena-of" aria-hidden="true"><span class="pend ok" id="of-cena-pend"><span>Nubank</span><span class="st" id="of-cena-st">conectado · só leitura</span></span></div><h3>Seu banco, do seu jeito</h3><ul><li>A conexão só lê, e você desconecta quando quiser. Os lançamentos que já entraram continuam com você.</li></ul></div>
     </div>
   </div>
 </section>
@@ -755,7 +834,7 @@ if(!reduz && 'IntersectionObserver' in window){
     ioR.observe(h);
   });
   /* blocos entram em sequência dentro do próprio grupo */
-  document.querySelectorAll('section .cab > :not(h2), .passos li, .perg, .grupo, .calor > *, .final > :not(h2), .rec-abas, .painel:not([hidden]) > *').forEach(el=>{
+  document.querySelectorAll('section .cab > :not(h2), .passos li, .perg, .grupo, .calor > *, .final > :not(h2), .of > *, .rec-abas, .painel:not([hidden]) > *').forEach(el=>{
     if(!abaixo(el)) return;
     const irmaos=[...el.parentElement.children];
     el.style.setProperty('--d',(irmaos.indexOf(el)%6)*120+'ms');
@@ -858,6 +937,53 @@ emLaco($('cena-cad'),async()=>{
   await embaralhar(codCad,'48TX2R');
   await espera(250);cad.classList.remove('aberto');
 },3000);
+
+/* ===== Open Finance: os lançamentos chegam dos bancos e se separam sozinhos ===== */
+/* Exemplo fiel às regras do app: entra sozinho só o que tem regra do usuário e
+   nenhuma dúvida; parcela, transferência e o que casa com algo já lançado esperam. */
+const ofTx=[
+  {bk:'bk-nubank',nome:'iFood',de:'Nubank · cartão',v:-48.90,auto:true,st:'✓ entrou sozinho · Delivery'},
+  {bk:'bk-itau',nome:'Pix para Inter',de:'Itaú · conta',v:-500,auto:false,st:'transferência entre suas contas? confira'},
+  {bk:'bk-nubank',nome:'Magazine',de:'Nubank · cartão',v:-399.90,auto:false,st:'parcelada em 3x · confira'},
+  {bk:'bk-inter',nome:'Posto Shell',de:'Inter · conta',v:-210,auto:true,st:'✓ entrou sozinho · Transporte'},
+  {bk:'bk-nubank',nome:'Mercado',de:'Nubank · cartão',v:-87.40,auto:false,st:'parece o que você lançou pelo WhatsApp · confira'},
+];
+const ofLi=t=>`<li><span>${t.nome}</span><span class="v num neg">− ${brl2(Math.abs(t.v))}</span><small>${t.de} · <b class="${t.auto?'st-auto':'st-conf'}">${t.st}</b></small></li>`;
+const ofAuto=()=>ofTx.filter(t=>t.auto).length, ofConf=()=>ofTx.filter(t=>!t.auto).length;
+$('of-lista').innerHTML=ofTx.map(ofLi).join('');
+const ofSync={ 'bk-nubank':'há 3 h','bk-itau':'há 2 h','bk-inter':'há 4 h' };
+emLaco($('of-palco'),async()=>{
+  /* estado de partida: nada chegou ainda, cada banco sincronizou faz algumas horas */
+  Object.entries(ofSync).forEach(([id,txt])=>{const b=$(id);b.classList.remove('chegou');b.querySelector('.sync').textContent=txt});
+  $('of-lista').innerHTML=''; $('of-auto').textContent='0'; $('of-conf').textContent='0';
+  $('of-aviso').classList.add('esp'); $('of-lote').classList.add('esp');
+  let a=0,c=0;
+  await espera(700);
+  for(const t of ofTx){
+    const b=$(t.bk);
+    b.classList.remove('chegou'); void b.offsetWidth; b.classList.add('chegou');
+    b.querySelector('.sync').textContent='agora';
+    await espera(350);
+    $('of-lista').insertAdjacentHTML('afterbegin',comEntra(ofLi(t)));
+    if(t.auto){const de=a;a++;tween(de,a,400,x=>$('of-auto').textContent=Math.round(x))}
+    else{const de=c;c++;tween(de,c,400,x=>$('of-conf').textContent=Math.round(x))}
+    await espera(950);
+  }
+  /* o lote do que entrou sozinho, com Desfazer, e o aviso que chega com o app fechado */
+  $('of-lote').querySelector('span').textContent=`Importação de hoje · ${a} lançamentos`;
+  $('of-lote').classList.remove('esp');
+  await espera(700);
+  $('of-aviso-txt').textContent=`${c} lançamentos esperando conferência`;
+  $('of-aviso').classList.remove('esp');
+},3500);
+/* privacidade: desconectar não apaga nada */
+const ofPend=$('of-cena-pend'), ofSt=$('of-cena-st');
+emLaco($('cena-of'),async()=>{
+  ofPend.classList.add('ok'); ofSt.textContent='conectado · só leitura';
+  await espera(1600);
+  ofPend.classList.remove('ok'); ofSt.textContent='desconectado · histórico mantido';
+  await espera(1800);
+},600);
 
 /* conversa: começa completa e, depois de alguns segundos, passa a rodar sozinha */
 estatico('texto');
