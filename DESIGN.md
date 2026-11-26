@@ -1947,6 +1947,44 @@ O evento `online` só dispara quando é o **aparelho** que recupera a rede.
 Servidor que caiu e voltou não avisa ninguém — e é exatamente para esse caso
 que o botão existe.
 
+### Prazo é metadado, até faltar pouco
+
+Quando um recurso tem data para acabar — a conexão de banco do teste, por
+exemplo —, a data mora no **metadado da própria linha**, e não numa dica no
+rodapé: ela é sobre *aquele* item, e descobrir o prazo na manhã em que o
+recurso parou é a definição de letra miúda.
+
+Com folga, é metadado comum (`--fg-subtle`). A três dias ou menos, a mesma
+frase troca de tinta para `--warning` (`.meta-alerta`) e passa a contar os
+dias — "(faltam 3 dias)", "(amanhã)", "(hoje)". Mesma fonte, mesmo tamanho,
+mesma posição: só a cor muda, porque é a mesma informação ficando urgente.
+Virar etiqueta seria um elemento novo na linha a cada fim de mês.
+
+Medido: `--warning` sobre a superfície do bloco dá 9,48:1 no escuro
+(`#FFB86B` sobre `#162133`) e 4,99:1 no claro (`#9A6410` sobre `#FFFFFF`).
+Os dois passam para texto de 11px.
+
+O degrau cai **exatamente** no mesmo dia do aviso por push. Dois alarmes em
+dias diferentes seriam duas versões da mesma regra.
+
+**Data já vencida não vira número negativo.** O trabalho da madrugada pode
+ter falhado e a linha ainda estar na tela; ela diz "(prazo vencido)", e não
+"(faltam −2 dias)" nem "(hoje)" — errar o prazo e a data de uma vez.
+
+### Linha de item com três ações quebra em dois andares no telefone
+
+`.imp-lote` põe texto à esquerda e ações à direita, e as ações não encolhem
+(`flex-shrink: 0`) para não empilharem desalinhadas. Isso funciona com duas.
+Com três — apelido, Buscar, Desconectar — o nome do banco ficou com **35px**
+de largura a 375px, quebrando letra a letra; medido.
+
+Até 480px a linha vira dois andares: `flex-wrap: wrap` no contêiner e
+`flex: 1 0 100%` no texto, com as ações caindo para a linha de baixo,
+alinhadas à direita. Acima disso nada muda — a fileira única continua.
+
+A regra vale para a linha, e não para o Open Finance: qualquer lista que
+reuse `.imp-lote` ganha o mesmo comportamento, que é o que se quer.
+
 ## 6. Regras que não se negociam
 
 1. Nenhum card com fundo próprio em bloco de conteúdo.

@@ -444,9 +444,20 @@
   .imp-lote-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
   .imp-lote-txt b { font-weight: 500; color: var(--fg); }
   .imp-lote-meta { font-size: 11px; color: var(--fg-subtle); }
-  /* Duas ações na mesma linha do banco conectado. Sem isto elas quebram uma
-   * sob a outra e desalinham — medido em 375px. */
+  /* As ações do banco conectado, lado a lado. Sem isto elas quebram uma sob
+   * a outra e desalinham — medido em 375px. */
   .of-botoes { display: flex; gap: 8px; flex-shrink: 0; }
+  /* ...mas em tela estreita elas descem para a PRÓPRIA linha.
+   *
+   * Eram duas quando esta regra nasceu; com o apelido viraram três, e três
+   * botões que não encolhem deixaram o nome do banco com 35px de largura —
+   * medido a 375px, quebrando letra a letra. A linha passa a ter dois
+   * andares: o nome e o estado em cima, as ações embaixo. */
+  @media (max-width: 480px) {
+    .imp-lote { flex-wrap: wrap; }
+    .imp-lote-txt { flex: 1 0 100%; }
+    .of-botoes { margin-left: auto; }
+  }
   /* A caixa é o alvo de soltar e também o de clicar. Borda tracejada porque é
    * o desenho que a web inteira usa para "solte aqui" — inventar outro só
    * faria a pessoa ter que descobrir. */
@@ -487,6 +498,10 @@
    * Esconder faria o total não bater com o que se vê, e ninguém entenderia. */
   .imp-linha.repetida .imp-desc, .imp-linha.repetida .imp-val { color: var(--fg-subtle); }
   .imp-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); }
+  /* Um pedaço do metadado que precisa ser VISTO, sem virar etiqueta: o prazo
+   * do banco nos últimos dias. Mesma fonte e mesmo tamanho da linha — só a
+   * tinta muda, porque é a mesma informação ficando urgente. */
+  .meta-alerta { color: var(--warning); }
   /* "você ensinou" não é alerta: é a origem do palpite. Laranja ali diria que
    * algo precisa de atenção, e é o contrário — esta linha já está resolvida. */
   .imp-tag--regra { color: var(--fg-subtle); }
@@ -12027,7 +12042,8 @@
           '<span class="imp-lote-txt"><b>' + esc(c.apelido || banco) + "</b>" +
           '<span class="imp-lote-meta">' +
             (c.apelido ? esc(banco) + " · " : "") +
-            (pronta ? esc(quando) : "aguardando a sua autorização no banco") + "</span></span>" +
+            (pronta ? esc(quando) : "aguardando a sua autorização no banco") +
+            ofAteQuando(c) + "</span></span>" +
           '<span class="of-botoes">' +
             /* `data-of`, como os vizinhos: o ouvinte da lista procura
              * `button[data-of]`, e um `data-of-apelido` do `botaoIcone`
@@ -12041,7 +12057,49 @@
           "</span></div>";
       }).join("");
     }
+    if (of.conexoes.some(function (c) { return !!c.conectadaAte; })) {
+      lista.innerHTML +=
+        '<div class="field-help">No teste, o banco fica conectado até o fim do mês: ' +
+        "cada ligação com um banco é paga por mês, e por isso ela não atravessa a " +
+        "virada. Assinando o Pro, ela deixa de ter prazo — e o que já entrou fica " +
+        "aqui de qualquer forma.</div>";
+    }
     if (of.fontes.length) lista.innerHTML += ofFontesHTML();
+  }
+
+  /** Quantos dias de calendário até um dia 'AAAA-MM-DD'. Negativo é passado. */
+  function diasAte(dia) {
+    var p = String(dia).split("-");
+    var alvo = Date.UTC(+p[0], +p[1] - 1, +p[2]);
+    var h = isoDate(new Date()).split("-");
+    var hoje = Date.UTC(+h[0], +h[1] - 1, +h[2]);
+    return Math.round((alvo - hoje) / 86400000);
+  }
+
+  /**
+   * Até quando este banco fica ligado — no metadado da própria conexão.
+   *
+   * Quem não paga tem a conexão desligada antes de o mês virar: cada
+   * consentimento é cobrado por mês no provedor, e um que atravessa o dia 1º
+   * pode ser cobrado de novo. O servidor manda a data em `conectadaAte`, e
+   * ela é NULA para quem paga — esta linha simplesmente não existe para
+   * assinante, sem nenhuma pergunta de plano feita aqui.
+   *
+   * Fica na linha do banco, e não só numa dica no rodapé, porque é sobre
+   * AQUELE banco. E descobrir isso na manhã em que os lançamentos param é a
+   * definição de letra miúda.
+   */
+  function ofAteQuando(c) {
+    if (!c.conectadaAte) return "";
+    var faltam = diasAte(c.conectadaAte);
+    var txt = " · conectado até " + fmtDataBR(c.conectadaAte);
+    if (faltam > 3) return esc(txt);
+    return '<span class="meta-alerta">' + esc(
+      txt + (faltam < 0 ? " (prazo vencido)"
+        : faltam === 0 ? " (hoje)"
+        : faltam === 1 ? " (amanhã)"
+        : " (faltam " + faltam + " dias)")
+    ) + "</span>";
   }
 
   /** O que veio do banco, uma linha por conta e por FATURA de cartão. */
@@ -12147,7 +12205,13 @@
       ", com o seu login de lá. O link abre UMA vez só e vale cerca de uma hora — " +
       "se não der certo, volte aqui e gere outro. " +
       "Alguns bancos, como o Inter, só autorizam pelo aplicativo do celular: " +
-      "se você estiver no computador, faça este passo pelo telefone.";
+      "se você estiver no computador, faça este passo pelo telefone." +
+      /* A validade entra AQUI, antes de a pessoa autorizar, e não depois.
+       * O servidor a devolve nula para quem paga. */
+      (of.pendente.conectadaAte
+        ? " Autorizando hoje, este banco fica conectado até " +
+          fmtDataBR(of.pendente.conectadaAte) + "."
+        : "");
     await ofRecarregarLista();
   }
 
