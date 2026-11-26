@@ -1985,6 +1985,34 @@ alinhadas à direita. Acima disso nada muda — a fileira única continua.
 A regra vale para a linha, e não para o Open Finance: qualquer lista que
 reuse `.imp-lote` ganha o mesmo comportamento, que é o que se quer.
 
+### Camada aberta por outra tem seta de voltar, e o X continua fechando
+
+O X é a saída de toda camada, e isso não muda. Mas camada que foi aberta
+**por outra** ganha uma segunda ação: uma seta no canto oposto, espelho
+exata do X (mesmo tamanho, mesma borda, mesma tinta), que fecha esta e
+reabre quem a abriu.
+
+Fechar e voltar são coisas diferentes. Quem entrou em "Meu perfil" pelo
+menu do perfil pode querer sair para o app ou querer o menu de volta; com
+um botão só, a segunda vontade custava reabrir o menu pelo nome no topo.
+
+**A seta só existe quando há de onde voltar.** Camada aberta direto do app
+continua com um caminho de saída só, e o cabeçalho dela não reserva a vaga
+à esquerda. Quem marca a origem é quem despacha — o menu —, e não a camada,
+que não tem por que saber quem a chamou.
+
+**A corrente desfaz um passo por vez.** Perfil → Planos → Assinatura volta
+para Planos, e Planos volta para o Perfil: ao reabrir o pai, a volta dele é
+restaurada junto. Sem isso, o primeiro voltar funcionava e o segundo caía
+no app.
+
+**Confirmação não ganha seta.** Uma pergunta de duas respostas com três
+saídas é uma a mais do que a pergunta tem.
+
+Medido: a seta fica em 7,27:1 no tema claro (`rgba(20,32,43,0.78)` sobre
+`#E6ECF4`) — é a mesma tinta do X, porque é o mesmo controle espelhado. O
+alvo é de 44px no telefone e 36px no desktop, igual ao X.
+
 ## 6. Regras que não se negociam
 
 1. Nenhum card com fundo próprio em bloco de conteúdo.

@@ -1860,6 +1860,31 @@
   .layer-x:hover { color: var(--fg); border-color: var(--accent-borda); }
   .layer-x svg { width: 14px; height: 14px; }
   @media (min-width: 768px) { .layer-x { width: 36px; height: 36px; top: 16px; right: 16px; } }
+  /* A seta de voltar: espelho do X, no canto oposto.
+   *
+   * Ela NÃO substitui o X, e isso é a regra. Fechar e voltar são coisas
+   * diferentes: quem abriu "Meu perfil" a partir do menu pode querer sair
+   * do app ou querer o menu de volta, e um botão só obrigava a reabrir o
+   * perfil pelo nome lá em cima toda vez.
+   *
+   * Só aparece em camada que FOI aberta por outra. Camada solta continua
+   * com um caminho de saída só, como sempre teve. */
+  .layer-voltar {
+    position: absolute; top: 14px; left: 14px;
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 1px solid var(--controle-borda); background: none; color: var(--fg-muted);
+    display: grid; place-items: center; cursor: pointer;
+    transition: color 180ms ease-out, border-color 180ms ease-out;
+  }
+  .layer-voltar:hover { color: var(--fg); border-color: var(--accent-borda); }
+  .layer-voltar svg { width: 16px; height: 16px; }
+  /* O título não pode passar por baixo da seta: a vaga dela entra no padding
+   * do cabeçalho, do mesmo jeito que a do X já entrava à direita. */
+  .layer-head.com-volta { padding-left: 64px; }
+  @media (min-width: 768px) {
+    .layer-voltar { width: 36px; height: 36px; top: 16px; left: 16px; }
+    .layer-head.com-volta { padding-left: 60px; }
+  }
   .layer-head h3 { font-size: 17px; font-weight: 600; margin: 0; }
   .layer-head .ctx { font-size: 12px; color: var(--fg-subtle); margin-top: 4px; }
   .layer-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
@@ -13958,11 +13983,62 @@
     });
   }
 
+  /**
+   * De onde a PRÓXIMA camada vem.
+   *
+   * Existe como variável de uma vez só, e não como parâmetro de `abrir`,
+   * porque quem sabe a origem é o menu que despacha — e entre ele e o
+   * `abrir` há uma dezena de funções (`abrirConfig`, `abrirMeuPerfil`…) que
+   * não têm por que saber disso. Elas continuam iguais.
+   */
+  var voltaDaProxima = null;
+
+  var SVG_VOLTAR = '<svg viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
   function abrir(id) {
     var d = document.getElementById(id);
+    d.dataset.volta = voltaDaProxima || "";
+    voltaDaProxima = null;
+    pintarVolta(d);
     d.showModal();
     d.scrollTop = 0;
   }
+
+  /** Põe ou tira a seta, conforme a camada tenha vindo de alguém. */
+  function pintarVolta(d) {
+    var head = d.querySelector(".layer-head");
+    if (!head) return;
+    var b = head.querySelector(".layer-voltar");
+    if (!d.dataset.volta) {
+      if (b) b.parentNode.removeChild(b);
+      head.classList.remove("com-volta");
+      return;
+    }
+    if (!b) {
+      b = document.createElement("button");
+      b.type = "button";
+      b.className = "layer-voltar";
+      b.setAttribute("aria-label", "Voltar");
+      b.title = "Voltar";
+      b.innerHTML = SVG_VOLTAR;
+      b.addEventListener("click", function () { voltarDaCamada(d); });
+      head.insertBefore(b, head.firstChild);
+    }
+    head.classList.add("com-volta");
+  }
+
+  /** Fecha esta e reabre quem a abriu, com a volta DELA preservada: assim
+   * Perfil → Planos → Assinatura volta um passo de cada vez, em vez de
+   * cair no app. */
+  function voltarDaCamada(d) {
+    var pai = d.dataset.volta;
+    var paiEl = pai && document.getElementById(pai);
+    d.close();
+    if (!paiEl) return;
+    voltaDaProxima = paiEl.dataset.volta || null;
+    abrir(pai);
+  }
+
   function fechar(id) { document.getElementById(id).close(); }
   function dlgAberto(id) { return document.getElementById(id).open; }
   document.querySelectorAll("[data-fechar]").forEach(function (b) {
@@ -18601,6 +18677,10 @@
 
   function irParaAssinatura() {
     fechar("dlg-planos");
+    /* A volta desta é a tela de Planos, e não o perfil: quem comparou os
+     * planos e tocou em Assinar quer poder reler a tabela. A Planos guarda
+     * a própria volta, então o caminho inteiro desfaz um passo por vez. */
+    voltaDaProxima = "dlg-planos";
     /* Uma tela de assinatura só: é lá que o preço vem do servidor e o
      * checkout acontece. Esta aqui compara; aquela cobra. */
     abrirAssinatura();
@@ -19038,6 +19118,11 @@
     if (!b) return;
     fechar("dlg-perfil");
     var acao = b.dataset.perfil;
+    /* Só as que abrem CAMADA. "Começar do zero" pede confirmação, e uma
+     * caixa de confirmação com seta de voltar seria uma terceira saída numa
+     * pergunta que só tem duas respostas. Instalar, sair e a política não
+     * abrem camada nenhuma. */
+    if (COM_VOLTA_PARA_O_PERFIL[acao]) voltaDaProxima = "dlg-perfil";
     if (acao === "config") abrirConfig();
     if (acao === "whatsapp") abrirWhatsapp();
     if (acao === "meu") abrirMeuPerfil();
@@ -19053,7 +19138,16 @@
     if (acao === "privacidade") window.open("privacidade.html", "_blank", "noopener");
     if (acao === "suporte") abrirMensagem("suporte");
     if (acao === "ideias") abrirMensagem("ideias");
+    /* Se a ação desistiu de abrir (assinatura sem gateway, por exemplo), a
+     * marca não pode sobrar para a próxima camada do app, que não veio do
+     * perfil nenhum. */
+    voltaDaProxima = null;
   });
+
+  var COM_VOLTA_PARA_O_PERFIL = {
+    config: 1, whatsapp: 1, meu: 1, assinatura: 1, planos: 1,
+    excluir: 1, suporte: 1, ideias: 1,
+  };
   /* ================= excluir a conta =================
    * A única operação do app que não tem volta. Três coisas a protegem, e
    * nenhuma é enfeite:
