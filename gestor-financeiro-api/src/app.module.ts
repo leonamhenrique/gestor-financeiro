@@ -19,6 +19,7 @@ import { RelatorioModule } from './relatorio/relatorio.module';
 import { SharedExpensesModule } from './shared-expenses/shared-expenses.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { BillingModule } from './billing/billing.module';
+import { SupportModule } from './support/support.module';
 import { OpenFinanceModule } from './openfinance/openfinance.module';
 import { PushModule } from './push/push.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -42,6 +43,7 @@ import { ContextoDoUsuarioInterceptor } from './auth/contexto.interceptor';
     CategoryRulesModule,
     CreditCardsModule,
     BillingModule,
+    SupportModule,
     ReportsModule,
     RelatorioModule,
     SharedExpensesModule,

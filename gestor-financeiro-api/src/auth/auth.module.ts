@@ -58,6 +58,10 @@ import { segredoJwt } from './jwt-secret';
       },
     },
   ],
-  exports: [JwtModule, PassportModule, JwtAuthGuard, AuthService],
+  /* `MAILER` sai daqui porque quem ESCOLHE o serviço é esta fábrica, e ela
+   * lê o ambiente uma vez. Declarar o provider de novo noutro módulo daria
+   * uma segunda instância com a mesma configuração lida duas vezes — e, no
+   * dia em que as regras divergissem, dois comportamentos. */
+  exports: [JwtModule, PassportModule, JwtAuthGuard, AuthService, MAILER],
 })
 export class AuthModule {}

@@ -13,7 +13,7 @@
 // problema — melhor que descobrir quando alguém esquece a senha.
 // ============================================================
 
-import { Mailer } from './mailer.port';
+import { Mailer, MensagemDoUsuario } from './mailer.port';
 import { REDEFINICAO_MINUTOS } from './auth.service';
 
 const ENDPOINT = 'https://api.resend.com/emails';
@@ -58,7 +58,61 @@ export class ResendMailer implements Mailer {
       throw new Error(`Resend recusou o envio (HTTP ${resposta.status}): ${corpo.slice(0, 300)}`);
     }
   }
+
+  /**
+   * A mensagem do usuário, para o endereço de contato.
+   *
+   * O remetente continua sendo o nosso `MAIL_FROM` — mandar em nome do
+   * usuário faria o e-mail cair em spam, porque o domínio dele não autoriza
+   * o nosso servidor. Quem resolve isso é o `reply_to`: responder na caixa
+   * de entrada vai direto para a pessoa, sem ninguém copiar endereço.
+   *
+   * Só texto, sem HTML: é uma mensagem de uma pessoa, não uma peça.
+   */
+  async enviarMensagemDoUsuario(msg: MensagemDoUsuario, para: string): Promise<void> {
+    const resposta = await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.chave}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: this.remetente,
+        to: [para],
+        reply_to: msg.de.email,
+        subject: assuntoDaMensagem(msg),
+        text: corpoDaMensagem(msg),
+      }),
+    });
+
+    if (!resposta.ok) {
+      const corpo = await resposta.text().catch(() => '');
+      throw new Error(`Resend recusou o envio (HTTP ${resposta.status}): ${corpo.slice(0, 300)}`);
+    }
+  }
 }
+
+/** O assunto diz o que é e de quem, porque a caixa de entrada é uma lista.
+ * O nome entra aqui e não no corpo só: procurar por nome é como se acha o
+ * segundo e-mail da mesma pessoa. */
+function assuntoDaMensagem(msg: MensagemDoUsuario): string {
+  const rotulo = msg.tipo === 'SUPORTE' ? 'Suporte' : 'Ideia';
+  return `[${rotulo}] ${msg.de.nome} — saldonline`;
+}
+
+/** O corpo: o que a pessoa escreveu primeiro, o contexto depois.
+ *
+ * Nesta ordem de propósito — quem abre quer ler o problema, não o número
+ * da versão. E NADA de dado financeiro: nenhum problema de tela se resolve
+ * com o saldo de alguém, e um e-mail é a última coisa que deveria carregar
+ * isso. */
+function corpoDaMensagem(msg: MensagemDoUsuario): string {
+  const linhas = [msg.texto.trim(), '', '--', `${msg.de.nome} <${msg.de.email}>`, `id: ${msg.de.id}`];
+  for (const [chave, valor] of Object.entries(msg.contexto ?? {})) {
+    linhas.push(`${chave}: ${valor}`);
+  }
+  return linhas.join(QUEBRA);
+}
+
+/** A quebra de linha, nomeada: o corpo é texto puro e precisa dela. */
+const QUEBRA = String.fromCharCode(10);
 
 function texto(nome: string, link: string): string {
   return [

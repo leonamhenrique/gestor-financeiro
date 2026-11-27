@@ -889,6 +889,10 @@
    * que o app está esperando — o texto já diz. */
   @media (prefers-reduced-motion: reduce) { .entrada-conferindo-ponto { animation: none; } }
   #form-entrada { display: flex; flex-direction: column; gap: 16px; }
+  /* O app quase não tem link de verdade — quase tudo é botão. Onde ele
+   * existe (o endereço de contato, por exemplo), o azul-arroxeado padrão do
+   * navegador é a única cor da tela que não saiu daqui. */
+  .field-help a, .layer-body p a { color: var(--accent); text-underline-offset: 3px; }
   .link-ghost {
     /* Parece texto, mas é alvo de toque: 44px de altura como qualquer botão. */
     align-self: flex-start; background: none; border: none; padding: 0; min-height: 44px;
@@ -4468,10 +4472,12 @@
   <form id="form-mensagem">
     <div class="layer-head"><h3 id="ms-titulo">Suporte</h3><div class="ctx" id="ms-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
     <div class="layer-body">
-      <div class="field"><label class="lbl" for="ms-texto" id="ms-label">Mensagem</label><textarea id="ms-texto" rows="5" required></textarea></div>
-      <div class="field-help" id="ms-ok" hidden>Mensagem registrada no exemplo. Nenhum ticket real foi aberto.</div>
+      <div class="field" id="ms-campo"><label class="lbl" for="ms-texto" id="ms-label">Mensagem</label><textarea id="ms-texto" rows="5"></textarea></div>
+      <div class="field-help" id="ms-sem-envio" hidden></div>
+      <div class="field-help" id="ms-ok" hidden></div>
+      <div class="field-error" id="ms-erro"></div>
     </div>
-    <div class="layer-foot"><button type="submit" class="primary">Enviar</button></div>
+    <div class="layer-foot"><button type="submit" class="primary" id="ms-enviar">Enviar</button></div>
   </form>
 </dialog>
 
@@ -8001,7 +8007,7 @@
     // liberado, e esse número precisa chegar junto com o resto, não depois.
     /* Em paralelo: são duas leituras independentes, e a segunda não pode
      * atrasar a tela por esperar a primeira. */
-    await Promise.all([cobrancaCarregar(), planoCarregar()]);
+    await Promise.all([cobrancaCarregar(), planoCarregar(), suporteCarregar()]);
     persist();
   }
 
@@ -19001,21 +19007,101 @@
     }
   }
 
+  /** O tipo da camada aberta agora. É ele que o servidor recebe. */
+  var msTipo = "suporte";
+
+  /** O que o servidor diz sobre entregar mensagem. Nulo até ele responder:
+   * sem resposta a tela oferece o formulário, que é o caminho normal. */
+  var suporte = null;
+
+  async function suporteCarregar() {
+    if (!MODO_API) { suporte = null; return; }
+    try { suporte = await api("/support"); } catch (e) { suporte = null; }
+  }
+
+  /** Dá para enviar daqui? Sem resposta do servidor, sim — e o erro do
+   * envio diz o resto. Esconder o formulário por causa de uma leitura que
+   * falhou seria tirar a porta de quem já está com problema. */
+  function suportePodeEnviar() {
+    return !suporte || suporte.disponivel !== false;
+  }
+
+  /**
+   * Suporte e Ideias, que até aqui eram MAQUETE: o formulário dizia
+   * "enviado" e limpava o campo, e nada saía do app. Quem escrevia ficava
+   * esperando uma resposta que nunca ia existir — o pior tipo de tela,
+   * porque mente sem errar nada visível.
+   *
+   * A frase do cabeçalho diz para onde vai e por onde volta. "Respondemos
+   * no e-mail da sua conta" não é enfeite: é o aviso de que o endereço
+   * segue junto, dito antes de a pessoa escrever e não depois.
+   */
   function abrirMensagem(tipo) {
-    var suporte = tipo === "suporte";
-    document.getElementById("ms-titulo").textContent = suporte ? "Suporte" : "Ideias e sugestões";
-    document.getElementById("ms-ctx").textContent = suporte
-      ? "Exemplo — nenhum ticket real é aberto"
-      : "Exemplo — nenhum envio real é feito";
-    document.getElementById("ms-label").textContent = suporte ? "Descreva o problema" : "Sua ideia";
+    msTipo = tipo;
+    var suporte_ = tipo === "suporte";
+    document.getElementById("ms-titulo").textContent = suporte_ ? "Suporte" : "Ideias e sugestões";
+    var podeEnviar = suportePodeEnviar();
+    document.getElementById("ms-ctx").textContent = !MODO_API
+      ? "Exemplo — nenhum envio real é feito"
+      : podeEnviar
+        ? "Respondemos no e-mail da sua conta"
+        : "Escreva para a gente";
+    document.getElementById("ms-label").textContent = suporte_ ? "Descreva o problema" : "Sua ideia";
     document.getElementById("form-mensagem").reset();
     document.getElementById("ms-ok").hidden = true;
+    document.getElementById("ms-erro").textContent = "";
+    document.getElementById("ms-enviar").disabled = false;
+
+    /* SEM SERVIÇO DE E-MAIL, O ENDEREÇO NO LUGAR DO FORMULÁRIO.
+     *
+     * Esconder o Suporte seria fechar a última porta de quem está com
+     * problema; deixar o formulário seria prometer um envio que falha no
+     * clique. O endereço é pior que o formulário e muito melhor que os
+     * dois. */
+    document.getElementById("ms-campo").hidden = !podeEnviar;
+    document.getElementById("ms-enviar").hidden = !podeEnviar;
+    var semEnvio = document.getElementById("ms-sem-envio");
+    semEnvio.hidden = podeEnviar;
+    if (!podeEnviar) {
+      var endereco = (suporte && suporte.contato) || "contato@saldonline.com.br";
+      semEnvio.innerHTML = "Não consigo enviar daqui agora. Escreva para " +
+        '<a href="mailto:' + esc(endereco) + '">' + esc(endereco) + "</a>" +
+        " — e diga o e-mail da sua conta, para a gente achar você.";
+    }
     abrir("dlg-mensagem");
   }
-  document.getElementById("form-mensagem").addEventListener("submit", function (e) {
+
+  document.getElementById("form-mensagem").addEventListener("submit", async function (e) {
     e.preventDefault();
-    document.getElementById("ms-ok").hidden = false;
-    document.getElementById("ms-texto").value = "";
+    var texto = document.getElementById("ms-texto").value.trim();
+    var ok = document.getElementById("ms-ok");
+    var erro = document.getElementById("ms-erro");
+    var botao = document.getElementById("ms-enviar");
+    erro.textContent = "";
+    if (!texto) { erro.textContent = "Escreva a mensagem antes de enviar."; return; }
+
+    /* Sem servidor não há para onde mandar, e dizer isso é melhor do que
+     * fingir que foi — era exatamente o que a maquete fazia. */
+    if (!MODO_API) {
+      ok.hidden = false;
+      ok.textContent = "Exemplo: nada foi enviado.";
+      document.getElementById("ms-texto").value = "";
+      return;
+    }
+
+    botao.disabled = true;
+    try {
+      await api("/support", { tipo: msTipo === "suporte" ? "SUPORTE" : "IDEIA", texto: texto });
+      ok.hidden = false;
+      ok.textContent = "Mensagem enviada. Respondemos no e-mail da sua conta.";
+      document.getElementById("ms-texto").value = "";
+    } catch (err) {
+      /* O texto NÃO é apagado: é o que a pessoa escreveu, e perdê-lo por
+       * uma falha de rede faria ela escrever tudo de novo — ou desistir. */
+      erro.textContent = (err && err.message) || "Não consegui enviar agora.";
+    } finally {
+      botao.disabled = false;
+    }
   });
 
   /* ================= camada: WhatsApp =================
