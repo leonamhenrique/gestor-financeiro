@@ -10979,9 +10979,15 @@
 
     linhas.sort(comparaLinhas);
     renderCabecalhoExtrato(opcoes);
-    /* A contagem é do que está na tela. Dizer "12 linhas" sobre uma lista
-     * de 3 seria contar o que o filtro tirou. */
-    document.getElementById("l-contagem").textContent = linhas.length + (linhas.length === 1 ? " linha" : " linhas");
+    /* Sem contagem de linhas: o número está logo abaixo, uma linha por
+     * linha, e repeti-lo no título é dizer de novo o que a lista mostra.
+     * Quem avisa que a lista está recortada é o funil aceso no cabeçalho,
+     * e o vazio por filtro diz com todas as letras.
+     *
+     * Limpado, e não só deixado de escrever: a aba Compartilhadas usa este
+     * mesmo lugar para "a receber" e "a pagar", e voltar dela deixaria o
+     * texto dela pendurado aqui. */
+    document.getElementById("l-contagem").textContent = "";
 
     // O agrupamento por dia só existe quando a ordem é por data — ordenado por
     // valor ou categoria, os grupos se fragmentariam e o rótulo mentiria.
@@ -11095,10 +11101,12 @@
     var aReceber = Number(cpGeral.aReceber || 0);
     var aPagar = Number(cpGeral.aPagar || 0);
 
+    /* Aqui o lugar NÃO é contagem: "a receber" e "a pagar" são dinheiro, e
+     * são a resposta da aba. O número de lançamentos saiu junto com o do
+     * extrato — esse a lista já dá. */
     document.getElementById("l-contagem").textContent =
-      linhas.length + (linhas.length === 1 ? " lançamento" : " lançamentos") +
-      (aReceber ? " · a receber " + brl(aReceber) : "") +
-      (aPagar ? " · a pagar " + brl(aPagar) : "");
+      [aReceber ? "a receber " + brl(aReceber) : "", aPagar ? "a pagar " + brl(aPagar) : ""]
+        .filter(Boolean).join(" · ");
 
     lista.innerHTML = linhas.map(linhaCompartilhadaHTML).join("") ||
       '<div class="empty">Nenhum gasto dividido neste mês.</div>';
