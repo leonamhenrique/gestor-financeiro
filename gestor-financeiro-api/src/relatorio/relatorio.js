@@ -35,6 +35,8 @@ var STATUS_LABEL = { OPEN: "Aberta", CLOSED: "Fechada", OVERDUE: "Atrasada", PAI
 
 var cacheDeFaturas = null;
 
+var FUSO_DO_APP = "America/Sao_Paulo";
+
 var CHAVE_RELATORIO = "gestor-relatorio-por";
 
 var relatorioPor = "fatura";
@@ -44,6 +46,20 @@ var filtrosDoPlano = { previsto: true, cartao: true, ocultas: false };
 function byId(list, id) { return list.filter(function (x) { return x.id === id; })[0]; }
 
 function isoDate(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+
+function diaDoInstante(valor) {
+    if (!valor) return "";
+    var d = new Date(valor);
+    if (isNaN(d.getTime())) return String(valor).slice(0, 10);
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: FUSO_DO_APP, year: "numeric", month: "2-digit", day: "2-digit",
+      }).format(d);
+    } catch (e) {
+      // Navegador sem base de fusos: o dia do aparelho é melhor que o de UTC.
+      return isoDate(d);
+    }
+  }
 
 function monthKey(vm) { return vm.y + "-" + String(vm.m + 1).padStart(2, "0"); }
 
@@ -586,7 +602,7 @@ function objetivoDaApi(g) {
       meta: Number(g.targetAmount),
       saldoInicial: Number(g.initialBalance || 0),
       contaId: g.accountId || null,
-      concluidoEm: g.completedAt ? String(g.completedAt).slice(0, 10) : null,
+      concluidoEm: g.completedAt ? diaDoInstante(g.completedAt) : null,
       movimentos: (g.movements || []).map(movimentoDeObjetivoDaApi)
     };
   }

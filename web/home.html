@@ -4667,6 +4667,41 @@
   function byId(list, id) { return list.filter(function (x) { return x.id === id; })[0]; }
   function uid(p) { return p + "-" + Math.random().toString(36).slice(2, 9); }
   function isoDate(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+
+  /** O fuso em que este app conta os dias. O mesmo do servidor. */
+  var FUSO_DO_APP = "America/Sao_Paulo";
+
+  /**
+   * O dia de calendário de um INSTANTE.
+   *
+   * `lastSyncedAt`, `authorizedAt`, `importedAt` e companhia são instantes
+   * gravados em UTC. Cortar os dez primeiros caracteres do texto ISO
+   * devolve o dia EM UTC — e das 21h de Brasília em diante isso já é
+   * amanhã. Foi assim que a lista de bancos mostrou "sincronizado em
+   * 27/11" num dia 26.
+   *
+   * É o fuso do APP e não o do aparelho, de propósito: o servidor decide
+   * por ele (`hojeNoFuso`), e duas respostas para "que dia é hoje" é como
+   * nasce a divergência que só aparece de madrugada — e que, na décima
+   * condição, decidiria gravar dinheiro.
+   *
+   * COLUNA DE DATA PURA NÃO PASSA POR AQUI. `@db.Date` chega como
+   * meia-noite UTC: converter roubaria um dia dela. Quem é data continua
+   * sendo cortada — ver `soData`.
+   */
+  function diaDoInstante(valor) {
+    if (!valor) return "";
+    var d = new Date(valor);
+    if (isNaN(d.getTime())) return String(valor).slice(0, 10);
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: FUSO_DO_APP, year: "numeric", month: "2-digit", day: "2-digit",
+      }).format(d);
+    } catch (e) {
+      // Navegador sem base de fusos: o dia do aparelho é melhor que o de UTC.
+      return isoDate(d);
+    }
+  }
   function monthKey(vm) { return vm.y + "-" + String(vm.m + 1).padStart(2, "0"); }
   function parseMonthKey(k) { var p = k.split("-"); return { y: parseInt(p[0], 10), m: parseInt(p[1], 10) - 1 }; }
   function fmtDia(iso) {
@@ -8102,7 +8137,7 @@
       meta: Number(g.targetAmount),
       saldoInicial: Number(g.initialBalance || 0),
       contaId: g.accountId || null,
-      concluidoEm: g.completedAt ? String(g.completedAt).slice(0, 10) : null,
+      concluidoEm: g.completedAt ? diaDoInstante(g.completedAt) : null,
       movimentos: (g.movements || []).map(movimentoDeObjetivoDaApi)
     };
   }
@@ -11810,7 +11845,7 @@
     document.getElementById("imp-recentes-lista").innerHTML = lista.map(function (g) {
       var onde = g.cartaoId ? (byId(state.cards, g.cartaoId) || {}).nome
                             : (byId(state.accounts, g.contaId) || {}).nome;
-      var quando = g.em ? fmtDataBR(g.em.slice(0, 10)) : "";
+      var quando = g.em ? fmtDataBR(diaDoInstante(g.em)) : "";
       return '<div class="imp-lote">' +
         '<span class="imp-lote-txt">' +
           /* "5 lançamentos" num lote que tem quatro lançamentos e uma
@@ -12102,7 +12137,7 @@
       lista.innerHTML = of.conexoes.map(function (c) {
         var pronta = c.status === "AUTHORISED";
         var quando = c.sincronizadaEm
-          ? "sincronizado em " + fmtDataBR(String(c.sincronizadaEm).slice(0, 10))
+          ? "sincronizado em " + fmtDataBR(diaDoInstante(c.sincronizadaEm))
           : "nunca sincronizado";
         var banco = c.instituicao || "Banco";
         /* Com apelido, é ELE quem manda na linha: o nome do banco se repete
@@ -12670,7 +12705,7 @@
    */
   function ofDepoisDeAutorizar(f, l) {
     var cx = byId(of.conexoes, f.connectionId);
-    var desde = cx && cx.autorizadaEm ? String(cx.autorizadaEm).slice(0, 10) : null;
+    var desde = cx && cx.autorizadaEm ? diaDoInstante(cx.autorizadaEm) : null;
     if (!desde) return false;
     var quando = l && l.base ? String(l.base.data || "").slice(0, 10) : "";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(quando)) return false;
@@ -18835,7 +18870,7 @@
     document.getElementById("as-status").style.color = st ? st.cor : "var(--fg-muted)";
     document.getElementById("as-cobranca").textContent = a && a.currentPeriodEnd
       ? (cortesia ? "acesso até " : ativa ? "renova em " : "valeu até ") +
-        fmtDia(String(a.currentPeriodEnd).slice(0, 10))
+        fmtDia(diaDoInstante(a.currentPeriodEnd))
       : (ativa ? "renova automaticamente" : "nada programado");
 
     var bloq = assinaturaBloqueada();
@@ -20442,9 +20477,9 @@
         (l.expiresAt && new Date(l.expiresAt) <= new Date()) ? "vencido" : "ativo";
       return '<div class="row">' +
         '<span class="row-main">' +
-        '<span class="row-title"><span class="row-name">criado em ' + fmtDataBR(String(l.createdAt).slice(0, 10)) + '</span>' +
+        '<span class="row-title"><span class="row-name">criado em ' + fmtDataBR(diaDoInstante(l.createdAt)) + '</span>' +
         (estado === "ativo" ? "" : '<span class="tag">' + estado + "</span>") + '</span>' +
-        '<span class="row-meta">' + (l.lastViewedAt ? "visto em " + fmtDataBR(String(l.lastViewedAt).slice(0, 10)) : "nunca aberto") + '</span></span>' +
+        '<span class="row-meta">' + (l.lastViewedAt ? "visto em " + fmtDataBR(diaDoInstante(l.lastViewedAt)) : "nunca aberto") + '</span></span>' +
         (estado === "ativo" ? '<span class="row-acoes"><button class="ghost danger" type="button" data-revogar-link="' + esc(l.id) + '">Revogar</button></span>' : "") +
         '</div>';
     }).join("") || '<div class="empty">Nenhum link gerado.</div>';

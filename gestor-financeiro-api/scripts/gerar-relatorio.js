@@ -41,6 +41,7 @@ const CONSTANTES_BLOCO = [
  * que o padrão aqui seja o padrão de lá. */
 const CONSTANTES_LINHA = [
   'var cacheDeFaturas = ',
+  'var FUSO_DO_APP = ',
   'var CHAVE_RELATORIO = ',
   'var relatorioPor = ',
   // Os filtros do acompanhamento do planejamento, com o PADRÃO do app:
@@ -63,6 +64,10 @@ const FUNCOES = [
   // base
   'byId',
   'isoDate',
+  // Instante vira dia no fuso do APP. Entrou quando `concluidoEm` deixou de
+  // ser cortado como texto: sem ela aqui, o relatório quebraria em todo
+  // objetivo concluído — e só nele.
+  'diaDoInstante',
   'monthKey',
   'parseMonthKey',
   'diaValido',

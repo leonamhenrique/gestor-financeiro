@@ -29,7 +29,14 @@ const conexoes = [
   { id: 'cx-nova', autorizadaEm: null },
 ];
 
-/** A função do app, com as duas coisas que ela usa de fora. */
+/**
+ * A função do app, com o que ela usa de fora.
+ *
+ * `diaDoInstante` e `isoDate` vêm RECORTADOS também, e não imitados aqui:
+ * a conversão de instante para dia é parte da condição desde que
+ * `authorizedAt` deixou de ser cortado como texto. Uma imitação escondida
+ * no teste provaria a imitação.
+ */
 function recortar(): (f: Fonte, l: Linha) => boolean {
   const of = { conexoes };
   const byId = (list: any[], id: string) => list.filter((x) => x.id === id)[0];
@@ -37,7 +44,12 @@ function recortar(): (f: Fonte, l: Linha) => boolean {
   return new Function(
     'of',
     'byId',
-    'return (' + funcao(src, 'ofDepoisDeAutorizar') + ');',
+    [
+      'var FUSO_DO_APP = "America/Sao_Paulo";',
+      funcao(src, 'isoDate'),
+      funcao(src, 'diaDoInstante'),
+      'return (' + funcao(src, 'ofDepoisDeAutorizar') + ');',
+    ].join(String.fromCharCode(10)),
   )(of, byId);
 }
 
