@@ -8363,8 +8363,12 @@
     sincronizarFila(true);
     /* Sem await e sem `catch` que alarme: o número de lançamentos esperando
      * é recado, não requisito para entrar. Quem não tem Open Finance ligado
-     * leva 404 aqui e nunca vai saber que a chamada existiu. */
-    ofContarPendentes();
+     * leva 404 aqui e nunca vai saber que a chamada existiu.
+     *
+     * `ofEntrarSozinhoAoAbrir` conta por conta própria e decide se vale
+     * falar com o provedor — e ele já começa pelo mesmo contador, então
+     * chamar os dois seria contar duas vezes. */
+    ofEntrarSozinhoAoAbrir();
   }
 
   async function enviarParaApi(d) {
@@ -11955,6 +11959,19 @@
    */
   var of = { conexoes: [], bancos: [], pendente: null, proposta: null, fontes: [] };
 
+  /**
+   * Rodando SEM ninguém ter pedido.
+   *
+   * Vale para a passada da abertura do app: ali não há tela de Open Finance
+   * à vista, e todo aviso cairia em cima de outra coisa — inclusive o de
+   * erro. "Não consegui falar com o banco" no meio do Resumo é um alarme
+   * para uma coisa que a pessoa não pediu e não precisa resolver agora.
+   *
+   * O recado, quando há, é o número no item Importar do menu: o lugar que
+   * já existe para isso e que não interrompe nada.
+   */
+  var ofCalado = false;
+
   function ofEl(id) { return document.getElementById(id); }
 
   /** Mostra o bloco só se o servidor disser que a integração existe. */
@@ -11992,14 +12009,16 @@
 
   /** O número que a navegação mostra. Lê do nosso banco, não do provedor. */
   async function ofContarPendentes() {
-    if (!MODO_API) return;
+    if (!MODO_API) return 0;
     var r;
-    try { r = await api("/openfinance/pendentes"); } catch (e) { return; }
+    try { r = await api("/openfinance/pendentes"); } catch (e) { return 0; }
     /* `novos`, e não `total`: o provedor importa doze meses de uma vez, e
      * quem decide não trazer o histórico ficaria com 487 aceso para
      * sempre. Número que não desce para de ser lido. O total continua
      * valendo na tela de Importar, que mostra a lista inteira. */
-    ofPintarPendentes(r ? (r.novos != null ? r.novos : r.total) : 0);
+    var n = r ? (r.novos != null ? r.novos : r.total) : 0;
+    ofPintarPendentes(n);
+    return n;
   }
 
   /* O aviso onde a pessoa já olha todo dia, e não numa tela que ela teria
@@ -12274,7 +12293,7 @@
     try {
       return await api(caminho, corpo, metodo);
     } catch (e) {
-      avisar("Não consegui falar com o banco", e.message);
+      if (!ofCalado) avisar("Não consegui falar com o banco", e.message);
       return null;
     } finally {
       if (botao) { botao.disabled = false; botao.removeAttribute("aria-busy"); }
@@ -12378,16 +12397,90 @@
     await carregarDoServidor();
     renderAll();
     of.fontes = [];
+
+    /* Na abertura do app ninguém está olhando a lista do Open Finance.
+     * Buscar no provedor de novo só para repintar uma tela fechada seria
+     * pagar o extrato inteiro — centenas de transações — por nada. Quem
+     * abrir Importar depois recebe a lista fresca de `carregarOpenFinance`,
+     * e o número do menu sai de `ofContarPendentes`. */
+    if (ofCalado) return;
     for (var k = 0; k < prontas.length; k++) {
       await ofSincronizar(prontas[k].id, null, true);
     }
     pintarOpenFinance();
 
     var faltam = of.fontes.reduce(function (n, f) { return n + f.lancamentos.length; }, 0);
+    /* Este aviso só existe porque a pessoa ESTÁ na tela de Importar, onde o
+     * Desfazer do lote está à vista. Na abertura do app ele apontaria para
+     * um lugar que não está na tela, e por isso lá o recado é o número. */
     avisar(entraram + (entraram === 1 ? " lançamento entrou sozinho" : " lançamentos entraram sozinhos"),
       "São os que não casaram com nada que você já tinha e caíram numa categoria que VOCÊ ensinou. " +
       (faltam ? faltam + (faltam === 1 ? " continua esperando você." : " continuam esperando você.") : "Não sobrou nada para conferir.") +
       " Dá para desfazer o lote inteiro aqui mesmo, em Importações recentes.");
+  }
+
+  /** Uma vez por dia, POR APARELHO. Dois aparelhos fazem duas passadas, e
+   * a segunda não duplica nada: o índice único de `provider_tx_id` recusa,
+   * e o lote inteiro aborta sem gravar metade. */
+  var CHAVE_DIA_AUTOMATICO = "saldonline:of-automatico";
+
+  /**
+   * O que não tem dúvida entra ANTES de a pessoa procurar.
+   *
+   * Até aqui isto só acontecia ao abrir a tela de Importar — então a fatura
+   * do cartão só ficava em dia para quem lembrasse de passar por uma tela
+   * que não tem nada a ver com cartão. Agora acontece ao abrir o app, e
+   * quem for direto para a fatura a encontra pronta.
+   *
+   * TRÊS PORTEIROS, nesta ordem, e todos existem por causa de preço:
+   *
+   *   1. SÓ SE HOUVER PENDENTE. O número vem do nosso banco, contado pelo
+   *      trabalho das 6h — é uma consulta barata, e é a mesma que pinta o
+   *      item do menu. Sem pendente, nada é pedido ao provedor, que é o
+   *      caso da maioria das aberturas.
+   *   2. UMA VEZ POR DIA. A marca é gravada ANTES de tentar, e não depois:
+   *      uma falha custa o dia, mas um provedor fora do ar não vira uma
+   *      busca a cada abertura. Quem quiser forçar abre Importar, que é o
+   *      caminho de sempre e não passa por aqui.
+   *   3. SÓ COM CONEXÃO. Sem Open Finance a chamada dá 404 e acaba aqui,
+   *      exatamente como no resto do módulo.
+   *
+   * Sincronizar custa baixar o extrato inteiro — centenas de transações,
+   * medido. É por isso que isto não roda em toda abertura, e é por isso que
+   * o trabalho diário existe.
+   */
+  async function ofEntrarSozinhoAoAbrir() {
+    if (!MODO_API) return;
+
+    /* CONTAR VEM PRIMEIRO, e acontece em toda abertura.
+     *
+     * É ela que pinta o número do item Importar, e ela é a única coisa que
+     * esta função fazia antes de existir. Pôr o porteiro do dia na frente
+     * apagaria o número da segunda abertura em diante — o aviso escolhido
+     * sumiria justamente nas aberturas seguintes. */
+    if (!(await ofContarPendentes())) return;
+
+    var hoje = isoDate(new Date());
+    try {
+      if (localStorage.getItem(CHAVE_DIA_AUTOMATICO) === hoje) return;
+    } catch (e) { /* sem localStorage, roda toda abertura; o banco protege */ }
+
+    try {
+      of.conexoes = await api("/openfinance/connections");
+    } catch (e) { return; }
+    if (!of.conexoes.length) return;
+
+    try { localStorage.setItem(CHAVE_DIA_AUTOMATICO, hoje); } catch (e) {}
+
+    ofCalado = true;
+    try {
+      of.fontes = [];
+      await ofBuscarSozinho();
+    } finally {
+      ofCalado = false;
+    }
+    /* O recado escolhido: o número do item Importar, já sem o que entrou. */
+    ofContarPendentes();
   }
 
   /**

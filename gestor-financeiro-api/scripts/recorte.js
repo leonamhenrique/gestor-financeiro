@@ -54,7 +54,12 @@ function funcao(src, nome) {
   const i = src.indexOf(marcador);
   if (i < 0) throw new Error('não achei a função ' + nome);
   const corpo = bloco(src, '{', marcador);
-  return src.slice(i, src.indexOf('{', i)) + corpo;
+  // O `async` vem ANTES de `function`, então o marcador o deixaria de fora
+  // — e aí o `await` de dentro vira erro de sintaxe no recorte, longe da
+  // causa. Medido: `ofEntrarSozinhoAoAbrir` falhava com "Unexpected
+  // identifier" apontando para a chamada seguinte ao await.
+  const inicio = src.slice(0, i).endsWith('async ') ? i - 'async '.length : i;
+  return src.slice(inicio, src.indexOf('{', i)) + corpo;
 }
 
 module.exports = { RAIZ, ORIGEM, scriptDoApp, bloco, linha, funcao };
