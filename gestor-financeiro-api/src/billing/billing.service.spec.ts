@@ -68,6 +68,70 @@ describe('BillingService', () => {
     });
   });
 
+  /* Medido em produção em 27/11/2026: com o e-mail em `PREMIUM_USERS`, a
+   * conta tinha os direitos do Premium e MESMO ASSIM via "assinatura com
+   * pagamento pendente". A pergunta do bloqueio olhava só a linha de
+   * assinatura, e uma sobra de teste de checkout bastava para travar a
+   * criação de conta, cartão, lançamento e categoria. */
+  describe('a cortesia também livra do bloqueio', () => {
+    const antes = { ...process.env };
+    afterEach(() => {
+      process.env = { ...antes };
+    });
+
+    const comUsuario = (email: string) =>
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', email });
+
+    it('inadimplente na lista de cortesia não é bloqueado', async () => {
+      process.env.PREMIUM_USERS = 'dono@saldonline.com.br';
+      comUsuario('dono@saldonline.com.br');
+      prisma.subscription.findUnique.mockResolvedValue({
+        status: SubscriptionStatus.PAST_DUE,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+      });
+
+      await expect(service.podeCriarRegistros('u1')).resolves.toBe(true);
+    });
+
+    it('e a comparação não se importa com maiúsculas', async () => {
+      process.env.PREMIUM_USERS = 'Dono@Saldonline.com.BR';
+      comUsuario('dono@saldonline.com.br');
+      prisma.subscription.findUnique.mockResolvedValue({
+        status: SubscriptionStatus.PAST_DUE,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+      });
+
+      await expect(service.podeCriarRegistros('u1')).resolves.toBe(true);
+    });
+
+    /* O bloqueio continua existindo para quem ele foi feito. */
+    it('inadimplente FORA da lista continua bloqueado', async () => {
+      process.env.PREMIUM_USERS = 'dono@saldonline.com.br';
+      comUsuario('outra@pessoa.com');
+      prisma.subscription.findUnique.mockResolvedValue({
+        status: SubscriptionStatus.PAST_DUE,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+      });
+
+      await expect(service.podeCriarRegistros('u1')).resolves.toBe(false);
+    });
+
+    it('lista vazia não libera ninguém', async () => {
+      delete process.env.PREMIUM_USERS;
+      comUsuario('dono@saldonline.com.br');
+      prisma.subscription.findUnique.mockResolvedValue({
+        status: SubscriptionStatus.PAST_DUE,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: null,
+      });
+
+      await expect(service.podeCriarRegistros('u1')).resolves.toBe(false);
+    });
+  });
+
   /* Medido em produção em 26/11/2026: tocar em "Assinar o Pro" e voltar sem
    * pagar apagava o contador de teste do menu — a conta tinha virado Pro aos
    * olhos do servidor. Com ela vinham 5 bancos e 12 meses de histórico de

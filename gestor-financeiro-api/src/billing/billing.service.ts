@@ -57,9 +57,22 @@ export class BillingService {
    * Fonte única do bloqueio parcial. Usuário sem assinatura nenhuma é tratado
    * como liberado: o bloqueio é para quem assinou e parou de pagar, não para
    * quem ainda não passou pelo checkout.
+   *
+   * A CORTESIA VEM PRIMEIRO, como em `direitosDe`, e pelo mesmo motivo.
+   *
+   * Medido em produção: com o e-mail em `PREMIUM_USERS`, a conta tinha os
+   * direitos do Premium e MESMO ASSIM via "assinatura com pagamento
+   * pendente" — porque esta pergunta olhava só a linha de assinatura, e uma
+   * sobra de teste de checkout bastava para bloquear. A cortesia existe para
+   * dar acesso cheio sem assinatura; deixá-la de fora aqui é anulá-la na
+   * única coisa que o bloqueio faz.
    */
   async podeCriarRegistros(userId: string): Promise<boolean> {
-    const assinatura = await this.prisma.subscription.findUnique({ where: { userId } });
+    const [assinatura, usuario] = await Promise.all([
+      this.prisma.subscription.findUnique({ where: { userId } }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } }),
+    ]);
+    if (usuario && temCortesia(usuario)) return true;
     return acessoLiberado(assinatura);
   }
 
