@@ -380,7 +380,9 @@
   .lbl-row--acao > .lbl { white-space: nowrap; }
   .lbl-row--acao > .lbl-dir { margin-left: auto; }
   .lbl-dir { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
-  .lbl-total { font-size: 12px; color: var(--fg-muted); }
+  /* `flex`, e não bloco: com o "i" ao lado do número eles empilhavam, e a
+   * linha do título do bloco ficava com dois andares — medido na bancada. */
+  .lbl-total { font-size: 12px; color: var(--fg-muted); display: flex; align-items: center; gap: 8px; }
   .empty { font-size: 13px; color: var(--fg-subtle); padding: 13px 0; border-top: 1px solid var(--hairline); }
 
   .v-head h1 { font-size: 17px; font-weight: 600; margin: 0; }
@@ -772,6 +774,19 @@
     color: var(--fg-muted); cursor: pointer; transition: color 180ms ease-out, border-color 180ms ease-out;
   }
   .icon-btn:hover { color: var(--fg); border-color: var(--accent-borda); }
+  /* Dentro da linha de título de um bloco, onde a altura é a do texto e não
+   * a de um botão. O alvo de toque continua inteiro: a banda invisível do
+   * `::after` cobre os 44px, como no `.pill`. */
+  .icon-btn--mini { width: 26px; height: 26px; position: relative; }
+  .icon-btn--mini svg { width: 13px; height: 13px; }
+  .icon-btn--mini::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 44px; height: 44px; transform: translate(-50%, -50%);
+  }
+  /* O mesmo ícone, dizendo que há algo a ler AGORA. Usado quando os dois
+   * regimes de data discordam: a explicação não muda, a urgência sim. */
+  .icon-btn--alerta { color: var(--warning); border-color: var(--warning); }
+  .icon-btn--alerta:hover { color: var(--warning); border-color: var(--warning); }
   /* Também é o estado "pedido no ar": o mesmo apagado dos outros controles
    * desabilitados do app, que diz "não toque de novo" sem inventar sinal novo. */
   .icon-btn:disabled { opacity: 0.4; cursor: default; }
@@ -2332,6 +2347,24 @@
     .th.on { color: var(--fg); }
     .th.dir { justify-content: flex-end; }
     .th svg { width: 10px; height: 10px; flex-shrink: 0; }
+    /* O par "ordenar + filtrar" ocupa UMA célula da grade: a grade do
+     * cabeçalho é a mesma das linhas, e dois filhos soltos empurrariam
+     * todas as colunas para o lado. */
+    .th-grupo { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .th-grupo .th { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .th-filtro {
+      display: grid; place-items: center; flex-shrink: 0;
+      width: 18px; height: 18px; padding: 0; border: none; background: none;
+      color: var(--fg-subtle); cursor: pointer; opacity: 0;
+      transition: opacity 160ms ease-out, color 160ms ease-out;
+    }
+    .th-filtro svg { width: 12px; height: 12px; }
+    /* Aparece ao passar o mouse pelo cabeçalho, como a alça de arrastar do
+     * menu: ícone sempre aceso em cinco colunas vira cinco ruídos. Ligado,
+     * ele fica — é o único sinal de que a lista está recortada. */
+    .list-head:hover .th-filtro, .th-filtro:focus-visible, .th-filtro.on { opacity: 1; }
+    .th-filtro:hover { color: var(--fg); }
+    .th-filtro.on { color: var(--accent); }
     /* O cabeçalho já separa: a primeira linha não repete a hairline. */
     .list--extrato > :first-child { border-top: none; }
     .list--extrato .row-meta { display: none; }
@@ -2810,16 +2843,33 @@
 
     <!-- ================= LANÇAMENTOS ================= -->
     <section class="view" data-view="lancamentos">
-      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Extrato</h1>
-        <!-- Só aparece quando os relatórios estão por data da compra: aí esta
-             tela e o Resumo mostram números diferentes para o mesmo mês, e
-             isso precisa estar dito, não descoberto. -->
-        <div class="field-help" id="l-nota-regime" hidden></div>
+      <div class="blk v-head" style="--i:0"><h1 class="sr-only">Extrato</h1></div>
+      <div id="ajuda-extrato" hidden>
+        <div class="field-help">A fatura do cartão entra aqui como <b>uma linha só</b>, no dia do <b>vencimento</b> — é quando o dinheiro sai da conta. As compras de dentro dela aparecem na tela de Cartões.</div>
+        <div class="field-help" id="ajuda-extrato-regime" hidden>Os seus relatórios estão contando pela <b>data da compra</b>. Como esta tela conta pelo vencimento, os totais do Resumo podem diferir dos daqui no mesmo mês. Os dois estão certos: é a mesma compra, contada em meses diferentes.</div>
       </div>
       <div class="split split--extrato">
         <div class="col-main">
           <div class="blk" style="--i:2">
-            <div class="lbl-row"><div class="lbl">Movimentação</div><div class="lbl-total num" id="l-contagem"></div></div>
+            <!-- O "i" fica na linha do título da TABELA, e não no cabeçalho
+                 da tela: o que ele explica é a conta desta lista. A faixa de
+                 texto que morava no topo saiu daqui — ela não muda nunca, se
+                 lê uma vez, e ocupava a primeira dobra em toda visita.
+
+                 Quando os relatórios contam pela data da COMPRA, o ícone
+                 muda de tinta: o aviso continua existindo, só parou de ser
+                 um parágrafo que ninguém relê. -->
+            <div class="lbl-row">
+              <div class="lbl">Movimentação</div>
+              <div class="lbl-total num">
+                <button class="icon-btn icon-btn--mini" type="button" id="l-ajuda"
+                        data-ajuda="ajuda-extrato" data-ajuda-titulo="De que mês é cada linha"
+                        aria-label="De que mês é cada linha" title="De que mês é cada linha">
+                  <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 11.2v4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="7.9" r="1.15" fill="currentColor"/></svg>
+                </button>
+                <span id="l-contagem"></span>
+              </div>
+            </div>
             <div class="tabela">
               <div class="list-head" id="l-cabecalho"></div>
               <div class="list list--extrato" id="l-lista"></div>
@@ -4468,6 +4518,14 @@
   </div>
 </dialog>
 
+<!-- Filtrar por uma coluna do extrato. Camada, e não menu flutuante: é o
+     padrão do app para escolher entre muitos, e um popover seria a única
+     peça do tipo aqui dentro. -->
+<dialog id="dlg-filtro-coluna">
+  <div class="layer-head"><h3 id="fc-titulo">Filtrar</h3><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="layer-body"><div class="opt-list" id="fc-lista"></div></div>
+</dialog>
+
 <dialog id="dlg-mensagem">
   <form id="form-mensagem">
     <div class="layer-head"><h3 id="ms-titulo">Suporte</h3><div class="ctx" id="ms-ctx"></div><button type="button" class="layer-x" data-fechar aria-label="Fechar" title="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
@@ -6026,7 +6084,12 @@
     if (x.status === "CARRIED") meta += " · " + brl(x.f.levado) + " transportados";
     return {
       data: data, valor: -valor,
-      desc: titulo, categoria: meta, origem: origem,
+      /* `categoria` aqui NÃO é categoria: é o metadado da fatura ("2
+       * compras · vence dia 17"), que a coluna mostra e por onde se ordena.
+       * A marca abaixo tira esses textos da lista do filtro — oferecer
+       * "1 compra · vence dia 12" como se fosse categoria seria oferecer
+       * lixo, e foi o que a bancada mostrou. */
+      desc: titulo, categoria: meta, semCategoria: true, origem: origem,
       html: '<div class="row clickable" data-verfatura="' + x.card.id + '" data-verfatura-mes="' + mk + '">' +
         '<span class="cell-data num">' + fmtDia(data) + '</span>' +
         '<span class="row-main"><span class="row-title">' +
@@ -10668,11 +10731,80 @@
   var COLUNAS = [
     { campo: "data", nome: "Data", padrao: "desc" },
     { campo: "desc", nome: "Descrição", padrao: "asc" },
-    { campo: "categoria", nome: "Categoria", padrao: "asc" },
-    { campo: "origem", nome: "Conta / cartão", padrao: "asc" },
+    { campo: "categoria", nome: "Categoria", padrao: "asc", filtravel: true },
+    { campo: "origem", nome: "Conta / cartão", padrao: "asc", filtravel: true },
     { campo: "valor", nome: "Valor", padrao: "desc", direita: true }
   ];
   var ordem = { campo: "data", dir: "desc" };
+
+  /**
+   * O filtro de cada coluna filtrável. Vazio é "todos".
+   *
+   * Vive ao lado de `ordem` porque é a mesma ideia: um jeito de olhar a
+   * mesma lista, que não muda nada do que está gravado. Atravessa a troca
+   * de mês de propósito — quem está seguindo uma conta quer vê-la no mês
+   * passado também.
+   *
+   * O VALOR É O TEXTO DA CÉLULA, e não um id. Parece frouxo e é deliberado:
+   * a coluna "Conta / cartão" mostra o nome do CARTÃO numa fatura em aberto
+   * e o nome da CONTA QUE PAGOU numa fatura quitada. Filtrar por id de
+   * conta não acharia a fatura paga por ela; filtrar pelo que está escrito
+   * acha — e é exatamente o que a pessoa vê e aponta.
+   */
+  var filtroColuna = { categoria: "", origem: "" };
+
+  var SVG_FUNIL = '<svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16l-6.2 7.4V19l-3.6-2v-4.6L4 5z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+
+  /** Esta linha passa pelos filtros de coluna? `menos` deixa um de fora,
+   * para montar as opções daquela coluna. */
+  function passaNosFiltrosDeColuna(l, menos) {
+    for (var campo in filtroColuna) {
+      if (campo === menos) continue;
+      var alvo = filtroColuna[campo];
+      if (alvo && String(l[campo] || "").trim() !== alvo) return false;
+    }
+    return true;
+  }
+
+  /**
+   * O que cada coluna oferece, contado DO MÊS que está na tela.
+   *
+   * Não é a lista de todas as contas do app: oferecer uma conta sem
+   * movimento no mês devolveria tela vazia e pareceria defeito. E as opções
+   * de cada coluna saem da lista já filtrada pelas OUTRAS, então escolher
+   * uma conta reduz as categorias oferecidas — nunca sobra escolha que leva
+   * a nada.
+   */
+  function opcoesDasColunas(todas) {
+    var mapa = {};
+    COLUNAS.forEach(function (c) {
+      if (!c.filtravel) return;
+      var vistos = {};
+      todas.forEach(function (l) {
+        if (!passaNosFiltrosDeColuna(l, c.campo)) return;
+        /* Linha que usa o campo para outra coisa não entra na lista. A
+         * fatura guarda o metadado em `categoria`, e filtrar por ele não
+         * quer dizer nada. Ela continua SOMENDO quando se filtra por uma
+         * categoria de verdade, que é o certo: fatura não tem categoria. */
+        if (c.campo === "categoria" && l.semCategoria) return;
+        var v = String(l[c.campo] || "").trim();
+        if (v) vistos[v] = (vistos[v] || 0) + 1;
+      });
+      mapa[c.campo] = Object.keys(vistos).sort(function (a, b) {
+        return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
+      }).map(function (v) { return { valor: v, quantos: vistos[v] }; });
+    });
+    return mapa;
+  }
+
+  function algumFiltroDeColuna() {
+    for (var campo in filtroColuna) { if (filtroColuna[campo]) return true; }
+    return false;
+  }
+
+  function limparFiltrosDeColuna() {
+    for (var campo in filtroColuna) { filtroColuna[campo] = ""; }
+  }
 
   function comparaLinhas(a, b) {
     var r;
@@ -10686,17 +10818,33 @@
     return a.data < b.data ? 1 : (a.data > b.data ? -1 : 0);
   }
 
-  function renderCabecalhoExtrato() {
+  function renderCabecalhoExtrato(opcoes) {
     var seta = ordem.dir === "asc" ? "M6 14l6-6 6 6" : "M6 10l6 6 6-6";
     document.getElementById("l-cabecalho").innerHTML = COLUNAS.map(function (c) {
       var ativa = ordem.campo === c.campo;
-      return '<button type="button" class="th' + (ativa ? " on" : "") + (c.direita ? " dir" : "") +
+      var th = '<button type="button" class="th' + (ativa ? " on" : "") + (c.direita ? " dir" : "") +
         '" data-ordenar="' + c.campo + '" title="Ordenar por ' + c.nome + '">' + c.nome +
         (ativa ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="' + seta + '"/></svg>' : "") +
         "</button>";
+      if (!c.filtravel) return th;
+
+      var escolhido = filtroColuna[c.campo];
+      var quantas = (opcoes && opcoes[c.campo] ? opcoes[c.campo].length : 0);
+      /* Com um valor só na coluna não há o que escolher, e um funil que
+       * abre uma lista de um item é um clique cobrado por nada. Filtrando,
+       * ele fica — é por ele que se desfaz. */
+      if (quantas < 2 && !escolhido) return '<span class="th-grupo">' + th + "</span>";
+
+      return '<span class="th-grupo">' + th +
+        '<button type="button" class="th-filtro' + (escolhido ? " on" : "") +
+        '" data-filtrar="' + c.campo + '" aria-label="Filtrar por ' + c.nome + '" title="' +
+        (escolhido ? esc("Filtrando por " + escolhido) : "Filtrar por " + c.nome) + '">' +
+        SVG_FUNIL + "</button></span>";
     }).join("") + "<span></span>";
   }
   document.getElementById("l-cabecalho").addEventListener("click", function (e) {
+    var f = e.target.closest("[data-filtrar]");
+    if (f) { abrirFiltroDeColuna(f.dataset.filtrar); return; }
     var b = e.target.closest("[data-ordenar]");
     if (!b) return;
     var coluna = COLUNAS.filter(function (c) { return c.campo === b.dataset.ordenar; })[0];
@@ -10707,13 +10855,16 @@
   });
 
   function renderExtrato() {
-    // O aviso existe porque a divergência é real: esta tela conta a fatura no
-    // vencimento e o Resumo conta a compra no dia dela. Esconder isso é que
-    // seria defeito.
-    var nota = document.getElementById("l-nota-regime");
-    nota.hidden = relatorioPor !== "compra";
-    nota.textContent = "Esta tela mostra a fatura no vencimento, sempre. " +
-      "Seus relatórios estão contando pela data da compra, então os totais do Resumo podem diferir dos daqui.";
+    /* A divergência é real — esta tela conta a fatura no vencimento e o
+     * Resumo conta a compra no dia dela —, e esconder isso seria defeito. O
+     * que mudou é ONDE ela é dita: no "i", e não numa faixa de texto que
+     * toma a primeira dobra em toda visita.
+     *
+     * Quando os dois regimes discordam, o ícone muda de tinta. Um ícone que
+     * muda de cor é notado; um parágrafo que está sempre lá, não. */
+    var diverge = relatorioPor === "compra";
+    document.getElementById("ajuda-extrato-regime").hidden = !diverge;
+    document.getElementById("l-ajuda").classList.toggle("icon-btn--alerta", diverge);
     pintarMes("l-mes-label", extratoMes);
     var mk = monthKey(extratoMes);
 
@@ -10818,8 +10969,18 @@
         linhas.push(linhaMovimentoObjetivoHTML(x.objetivo, x.movimento));
       });
     }
+    /* Os filtros de coluna entram aqui: depois de a lista do mês estar
+     * montada e ANTES de ordenar. As opções saem da lista inteira, porque é
+     * o que o mês tem para oferecer; o que se vê é o recorte. */
+    var opcoes = opcoesDasColunas(linhas);
+    ultimasOpcoesDeColuna = opcoes;
+    var tinhaAntes = linhas.length;
+    linhas = linhas.filter(function (l) { return passaNosFiltrosDeColuna(l, null); });
+
     linhas.sort(comparaLinhas);
-    renderCabecalhoExtrato();
+    renderCabecalhoExtrato(opcoes);
+    /* A contagem é do que está na tela. Dizer "12 linhas" sobre uma lista
+     * de 3 seria contar o que o filtro tirou. */
     document.getElementById("l-contagem").textContent = linhas.length + (linhas.length === 1 ? " linha" : " linhas");
 
     // O agrupamento por dia só existe quando a ordem é por data — ordenado por
@@ -10836,10 +10997,61 @@
       }
       corpo += x.html;
     });
+    /* Vazio POR FILTRO não é o mesmo que mês sem lançamento, e confundir os
+     * dois faz a pessoa procurar defeito onde há só um recorte. O caminho
+     * de volta vai junto: o filtro atravessa a troca de mês, então ele pode
+     * estar ligado desde outra tela. */
     document.getElementById("l-lista").innerHTML = linhas.length
       ? corpo
-      : '<div class="empty">Nenhum lançamento neste mês.</div>';
+      : algumFiltroDeColuna() && tinhaAntes
+        ? '<div class="empty">Nenhuma linha com este filtro. ' +
+          '<button type="button" class="link-ghost" id="l-limpar-filtro">Mostrar todas as ' +
+          tinhaAntes + " do mês</button></div>"
+        : '<div class="empty">Nenhum lançamento neste mês.</div>';
+    var limpar = document.getElementById("l-limpar-filtro");
+    if (limpar) {
+      limpar.addEventListener("click", function () {
+        limparFiltrosDeColuna();
+        renderExtrato();
+      });
+    }
   }
+
+  /** A lista de valores daquela coluna, numa camada — o padrão do app para
+   * escolher entre muitos. Um menu flutuante seria a única coisa do tipo
+   * aqui dentro. */
+  function abrirFiltroDeColuna(campo) {
+    var coluna = COLUNAS.filter(function (c) { return c.campo === campo; })[0];
+    if (!coluna) return;
+    filtroColunaAberta = campo;
+    document.getElementById("fc-titulo").textContent = "Filtrar por " + coluna.nome.toLowerCase();
+
+    var opcoes = ultimasOpcoesDeColuna[campo] || [];
+    var escolhido = filtroColuna[campo];
+    document.getElementById("fc-lista").innerHTML =
+      '<button type="button" class="opt' + (escolhido ? "" : " on") + '" data-valor="">' +
+        '<span class="opt-linha">Todos</span></button>' +
+      opcoes.map(function (o) {
+        return '<button type="button" class="opt' + (o.valor === escolhido ? " on" : "") +
+          '" data-valor="' + esc(o.valor) + '"><span class="opt-linha">' + esc(o.valor) +
+          '<span class="tag">' + o.quantos + "</span></span></button>";
+      }).join("");
+    abrir("dlg-filtro-coluna");
+  }
+
+  var filtroColunaAberta = null;
+  /* O que o último desenho apurou. Remontar o mês só para abrir a lista
+   * seria refazer a conta inteira para mostrar nomes que acabaram de ser
+   * calculados. */
+  var ultimasOpcoesDeColuna = {};
+
+  document.getElementById("fc-lista").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-valor]");
+    if (!b || !filtroColunaAberta) return;
+    filtroColuna[filtroColunaAberta] = b.dataset.valor;
+    fechar("dlg-filtro-coluna");
+    renderExtrato();
+  });
 
   /* ---------- a aba Compartilhadas do extrato ---------- */
 
