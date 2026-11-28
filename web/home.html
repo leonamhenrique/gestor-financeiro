@@ -12222,6 +12222,10 @@
     if (!alvo.length && !trAlvo.length) { pintarImportacoesRecentes(); return; }
     var presos = alvo.filter(parcelaBloqueadaPorFaturaPaga);
     var podem = alvo.filter(function (t) { return !parcelaBloqueadaPorFaturaPaga(t); });
+    /* Veio do banco? Decidido ANTES de apagar — depois não há mais o que
+     * olhar. É o que diz se vale repetir a busca no provedor ao fim: um
+     * lote de arquivo OFX não tem o que voltar para lista nenhuma. */
+    var doBanco = alvo.some(function (t) { return !!t.providerTxId; });
     pedirConfirmacao({
       titulo: "Desfazer esta importação?",
       ctx: podem.length + (podem.length === 1 ? " lançamento sai" : " lançamentos saem") +
@@ -12261,6 +12265,29 @@
         });
         if (!ok) return;
         renderAll(); pintarImportacoesRecentes();
+
+        /* O QUE FOI DESFEITO VOLTA PARA A LISTA DO BANCO, AQUI MESMO.
+         *
+         * A de-duplicação é por `providerTxId`: apagados os lançamentos,
+         * aqueles ids deixam de ser "já tenho" e as linhas voltam a ser
+         * oferecidas. Só que a lista na tela é a da última busca — sem
+         * refazê-la, a pessoa desfaz, olha, não vê nada, e precisa tocar em
+         * "Buscar". Era a segunda ação que eu disse que não existiria.
+         *
+         * Custa uma busca no provedor, e aqui isso se paga: desfazer é
+         * deliberado e raro, e quem acabou de desfazer está olhando. */
+        if (doBanco && of.conexoes.length) {
+          var prontas = of.conexoes.filter(function (c) { return c.status === "AUTHORISED"; });
+          of.fontes = [];
+          ofCalado = true;
+          try {
+            for (var i = 0; i < prontas.length; i++) await ofSincronizar(prontas[i].id, null, true);
+          } finally {
+            ofCalado = false;
+          }
+          pintarOpenFinance();
+          ofContarPendentes();
+        }
         /* O servidor devolve o TOTAL; aqui ele se separa de novo. "5
          * lançamentos removidos" num lote de quatro lançamentos e uma
          * transferência conta certo e diz errado — e logo depois de mexer

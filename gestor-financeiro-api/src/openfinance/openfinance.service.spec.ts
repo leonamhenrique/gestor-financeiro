@@ -1133,6 +1133,40 @@ describe('OpenFinance', () => {
  * mesmos lancamentos, e eles passam nas mesmas condicoes. Isso e de
  * proposito -- a fatura tem de bater com a do banco --, mas um botao que se
  * desfaz sozinho precisa dizer isso ANTES. */
+/* Eu disse que desfazer devolveria o lancamento a lista "sem segunda
+ * acao", e nao devolvia: a lista na tela e a da ultima busca, entao a
+ * pessoa desfazia, olhava, nao via nada, e precisava tocar em "Buscar" --
+ * que e exatamente a segunda acao. */
+describe('desfazer refaz a busca, para a linha voltar na hora', () => {
+  const fonte = funcao(scriptDoApp(), 'desfazerImportacao');
+
+  it('decide ANTES de apagar se o lote veio do banco', () => {
+    /* Depois de apagar nao ha mais o que olhar: os lancamentos sumiram, e
+     * com eles o `providerTxId` que responde a pergunta. */
+    expect(fonte.indexOf('var doBanco = alvo.some')).toBeLessThan(
+      fonte.indexOf('await comServidor("desfazer a importação"'),
+    );
+  });
+
+  it('refaz a busca so quando veio do banco', () => {
+    expect(fonte).toContain('if (doBanco && of.conexoes.length)');
+    expect(fonte).toContain('ofSincronizar(prontas[i].id, null, true)');
+  });
+
+  /* Calada: a busca acontece sem ninguem ter pedido, e um erro de provedor
+   * ali cairia em cima do aviso de "importacao desfeita". */
+  it('a busca do desfazer e calada', () => {
+    const trecho = fonte.slice(fonte.indexOf('if (doBanco'));
+    expect(trecho).toContain('ofCalado = true');
+    expect(trecho).toContain('ofCalado = false');
+  });
+
+  it('e o numero do menu acompanha', () => {
+    const trecho = fonte.slice(fonte.indexOf('if (doBanco'));
+    expect(trecho).toContain('ofContarPendentes()');
+  });
+});
+
 describe('o desfazer avisa que o automatico pode voltar', () => {
   it('a tela diz isso para lote `aut-`, e so para ele', () => {
     const fonte = funcao(scriptDoApp(), 'desfazerImportacao');
