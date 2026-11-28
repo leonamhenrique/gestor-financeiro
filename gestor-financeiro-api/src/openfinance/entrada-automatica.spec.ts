@@ -84,42 +84,38 @@ describe('a décima condição: entra sozinho só o que é posterior à autoriza
   });
 });
 
-/* A última condição não é sobre a LINHA, é sobre o PASSADO dela.
+/* NÃO HÁ CONDIÇÃO SOBRE O PASSADO DA LINHA.
  *
- * Desfazer um lote que entrou sozinho e ver os mesmos lançamentos entrarem
- * de novo na abertura seguinte foi um defeito medido. A primeira correção
- * cortou a linha da proposta inteira -- e aí quem desfazia para CONFERIR
- * perdia o lançamento para sempre, sem aviso, que foi o segundo defeito
- * medido, em 28/11/2026.
+ * Houve, por dois dias: o que a pessoa tinha desfeito uma vez não entrava
+ * sozinho de novo. Saiu por decisão dele em 28/11/2026 — o que a
+ * integração promete é a fatura do app bater com a do banco sem ninguém
+ * importar à mão, e um lançamento que o banco manda pertence à fatura
+ * mesmo que alguém já o tenha desfeito. Errado, corrige-se DENTRO da
+ * fatura.
  *
- * O acordo final: a linha CONTINUA oferecida, e só deixa de entrar sozinha.
- */
-describe('o que já foi desfeito não entra sozinho de novo', () => {
-  const semDuvida = new Function(
-    'return (' + funcao(src, 'ofSemDuvida') + ');',
-  )() as (l: any) => boolean;
+ * Este teste guarda a ausência: a condição tem NOVE perguntas sobre a
+ * linha, mais a décima sobre o período. Nenhuma sobre o passado. */
+describe('a condição não pergunta pelo passado da linha', () => {
+  const fonte = funcao(src, 'ofSemDuvida');
 
-  const linhaLimpa = () => ({
-    base: { valor: 10, recusadoAntes: undefined },
-    repetida: false,
-    pagamento: false,
-    candidata: null,
-    origem: 'regra',
-    categoriaId: 'c1',
+  it('não há marca de desfeito em `ofSemDuvida`', () => {
+    expect(fonte).not.toContain('recusadoAntes');
+    expect(fonte).not.toContain('recusado');
   });
 
-  it('a linha que passa em tudo entra', () => {
-    expect(semDuvida(linhaLimpa())).toBe(true);
-  });
-
-  it('a mesma linha, já desfeita uma vez, não entra', () => {
-    const l: any = linhaLimpa();
-    l.base.recusadoAntes = true;
-    expect(semDuvida(l)).toBe(false);
-  });
-
-  /* A marca vem do servidor. Se ela deixar de chegar, isto cai. */
-  it('a condição lê a marca do servidor, e não um palpite da tela', () => {
-    expect(funcao(src, 'ofSemDuvida')).toContain('!l.base.recusadoAntes');
+  /* As nove da linha continuam lá: tirar a trava não é afrouxar o resto. */
+  it('as nove perguntas sobre a linha continuam', () => {
+    for (const parte of [
+      '!l.repetida',
+      '!l.pagamento',
+      '!l.base._parcelada',
+      'l.origem === "regra"',
+      '!!l.categoriaId',
+      'isFinite(l.base.valor)',
+      '!l.base._transferencia',
+      '!l.candidata',
+    ]) {
+      expect(fonte).toContain(parte);
+    }
   });
 });

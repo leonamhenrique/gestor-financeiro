@@ -610,28 +610,9 @@ export class OpenFinanceService {
      * mesmas transações, e sem este corte a lista de conferência viria
      * cheia do que a pessoa já importou ontem. */
     const ids = todos.map((t) => t.providerTxId).filter(Boolean);
-    const [existentes, recusados, viraramTransferencia] = await Promise.all([
+    const [existentes, viraramTransferencia] = await Promise.all([
       ids.length
         ? this.prisma.transaction.findMany({
-            where: { userId, providerTxId: { in: ids } },
-            select: { providerTxId: true },
-          })
-        : Promise.resolve([]),
-      /* O que a pessoa desfez CONTINUA sendo oferecido — só não entra mais
-       * sozinho.
-       *
-       * Era o contrário, e estava errado: a linha sumia da proposta inteira,
-       * então quem desfazia para CONFERIR perdia o lançamento para sempre,
-       * sem aviso. Desfazer quer dizer "quero refazer diferente" muito mais
-       * vezes do que "nunca mais me mostre" — e a segunda vontade se
-       * resolve deixando a linha desmarcada, que é o que a conferência já
-       * faz.
-       *
-       * O que NÃO pode voltar é a entrada automática: entrar sem ninguém
-       * olhar logo depois de alguém ter desfeito é o defeito que a recusa
-       * nasceu para impedir. Por isso ela vira MARCA, e não corte. */
-      ids.length
-        ? this.prisma.openFinanceRefusal.findMany({
             where: { userId, providerTxId: { in: ids } },
             select: { providerTxId: true },
           })
@@ -647,18 +628,23 @@ export class OpenFinanceService {
           })
         : Promise.resolve([]),
     ]);
+    /* Sai o que o app JÁ TEM, e nada mais.
+     *
+     * Houve aqui um terceiro conjunto: o que a pessoa tinha desfeito uma
+     * vez. Saiu por decisão dele, em 28/11/2026. O que esta integração
+     * promete é a fatura do app bater com a do banco sem ninguém importar
+     * à mão, e um lançamento que o banco manda pertence à fatura mesmo que
+     * alguém já o tenha desfeito — se estiver errado, corrige-se dentro da
+     * fatura. A tabela de recusas continua existindo, sem leitor: desfazer
+     * duas decisões em dois dias e apagar o rastro das duas seria apostar
+     * que a terceira não vem. */
     const jaTenho = new Set([
       ...existentes.map((t) => t.providerTxId),
       ...viraramTransferencia.map((t) => t.providerTxId),
     ]);
-    const jaDesfeitos = new Set(recusados.map((r) => r.providerTxId));
 
     const limpar = (lista: LancamentoDoProvedor[]) =>
-      lista
-        .filter((t) => !jaTenho.has(t.providerTxId))
-        .map((t) =>
-          jaDesfeitos.has(t.providerTxId) ? { ...t, recusadoAntes: true } : t,
-        );
+      lista.filter((t) => !jaTenho.has(t.providerTxId));
 
     for (const c of contas) c.lancamentos = limpar(c.lancamentos);
     for (const k of cartoes) k.lancamentos = limpar(k.lancamentos);
@@ -697,28 +683,6 @@ export class OpenFinanceService {
       jaSincronizados: jaTenho.size,
       mesesForaDoPlano: cortados.size,
     };
-  }
-
-  // ------------------------------------------------------------- recusar
-  /**
-   * "Estes eu não quero" — dito desfazendo um lote.
-   *
-   * Guarda só o id no provedor. Para lembrar que alguém não quis, basta
-   * saber qual era; valor, data e descrição não acrescentam nada e seriam
-   * mais dado financeiro guardado sem necessidade.
-   */
-  async recusar(userId: string, providerTxIds: string[]) {
-    const limpos = [...new Set((providerTxIds || []).filter(Boolean))];
-    if (!limpos.length) return { recusados: 0 };
-
-    await this.prisma.openFinanceRefusal.createMany({
-      data: limpos.map((providerTxId) => ({ userId, providerTxId })),
-      /* Recusar duas vezes é a mesma recusa: o índice único recusaria o
-       * segundo, e o desfazer morreria por causa de um registro que já
-       * existia. */
-      skipDuplicates: true,
-    });
-    return { recusados: limpos.length };
   }
 
   // ------------------------------------------------------------ vincular

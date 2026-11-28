@@ -212,17 +212,6 @@ export class OpenFinanceController {
   }
 
   /**
-   * "Estes eu não quero": os lançamentos de um lote desfeito.
-   *
-   * Sem isto, desfazer um lote que entrou sozinho dura até a próxima
-   * abertura da tela — medido.
-   */
-  @Post('recusados')
-  recusar(@Req() req: any, @Body() dto: RecusarDto) {
-    return this.openFinance.recusar(req.user.id, dto.providerTxIds);
-  }
-
-  /**
    * Liga um lançamento que a pessoa JÁ TINHA à transação do banco.
    *
    * Não cria nada e não sobrescreve nada dela: grava só o id do provedor.

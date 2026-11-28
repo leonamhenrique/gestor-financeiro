@@ -12235,9 +12235,14 @@
          * estar dito ANTES. Sem esta frase a pessoa desfaz para conferir,
          * procura o lançamento na proposta e não acha — foi o que
          * aconteceu, medido em produção. */
+        /* Desfazer um lote automático dura até a próxima abertura: o app
+         * vai propô-los de novo, e de novo eles vão passar nas condições.
+         * Isso é de propósito — a fatura tem de bater com a do banco —, mas
+         * um botão que se desfaz sozinho precisa dizer isso antes. */
         (/^aut-/.test(id)
-          ? "Estes entraram sozinhos. Desfazendo, eles voltam para a lista do banco para você " +
-            "conferir à mão — e não entram mais sozinhos. "
+          ? "Estes entraram sozinhos, e podem entrar de novo na próxima vez que você abrir o " +
+            "app — é assim que a fatura continua batendo com a do banco. Para mudar algo neles, " +
+            "edite dentro da fatura. "
           : "") +
         "Categorias criadas pela importação não são apagadas.",
       acao: "Desfazer",
@@ -12249,27 +12254,11 @@
         // local: lá o desfazer remove um a um e precisa pular o que travaria;
         // o lote é atômico, e tirar parte dele deixaria o resto órfão.
         var removidos = 0;
-        var recusados = [];
         var ok = await comServidor("desfazer a importação", async function () {
           var r = await api("/transactions/import/" + encodeURIComponent(id), null, "DELETE");
           removidos = r ? r.removed : 0;
-          recusados = (r && r.providerTxIds) || [];
           await carregarDoServidor();
         });
-        /* A recusa vale SÓ para o que o app lançou sozinho.
-         *
-         * Ela nasceu de um caso medido: desfiz um lote que tinha entrado
-         * sozinho, reabri a tela, e os mesmos lançamentos entraram de novo.
-         * Isso é do automático — ele age sem ninguém olhar.
-         *
-         * Num lote que a PESSOA importou, desfazer e ver a proposta de
-         * volta é o certo: ela desfez justamente para refazer diferente.
-         * Registrar recusa ali trancava a porta — e foi o que impediu
-         * reimportar um lote cuja fatura tinha ficado errada. */
-        if (recusados.length && /^aut-/.test(id)) {
-          try { await api("/openfinance/recusados", { providerTxIds: recusados }); } catch (e) {}
-          ofContarPendentes();
-        }
         if (!ok) return;
         renderAll(); pintarImportacoesRecentes();
         /* O servidor devolve o TOTAL; aqui ele se separa de novo. "5
@@ -13047,16 +13036,21 @@
     return quando >= desde;
   }
 
-  /* A última condição não é sobre a LINHA, é sobre o passado dela: o que a
-   * pessoa já desfez uma vez não entra sozinho de novo. Ela continua na
-   * lista para ser conferida à mão — desfazer costuma querer dizer "refaço
-   * diferente" —, mas entrar sem ninguém olhar logo depois de alguém ter
-   * desfeito é o defeito que a marca existe para impedir. Quem a põe é o
-   * servidor, em `paraImportar`. */
+  /* NÃO HÁ CONDIÇÃO SOBRE O PASSADO DA LINHA.
+   *
+   * Houve: o que a pessoa tinha desfeito uma vez não entrava sozinho de
+   * novo. Saiu por decisão dele, em 28/11/2026, e a razão é boa — o que
+   * esta integração promete é a fatura do app bater com a do banco sem
+   * ninguém importar à mão. Um lançamento que o banco manda e que cai numa
+   * categoria que a PESSOA ensinou pertence à fatura; se estiver errado,
+   * corrige-se dentro dela, que é onde se corrige qualquer lançamento.
+   *
+   * O preço está dito na confirmação do desfazer: desfazer um lote
+   * automático dura até a próxima abertura. */
   function ofSemDuvida(l) {
     return !l.repetida && !l.pagamento && !l.base._parcelada &&
            l.origem === "regra" && !!l.categoriaId && isFinite(l.base.valor) &&
-           !l.base._transferencia && !l.candidata && !l.base.recusadoAntes;
+           !l.base._transferencia && !l.candidata;
   }
 
   /** A fatura do app e a do banco dizem o mesmo? Só vale para cartão. */

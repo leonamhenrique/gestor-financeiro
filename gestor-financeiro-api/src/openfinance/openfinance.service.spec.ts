@@ -482,33 +482,33 @@ describe('OpenFinance', () => {
       expect(r.jaSincronizados).toBe(1);
     });
 
-    /* O defeito original foi medido: desfiz um lote que tinha entrado
-     * sozinho, reabri a tela, e os mesmos lancamentos entraram de novo. A
-     * condicao "nao casa com nada que voce ja tem" olha o que o app TEM --
-     * e depois do desfazer ele nao tem mais.
+    /* A TRAVA SAIU, por decisao dele em 28/11/2026.
      *
-     * A primeira correcao cortou a linha da proposta inteira, e isso criou
-     * um defeito maior: quem desfazia para CONFERIR perdia o lancamento
-     * para sempre, sem aviso. Agora a recusa e MARCA, nao corte. */
-    it('o que foi desfeito continua na lista, so que marcado', async () => {
+     * Ela teve duas versoes em dois dias: primeiro cortava a linha da
+     * proposta inteira (e quem desfazia para conferir perdia o lancamento,
+     * sem aviso), depois virou marca (e a linha so deixava de entrar
+     * sozinha). A terceira decisao foi nao ter trava: o que a integracao
+     * promete e a fatura do app bater com a do banco sem ninguem importar
+     * a mao, e um lancamento que o banco manda pertence a fatura mesmo que
+     * alguem ja o tenha desfeito. Errado, corrige-se DENTRO da fatura.
+     *
+     * Estes testes guardam a AUSENCIA. Sem eles a trava volta sem querer
+     * no dia em que alguem reencontrar a tabela de recusas, que continua
+     * no banco sem leitor. */
+    it('o que foi desfeito volta a ser oferecido, sem marca nenhuma', async () => {
       prisma.openFinanceRefusal.findMany.mockResolvedValue([{ providerTxId: 'tx-1' }]);
 
       const r = await service.paraImportar('u1', 'cx1');
 
       const linhas = r.cartoes[0].lancamentos;
       expect(linhas.map((l: any) => l.providerTxId)).toEqual(['tx-1', 'tx-2']);
-      expect(linhas.find((l: any) => l.providerTxId === 'tx-1').recusadoAntes).toBe(true);
-      expect(linhas.find((l: any) => l.providerTxId === 'tx-2').recusadoAntes).toBeUndefined();
+      expect(linhas[0].recusadoAntes).toBeUndefined();
     });
 
-    /* Desfazer nao conta como "ja sincronizado": a linha continua para ser
-     * conferida, e some-la do contador diria que nao ha o que ver. */
-    it('o desfeito nao entra no contador de ja sincronizados', async () => {
-      prisma.openFinanceRefusal.findMany.mockResolvedValue([{ providerTxId: 'tx-1' }]);
-
-      const r = await service.paraImportar('u1', 'cx1');
-
-      expect(r.jaSincronizados).toBe(0);
+    /* A consulta voltar e o primeiro passo de volta para a trava. */
+    it('a proposta nem consulta a tabela de recusas', async () => {
+      await service.paraImportar('u1', 'cx1');
+      expect(prisma.openFinanceRefusal.findMany).not.toHaveBeenCalled();
     });
 
     /* A linha que a pessoa marcou como TRANSFERENCIA nao virou lancamento --
@@ -523,16 +523,15 @@ describe('OpenFinance', () => {
       expect(r.cartoes[0].lancamentos.map((l: any) => l.providerTxId)).toEqual(['tx-2']);
     });
 
-    /* So o que JA ESTA no app sai da lista. O desfeito fica, marcado. */
-    it('importado sai; desfeito fica, com a marca', async () => {
+    /* So o que JA ESTA no app sai da lista -- isso e de-duplicacao, e
+     * continua valendo. Ter sido desfeito nao tira nada. */
+    it('importado sai; desfeito fica', async () => {
       prisma.transaction.findMany.mockResolvedValue([{ providerTxId: 'tx-1' }]);
       prisma.openFinanceRefusal.findMany.mockResolvedValue([{ providerTxId: 'tx-2' }]);
 
       const r = await service.paraImportar('u1', 'cx1');
 
-      const linhas = r.cartoes[0].lancamentos;
-      expect(linhas.map((l: any) => l.providerTxId)).toEqual(['tx-2']);
-      expect(linhas[0].recusadoAntes).toBe(true);
+      expect(r.cartoes[0].lancamentos.map((l: any) => l.providerTxId)).toEqual(['tx-2']);
       expect(r.jaSincronizados).toBe(1);
     });
 
@@ -694,35 +693,7 @@ describe('OpenFinance', () => {
     });
   });
 
-  // ----------------------------------------------------------------------
-  describe('recusar', () => {
-    it('guarda so o id no provedor, e nada mais', async () => {
-      await service.recusar('u1', ['tx-1', 'tx-2']);
 
-      const chamada = prisma.openFinanceRefusal.createMany.mock.calls[0][0];
-      expect(chamada.data).toEqual([
-        { userId: 'u1', providerTxId: 'tx-1' },
-        { userId: 'u1', providerTxId: 'tx-2' },
-      ]);
-    });
-
-    /* Recusar duas vezes e a mesma recusa. Sem isto, desfazer um lote que
-     * repetisse um id morreria no indice unico -- e o desfazer ja tinha
-     * acontecido, entao o erro seria sobre nada. */
-    it('recusar de novo nao quebra', async () => {
-      await service.recusar('u1', ['tx-1', 'tx-1', '', null as any]);
-
-      const chamada = prisma.openFinanceRefusal.createMany.mock.calls[0][0];
-      expect(chamada.data).toHaveLength(1);
-      expect(chamada.skipDuplicates).toBe(true);
-    });
-
-    it('lista vazia nao vai ao banco', async () => {
-      const r = await service.recusar('u1', []);
-      expect(r.recusados).toBe(0);
-      expect(prisma.openFinanceRefusal.createMany).not.toHaveBeenCalled();
-    });
-  });
 
   // ----------------------------------------------------------------------
   /* "Este lancamento que eu ja tinha E o que o banco mandou."
@@ -1102,76 +1073,16 @@ describe('OpenFinance', () => {
     });
   });
 
-/* A recusa era uma porta so de ida: a linha sumia da proposta INTEIRA, e
- * quem desfazia para conferir perdia o lancamento para sempre, sem aviso.
- * Medido em producao em 28/11/2026.
- *
- * Agora ela e MARCA, e nao corte: a linha continua sendo oferecida e so
- * deixa de entrar sozinha. Desfazer quer dizer "quero refazer diferente"
- * muito mais vezes do que "nunca mais me mostre" -- e a segunda vontade se
- * resolve deixando a linha desmarcada na conferencia. */
-describe('desfeito volta para a lista, mas nao entra sozinho', () => {
-  const comRecusa = (ids: string[]) =>
-    prisma.openFinanceRefusal.findMany.mockResolvedValue(
-      ids.map((providerTxId) => ({ providerTxId })),
-    );
-
-  it('o que foi desfeito continua na proposta', async () => {
-    comRecusa(['tx-1']);
-    polp.transacoesDaConta.mockResolvedValue([
-      { providerTxId: 'tx-1', data: '2026-11-10', valor: 10, tipo: 'EXPENSE', descricao: 'A', faturada: true },
-      { providerTxId: 'tx-2', data: '2026-11-11', valor: 20, tipo: 'EXPENSE', descricao: 'B', faturada: true },
-    ]);
-    polp.cartoes.mockResolvedValue([]);
-    polp.contas.mockResolvedValue([{ providerAccountId: 'c-la', nome: '0001' }]);
-
-    const p = await service.paraImportar('u1', 'cx1');
-    const ids = p.contas.flatMap((c: any) => c.lancamentos.map((l: any) => l.providerTxId));
-    expect(ids).toContain('tx-1');
-    expect(ids).toContain('tx-2');
-  });
-
-  it('mas vai MARCADO, para nao entrar sozinho de novo', async () => {
-    comRecusa(['tx-1']);
-    polp.transacoesDaConta.mockResolvedValue([
-      { providerTxId: 'tx-1', data: '2026-11-10', valor: 10, tipo: 'EXPENSE', descricao: 'A', faturada: true },
-      { providerTxId: 'tx-2', data: '2026-11-11', valor: 20, tipo: 'EXPENSE', descricao: 'B', faturada: true },
-    ]);
-    polp.cartoes.mockResolvedValue([]);
-    polp.contas.mockResolvedValue([{ providerAccountId: 'c-la', nome: '0001' }]);
-
-    const p = await service.paraImportar('u1', 'cx1');
-    const porId: Record<string, any> = {};
-    p.contas.forEach((c: any) => c.lancamentos.forEach((l: any) => { porId[l.providerTxId] = l; }));
-    expect(porId['tx-1'].recusadoAntes).toBe(true);
-    expect(porId['tx-2'].recusadoAntes).toBeUndefined();
-  });
-
-  /* O que JA ESTA no app continua fora: isso e de-duplicacao, nao recusa. */
-  it('o que ja foi importado continua fora da lista', async () => {
-    comRecusa([]);
-    prisma.transaction.findMany.mockResolvedValue([{ providerTxId: 'tx-1' }]);
-    polp.transacoesDaConta.mockResolvedValue([
-      { providerTxId: 'tx-1', data: '2026-11-10', valor: 10, tipo: 'EXPENSE', descricao: 'A', faturada: true },
-    ]);
-    polp.cartoes.mockResolvedValue([]);
-    polp.contas.mockResolvedValue([{ providerAccountId: 'c-la', nome: '0001' }]);
-
-    const p = await service.paraImportar('u1', 'cx1');
-    const ids = p.contas.flatMap((c: any) => c.lancamentos.map((l: any) => l.providerTxId));
-    expect(ids).not.toContain('tx-1');
-  });
-});
-
-/* A frase tem de estar na confirmacao ANTES de desfazer: foi a falta dela
- * que fez o lancamento sumir sem explicacao. Agora ela conta a verdade
- * nova -- a linha VOLTA para a lista, e so nao entra mais sozinha. */
-describe('o desfazer avisa que o automatico nao volta', () => {
+/* Desfazer um lote automatico dura ate a proxima abertura: o app propoe os
+ * mesmos lancamentos, e eles passam nas mesmas condicoes. Isso e de
+ * proposito -- a fatura tem de bater com a do banco --, mas um botao que se
+ * desfaz sozinho precisa dizer isso ANTES. */
+describe('o desfazer avisa que o automatico pode voltar', () => {
   it('a tela diz isso para lote `aut-`, e so para ele', () => {
     const fonte = funcao(scriptDoApp(), 'desfazerImportacao');
     expect(fonte).toContain('/^aut-/.test(id)');
-    expect(fonte).toContain('voltam para a lista do banco');
-    expect(fonte).toContain('não entram mais sozinhos');
+    expect(fonte).toContain('podem entrar de novo na próxima vez');
+    expect(fonte).toContain('edite dentro da fatura');
   });
 });
 
