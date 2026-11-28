@@ -12230,7 +12230,16 @@
         (presos.length ? ", " + presos.length + " ficam" : ""),
       detalhe: (presos.length
         ? "Os que ficam estão em fatura já paga: tirá-los deixaria o pagamento sem lastro. "
-        : "") + "Categorias criadas pela importação não são apagadas.",
+        : "") +
+        /* O lote automático registra RECUSA ao ser desfeito, e isso tem de
+         * estar dito ANTES. Sem esta frase a pessoa desfaz para conferir,
+         * procura o lançamento na proposta e não acha — foi o que
+         * aconteceu, medido em produção. */
+        (/^aut-/.test(id)
+          ? "Estes entraram sozinhos. Desfazendo, eles deixam de ser oferecidos — e dá para " +
+            "trazer de volta no bloco do banco. "
+          : "") +
+        "Categorias criadas pela importação não são apagadas.",
       acao: "Desfazer",
       destrutivo: true
     }, async function () {
@@ -12324,7 +12333,7 @@
    * vira uma linha aqui, importada separadamente — é o que o resto da tela
    * já sabe tratar, e é o que deixa a pessoa parar onde quiser.
    */
-  var of = { conexoes: [], bancos: [], pendente: null, proposta: null, fontes: [] };
+  var of = { conexoes: [], bancos: [], pendente: null, proposta: null, fontes: [], recusados: 0 };
 
   /**
    * Rodando SEM ninguém ter pedido.
@@ -12358,6 +12367,13 @@
       // sendo a de sempre. Isto não é erro que se mostre a ninguém.
       return;
     }
+    /* Sem `await`: o caminho de volta da recusa é recado, não requisito
+     * para conferir extrato. Quando responder, a lista se repinta. */
+    api("/openfinance/recusados").then(function (r) {
+      of.recusados = (r && r.total) || 0;
+      if (of.recusados) pintarOpenFinance();
+    }).catch(function () {});
+
     bloco.hidden = false;
     pintarOpenFinance();
     /* Sem await: o interruptor de avisos aparece quando o servidor
@@ -12487,6 +12503,21 @@
             '<button type="button" class="ghost danger" data-of="desconectar">Desconectar</button>' +
           "</span></div>";
       }).join("");
+    }
+    /* O CAMINHO DE VOLTA DA RECUSA.
+     *
+     * Desfazer um lote automático registra "não quero estes", e isso
+     * resolve um defeito real — o mesmo lançamento voltando a entrar na
+     * abertura seguinte. Mas quem desfez para CONFERIR perdia a linha da
+     * proposta para sempre. A recusa passa a ser reversível, e a linha só
+     * aparece quando há o que trazer. */
+    if (of.recusados > 0) {
+      lista.innerHTML +=
+        '<div class="field-help">' + of.recusados +
+        (of.recusados === 1
+          ? " lançamento que você recusou não é mais oferecido. "
+          : " lançamentos que você recusou não são mais oferecidos. ") +
+        '<button type="button" class="link-ghost" id="of-devolver">Trazer de volta</button></div>';
     }
     if (of.conexoes.some(function (c) { return !!c.conectadaAte; })) {
       lista.innerHTML +=
@@ -12666,6 +12697,25 @@
       if (botao) { botao.disabled = false; botao.removeAttribute("aria-busy"); }
     }
   }
+
+  document.getElementById("of-lista").addEventListener("click", async function (e) {
+    var b = e.target.closest("#of-devolver");
+    if (!b) return;
+    b.disabled = true;
+    var r = await ofPerguntar(b, "/openfinance/recusados", null, "DELETE");
+    if (!r) { b.disabled = false; return; }
+    of.recusados = 0;
+    /* Buscar de novo: o que voltou a ser oferecido só aparece na proposta
+     * seguinte, e mandar a pessoa tocar em "Buscar" depois de "Trazer de
+     * volta" seria cobrar dois cliques pela mesma vontade. */
+    await ofRecarregarLista();
+    var prontas = of.conexoes.filter(function (c) { return c.status === "AUTHORISED"; });
+    for (var i = 0; i < prontas.length; i++) await ofSincronizar(prontas[i].id, null, true);
+    pintarOpenFinance();
+    avisar("De volta à lista",
+      (r.devolvidos || 0) + ((r.devolvidos || 0) === 1 ? " lançamento voltou" : " lançamentos voltaram") +
+      " a ser oferecido. Eles aparecem na lista do banco de novo.");
+  });
 
   async function ofRecarregarLista() {
     try { of.conexoes = await api("/openfinance/connections"); } catch (e) {}

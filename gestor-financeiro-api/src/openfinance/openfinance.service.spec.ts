@@ -22,6 +22,7 @@ import { PolpClient, ConflitoDeConsentimento } from './polp.client';
 import { PrismaService } from '../prisma/prisma.service';
 import { limitesLiberados } from '../billing/limites.dobro';
 import { LimitesService } from '../billing/limites.service';
+import { scriptDoApp, funcao } from '../../scripts/recorte';
 
 describe('OpenFinance', () => {
   let service: OpenFinanceService;
@@ -88,6 +89,8 @@ describe('OpenFinance', () => {
       openFinanceRefusal: {
         findMany: jest.fn().mockResolvedValue([]),
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       /* A linha que virou TRANSFERENCIA tambem ja esta resolvida: ela nao e
        * lancamento, mas tambem nao e novidade. */
@@ -1078,4 +1081,46 @@ describe('OpenFinance', () => {
       expect(r.map((i: any) => i.nome)).toEqual(['Banco Inter PF']);
     });
   });
+
+/* A recusa era uma porta so de ida. Desfazer um lote automatico registra
+ * "nao quero estes" -- e isso resolve um defeito real, o de o mesmo
+ * lancamento voltar a entrar na abertura seguinte. Mas quem desfez para
+ * CONFERIR perdia a linha da proposta para sempre, sem aviso e sem volta.
+ * Medido em producao em 28/11/2026. */
+describe('a recusa deixa de ser porta so de ida', () => {
+  it('contar diz quantos estao recusados, por pessoa', async () => {
+    prisma.openFinanceRefusal.count.mockResolvedValue(3);
+    await expect(service.contarRecusados('u1')).resolves.toEqual({ total: 3 });
+    expect(prisma.openFinanceRefusal.count).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+  });
+
+  it('devolver apaga as recusas e diz quantas foram', async () => {
+    prisma.openFinanceRefusal.deleteMany.mockResolvedValue({ count: 2 });
+    await expect(service.devolverRecusados('u1')).resolves.toEqual({ devolvidos: 2 });
+  });
+
+  /* O `where` com `userId` e a unica coisa entre "apagar as minhas" e
+   * "apagar as de todo mundo". */
+  it('devolver so mexe nas recusas do dono', async () => {
+    prisma.openFinanceRefusal.deleteMany.mockResolvedValue({ count: 0 });
+    await service.devolverRecusados('u1');
+    expect(prisma.openFinanceRefusal.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+  });
+
+  it('sem nada recusado, devolver nao e erro', async () => {
+    prisma.openFinanceRefusal.deleteMany.mockResolvedValue({ count: 0 });
+    await expect(service.devolverRecusados('u1')).resolves.toEqual({ devolvidos: 0 });
+  });
+});
+
+/* A frase tem de estar na confirmacao ANTES de desfazer: foi a falta dela
+ * que fez o lancamento sumir sem explicacao. */
+describe('o desfazer avisa que o automatico nao volta', () => {
+  it('a tela diz isso para lote `aut-`, e so para ele', () => {
+    const fonte = funcao(scriptDoApp(), 'desfazerImportacao');
+    expect(fonte).toContain('/^aut-/.test(id)');
+    expect(fonte).toContain('deixam de ser oferecidos');
+  });
+});
+
 });
