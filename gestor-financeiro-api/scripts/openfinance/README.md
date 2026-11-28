@@ -266,6 +266,7 @@ node scripts/openfinance/medir-forecast.js           # caça o cartão que atrav
 node scripts/openfinance/casar.js                    # casamento no CARTÃO
 node scripts/openfinance/casar-conta.js              # casamento na CONTA
 node scripts/openfinance/conferir-plano.js [nome]    # produção: só leitura
+node scripts/openfinance/ver-contraparte.js --consent <id>   # produção: só leitura
 ```
 
 Os quatro primeiros só tocam `/api/v2/sandbox`, onde consentimento nunca é
@@ -273,7 +274,21 @@ cobrado, e revogam o que criam (`medir-sandbox` imprime o comando; os outros
 revogam sozinhos). Para conferir que não ficou nada vivo, `GET
 /api/v2/sandbox/consents` deve devolver lista vazia.
 
-`conferir-plano.js` é o único que fala com **produção**, e só lê: lista
+`ver-contraparte.js` responde uma pergunta só: **num Pix ou numa TED, a Polp
+diz de qual BANCO o dinheiro veio?** O app lê `counterparty.alias` e
+`counterparty.name` e mais nada — o que existe no resto desse objeto nunca foi
+olhado, e disso depende o passo seguinte. Com dois bancos ligados, saber a
+instituição da contraparte é o que permitiria sugerir a outra conta em vez de
+perguntar, e é o critério forte para emparelhar as duas pernas da mesma
+transferência (hoje sobrariam valor, sinal e data, que casam errado quando há
+duas transferências do mesmo valor no mesmo dia).
+
+Ele imprime as CHAVES encontradas nas linhas de transferência, com um exemplo
+por chave, e **mascara documento e número de conta** — para saber se o campo
+existe, os últimos dígitos bastam.
+
+`conferir-plano.js` e `ver-contraparte.js` são os que falam com **produção**, e
+só leem: o primeiro lista
 consentimentos e instituições. Ele não cria nada, logo não gera cobrança.
 
 Cada um é autossuficiente, com a sua própria cópia das quatro funções de
