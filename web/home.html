@@ -395,6 +395,23 @@
    * sentar ao lado do título — reusada aqui, ela centrava os botões no meio
    * da coluna (medido: 444px de margem numa coluna de 862). */
   .acoes-linha { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* Importações da MESMA fatura, juntas. A linha de cima é o resumo; as de
+   * dentro são as importações de verdade, cada uma com o seu Desfazer —
+   * porque desfazer continua sendo por lote, e um "desfazer o grupo" seria
+   * uma ação destrutiva com alcance que a linha não mostra. */
+  .imp-filhos {
+    margin-left: 14px; padding-left: 14px;
+    border-left: 1px solid var(--hairline-strong);
+  }
+  /* A primeira de dentro não repete a divisória: quem separa o grupo do
+   * resumo é o recuo, e duas linhas coladas pareceriam um lote vazio. */
+  .imp-filhos > .imp-lote:first-child { border-top: none; padding-top: 4px; }
+  .imp-filhos > .imp-lote b { font-weight: 400; color: var(--fg-muted); }
+  .imp-abrir svg {
+    width: 14px; height: 14px; margin-left: 2px;
+    transition: transform 180ms ease-out;
+  }
+  .imp-grupo.aberto .imp-abrir svg { transform: rotate(180deg); }
   /* Conferindo, a tela de Importar mostra SÓ os lançamentos.
    *
    * O passo 1 já sumia; o bloco do Open Finance e o das importações recentes
@@ -12053,46 +12070,135 @@
       if (t.importadoEm && (!g.em || t.importadoEm < g.em)) g.em = t.importadoEm;
     });
     return Object.keys(por).map(function (k) { return por[k]; })
-      .sort(function (a, b) { return String(b.em).localeCompare(String(a.em)); })
-      .slice(0, 8);
+      .sort(function (a, b) { return String(b.em).localeCompare(String(a.em)); });
+  }
+
+  /** Quais grupos estão abertos. Sobrevive ao repintar — desfazer uma
+   * importação redesenha a lista, e fechar o grupo no meio da operação
+   * faria a pessoa procurar de novo onde estava. */
+  var gruposAbertos = {};
+
+  /**
+   * As importações juntadas por DESTINO e FATURA.
+   *
+   * Importar uma fatura em quatro domingos virava quatro linhas iguais, com
+   * a mesma conta e a mesma fatura, diferentes só pela data — e a lista de
+   * "recentes" passava a ser a lista de tudo. O que a pessoa procura ali é
+   * "o que entrou nesta fatura", e não "o que aconteceu naquele domingo".
+   *
+   * O LOTE CONTINUA SENDO A UNIDADE DO DESFAZER. O grupo é só como a lista
+   * se lê; desfazer continua removendo exatamente os lançamentos de uma
+   * importação, que é o que a pessoa consegue reconhecer pela data e pelo
+   * valor. Não existe "desfazer o grupo": seria uma ação destrutiva que
+   * ninguém pediu, com um alcance que a linha não mostra.
+   */
+  function gruposDeImportacao(lotes) {
+    var por = {};
+    var ordem = [];
+    lotes.forEach(function (g) {
+      var chave = (g.cartaoId || g.contaId || "sem-destino") + "|" + (g.fatura || "");
+      var grupo = por[chave];
+      if (!grupo) {
+        grupo = por[chave] = {
+          chave: chave, cartaoId: g.cartaoId, contaId: g.contaId, fatura: g.fatura,
+          n: 0, transferencias: 0, valor: 0, lotes: [], de: g.em, ate: g.em,
+        };
+        ordem.push(grupo);
+      }
+      grupo.n += g.n;
+      grupo.transferencias += (g.transferencias || 0);
+      grupo.valor += g.valor;
+      grupo.lotes.push(g);
+      if (g.em) {
+        if (!grupo.de || g.em < grupo.de) grupo.de = g.em;
+        if (!grupo.ate || g.em > grupo.ate) grupo.ate = g.em;
+      }
+    });
+    /* Oito GRUPOS, e não oito importações: o corte passa a ser por fatura,
+     * que é o que a pessoa conta. Dentro do grupo não se corta nada —
+     * esconder uma importação deixaria um desfazer inalcançável. */
+    return ordem.slice(0, 8);
+  }
+
+  /** "28 lançamentos", ou "24 lançamentos e 4 transferências". */
+  function quantosNaImportacao(g) {
+    if (!g.transferencias) return g.n + (g.n === 1 ? " lançamento" : " lançamentos");
+    var lanc = g.n - g.transferencias;
+    return (lanc ? lanc + (lanc === 1 ? " lançamento e " : " lançamentos e ") : "") +
+      g.transferencias + (g.transferencias === 1 ? " transferência" : " transferências");
+  }
+
+  /** O destino escrito, com a fatura quando houver. */
+  function ondeDaImportacao(g) {
+    var onde = g.cartaoId ? (byId(state.cards, g.cartaoId) || {}).nome
+                          : (byId(state.accounts, g.contaId) || {}).nome;
+    var texto = esc(onde || "destino removido");
+    if (!g.fatura) return texto;
+    var k = byId(state.cards, g.cartaoId);
+    return texto + " · fatura " + esc(k ? rotuloFatura(k, parseMonthKey(g.fatura))
+                                        : rotuloMes(parseMonthKey(g.fatura)));
+  }
+
+  /** Uma importação, com o botão que a desfaz. */
+  function loteHTML(g, filho) {
+    var quando = g.em ? fmtDataBR(diaDoInstante(g.em)) : "";
+    return '<div class="imp-lote">' +
+      '<span class="imp-lote-txt"><b>' + quantosNaImportacao(g) + "</b>" +
+      '<span class="imp-lote-meta">' +
+        (filho ? "" : ondeDaImportacao(g) + " · ") +
+        (quando ? "importado em " + quando + " · " : "") +
+        money(Math.abs(g.valor)) +
+      "</span></span>" +
+      '<button type="button" class="ghost danger imp-desfazer" data-lote="' + esc(g.id) + '">Desfazer</button>' +
+      "</div>";
   }
 
   function pintarImportacoesRecentes() {
     var bloco = document.getElementById("imp-recentes");
-    var lista = importacoesRecentes();
-    bloco.hidden = !lista.length;
-    if (!lista.length) return;
-    document.getElementById("imp-recentes-lista").innerHTML = lista.map(function (g) {
-      var onde = g.cartaoId ? (byId(state.cards, g.cartaoId) || {}).nome
-                            : (byId(state.accounts, g.contaId) || {}).nome;
-      var quando = g.em ? fmtDataBR(diaDoInstante(g.em)) : "";
-      return '<div class="imp-lote">' +
-        '<span class="imp-lote-txt">' +
-          /* "5 lançamentos" num lote que tem quatro lançamentos e uma
-           * transferência seria contar certo e dizer errado. */
-          "<b>" + (g.transferencias
-            ? (g.n - g.transferencias
-                ? (g.n - g.transferencias) + (g.n - g.transferencias === 1 ? " lançamento e " : " lançamentos e ")
-                : "") +
-              g.transferencias + (g.transferencias === 1 ? " transferência" : " transferências")
-            : g.n + (g.n === 1 ? " lançamento" : " lançamentos")) + "</b>" +
-          '<span class="imp-lote-meta">' + esc(onde || "destino removido") +
-            (g.fatura
-              ? " · fatura " + esc((function () {
-                  var k = byId(state.cards, g.cartaoId);
-                  return k ? rotuloFatura(k, parseMonthKey(g.fatura)) : rotuloMes(parseMonthKey(g.fatura));
-                })())
-              : "") +
-            (quando ? " · importado em " + quando : "") +
-            " · " + money(Math.abs(g.valor)) +
-          "</span>" +
-        "</span>" +
-        '<button type="button" class="ghost danger imp-desfazer" data-lote="' + esc(g.id) + '">Desfazer</button>' +
-        "</div>";
+    var grupos = gruposDeImportacao(importacoesRecentes());
+    bloco.hidden = !grupos.length;
+    if (!grupos.length) return;
+
+    document.getElementById("imp-recentes-lista").innerHTML = grupos.map(function (gr) {
+      /* Grupo de um só não é grupo: abrir para ver uma linha é um clique
+       * cobrado por nada. Ele aparece como a própria importação, com o
+       * Desfazer onde sempre esteve. */
+      if (gr.lotes.length === 1) return loteHTML(gr.lotes[0], false);
+
+      var aberto = !!gruposAbertos[gr.chave];
+      var de = gr.de ? fmtDataBR(diaDoInstante(gr.de)) : "";
+      var ate = gr.ate ? fmtDataBR(diaDoInstante(gr.ate)) : "";
+      /* Uma data quando tudo entrou no mesmo dia; duas quando a fatura foi
+       * sendo importada ao longo dos dias — que é o caso que criou esta
+       * tela cheia de linhas iguais. */
+      var periodo = de && ate ? (de === ate ? "importado em " + de : "importado de " + de + " a " + ate) : "";
+
+      return '<div class="imp-grupo' + (aberto ? " aberto" : "") + '">' +
+        '<div class="imp-lote">' +
+          '<span class="imp-lote-txt"><b>' + quantosNaImportacao(gr) + "</b>" +
+          '<span class="imp-lote-meta">' + ondeDaImportacao(gr) +
+            (periodo ? " · " + periodo : "") + " · " + money(Math.abs(gr.valor)) +
+          "</span></span>" +
+          '<button type="button" class="ghost imp-abrir" data-grupo="' + esc(gr.chave) + '"' +
+            ' aria-expanded="' + (aberto ? "true" : "false") + '">' +
+            gr.lotes.length + " importações" +
+            '<svg viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+          "</button>" +
+        "</div>" +
+        '<div class="imp-filhos"' + (aberto ? "" : " hidden") + ">" +
+          gr.lotes.map(function (l) { return loteHTML(l, true); }).join("") +
+        "</div></div>";
     }).join("");
   }
 
   document.getElementById("imp-recentes-lista").addEventListener("click", function (e) {
+    var abrirGrupo = e.target.closest(".imp-abrir");
+    if (abrirGrupo) {
+      var chave = abrirGrupo.getAttribute("data-grupo");
+      gruposAbertos[chave] = !gruposAbertos[chave];
+      pintarImportacoesRecentes();
+      return;
+    }
     var b = e.target.closest(".imp-desfazer");
     if (!b) return;
     desfazerImportacao(b.getAttribute("data-lote"));
