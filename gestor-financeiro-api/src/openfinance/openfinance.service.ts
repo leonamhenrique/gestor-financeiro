@@ -617,10 +617,19 @@ export class OpenFinanceService {
             select: { providerTxId: true },
           })
         : Promise.resolve([]),
-      /* O que a pessoa desfez não volta a ser oferecido. Fica fora da
-       * proposta inteira, e não só da entrada automática: uma lista que
-       * oferece todo dia o que já foi dispensado uma vez ensina a pessoa a
-       * parar de ler a lista. */
+      /* O que a pessoa desfez CONTINUA sendo oferecido — só não entra mais
+       * sozinho.
+       *
+       * Era o contrário, e estava errado: a linha sumia da proposta inteira,
+       * então quem desfazia para CONFERIR perdia o lançamento para sempre,
+       * sem aviso. Desfazer quer dizer "quero refazer diferente" muito mais
+       * vezes do que "nunca mais me mostre" — e a segunda vontade se
+       * resolve deixando a linha desmarcada, que é o que a conferência já
+       * faz.
+       *
+       * O que NÃO pode voltar é a entrada automática: entrar sem ninguém
+       * olhar logo depois de alguém ter desfeito é o defeito que a recusa
+       * nasceu para impedir. Por isso ela vira MARCA, e não corte. */
       ids.length
         ? this.prisma.openFinanceRefusal.findMany({
             where: { userId, providerTxId: { in: ids } },
@@ -640,12 +649,16 @@ export class OpenFinanceService {
     ]);
     const jaTenho = new Set([
       ...existentes.map((t) => t.providerTxId),
-      ...recusados.map((r) => r.providerTxId),
       ...viraramTransferencia.map((t) => t.providerTxId),
     ]);
+    const jaDesfeitos = new Set(recusados.map((r) => r.providerTxId));
 
     const limpar = (lista: LancamentoDoProvedor[]) =>
-      lista.filter((t) => !jaTenho.has(t.providerTxId));
+      lista
+        .filter((t) => !jaTenho.has(t.providerTxId))
+        .map((t) =>
+          jaDesfeitos.has(t.providerTxId) ? { ...t, recusadoAntes: true } : t,
+        );
 
     for (const c of contas) c.lancamentos = limpar(c.lancamentos);
     for (const k of cartoes) k.lancamentos = limpar(k.lancamentos);
@@ -706,33 +719,6 @@ export class OpenFinanceService {
       skipDuplicates: true,
     });
     return { recusados: limpos.length };
-  }
-
-  /** Quantos estão recusados. A tela só mostra o caminho de volta quando há
-   * o que trazer. */
-  async contarRecusados(userId: string) {
-    return { total: await this.prisma.openFinanceRefusal.count({ where: { userId } }) };
-  }
-
-  /**
-   * Desfaz as recusas: o que foi recusado volta a ser oferecido.
-   *
-   * EXISTE PORQUE A RECUSA ERA UMA PORTA SÓ DE IDA. Desfazer um lote que
-   * entrou sozinho registra recusa — e isso resolve um defeito real, o de
-   * o mesmo lançamento voltar a entrar na abertura seguinte. Mas quem
-   * desfez para CONFERIR, e não para descartar, perdia o lançamento da
-   * proposta para sempre, sem aviso e sem caminho de volta. Medido em
-   * produção em 28/11/2026.
-   *
-   * Apaga TUDO de uma vez, e não um a um: a tela não lista os recusados
-   * (eles não têm nome aqui — só o id no provedor), então escolher não é
-   * uma opção que se possa oferecer com honestidade. "Trazer todos de
-   * volta" é o que dá para prometer e cumprir.
-   */
-  async devolverRecusados(userId: string) {
-    const { count } = await this.prisma.openFinanceRefusal.deleteMany({ where: { userId } });
-    this.logger.log(count + ' recusa(s) desfeita(s)');
-    return { devolvidos: count };
   }
 
   // ------------------------------------------------------------ vincular

@@ -222,24 +222,6 @@ export class OpenFinanceController {
     return this.openFinance.recusar(req.user.id, dto.providerTxIds);
   }
 
-  /** Quantos estão recusados, para a tela só oferecer a volta quando houver
-   * o que trazer. */
-  @Get('recusados')
-  contarRecusados(@Req() req: any) {
-    return this.openFinance.contarRecusados(req.user.id);
-  }
-
-  /**
-   * "Mudei de ideia": o que foi recusado volta a ser oferecido.
-   *
-   * A recusa era uma porta só de ida, e quem desfez um lote para CONFERIR
-   * perdia aqueles lançamentos da proposta para sempre — sem aviso.
-   */
-  @Delete('recusados')
-  devolverRecusados(@Req() req: any) {
-    return this.openFinance.devolverRecusados(req.user.id);
-  }
-
   /**
    * Liga um lançamento que a pessoa JÁ TINHA à transação do banco.
    *

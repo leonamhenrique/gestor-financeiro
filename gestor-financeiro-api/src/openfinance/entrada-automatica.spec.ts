@@ -83,3 +83,43 @@ describe('a décima condição: entra sozinho só o que é posterior à autoriza
     expect(recortar()(f, l)).toBe(esperado);
   });
 });
+
+/* A última condição não é sobre a LINHA, é sobre o PASSADO dela.
+ *
+ * Desfazer um lote que entrou sozinho e ver os mesmos lançamentos entrarem
+ * de novo na abertura seguinte foi um defeito medido. A primeira correção
+ * cortou a linha da proposta inteira -- e aí quem desfazia para CONFERIR
+ * perdia o lançamento para sempre, sem aviso, que foi o segundo defeito
+ * medido, em 28/11/2026.
+ *
+ * O acordo final: a linha CONTINUA oferecida, e só deixa de entrar sozinha.
+ */
+describe('o que já foi desfeito não entra sozinho de novo', () => {
+  const semDuvida = new Function(
+    'return (' + funcao(src, 'ofSemDuvida') + ');',
+  )() as (l: any) => boolean;
+
+  const linhaLimpa = () => ({
+    base: { valor: 10, recusadoAntes: undefined },
+    repetida: false,
+    pagamento: false,
+    candidata: null,
+    origem: 'regra',
+    categoriaId: 'c1',
+  });
+
+  it('a linha que passa em tudo entra', () => {
+    expect(semDuvida(linhaLimpa())).toBe(true);
+  });
+
+  it('a mesma linha, já desfeita uma vez, não entra', () => {
+    const l: any = linhaLimpa();
+    l.base.recusadoAntes = true;
+    expect(semDuvida(l)).toBe(false);
+  });
+
+  /* A marca vem do servidor. Se ela deixar de chegar, isto cai. */
+  it('a condição lê a marca do servidor, e não um palpite da tela', () => {
+    expect(funcao(src, 'ofSemDuvida')).toContain('!l.base.recusadoAntes');
+  });
+});

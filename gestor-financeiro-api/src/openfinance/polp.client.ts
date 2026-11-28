@@ -55,6 +55,17 @@ export interface LancamentoDoProvedor {
   parcela?: { numero: number; total: number } | null;
   /** Já faturada? `false` = parcela futura. Ver armadilha 3. */
   faturada: boolean;
+  /**
+   * A pessoa já desfez este lançamento alguma vez.
+   *
+   * Não some da lista — continua oferecido, porque desfazer costuma ser
+   * "quero refazer diferente", e não "nunca mais me mostre". O que a marca
+   * faz é impedir que ele entre SOZINHO de novo: entrar sem ninguém olhar é
+   * o que não pode se repetir depois de um desfazer.
+   *
+   * Não vem do provedor: é nosso, somado em `paraImportar`.
+   */
+  recusadoAntes?: boolean;
   /** `AAAA-MM` do vencimento previsto pelo banco. Só conferência. */
   faturaPrevista?: string | null;
   /** Pagamento de fatura: o app tem caminho próprio e não lança de novo. */
