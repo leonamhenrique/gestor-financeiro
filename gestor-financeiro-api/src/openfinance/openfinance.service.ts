@@ -37,6 +37,7 @@ import { PolpClient, LancamentoDoProvedor, ConflitoDeConsentimento } from './pol
 import { CreditCardsService } from '../credit-cards/credit-cards.service';
 import { hojeNoFuso } from '../credit-cards/invoice-statement';
 import { diaDoDesligamento } from './janela-do-banco';
+import { normalizarContraparte } from './contraparte';
 
 /** Está ligada? Sem a variável, o app se comporta exatamente como antes. */
 export const openFinanceLigado = (): boolean => process.env.OPENFINANCE_ENABLED === 'true';
@@ -610,7 +611,7 @@ export class OpenFinanceService {
      * mesmas transações, e sem este corte a lista de conferência viria
      * cheia do que a pessoa já importou ontem. */
     const ids = todos.map((t) => t.providerTxId).filter(Boolean);
-    const [existentes, viraramTransferencia] = await Promise.all([
+    const [existentes, viraramTransferencia, nomesQueSaoSeus] = await Promise.all([
       ids.length
         ? this.prisma.transaction.findMany({
             where: { userId, providerTxId: { in: ids } },
@@ -627,7 +628,26 @@ export class OpenFinanceService {
             select: { providerTxId: true },
           })
         : Promise.resolve([]),
+      /* OS NOMES QUE A PESSOA JÁ CHAMOU DE TRANSFERÊNCIA.
+       *
+       * O provedor categoriza como TRANSFER todo Pix e todo TED — o do
+       * próprio titular e o que foi para outra pessoa, porque os dois SÃO
+       * transferências bancárias. O que ele não diz é entre quem, e é isso
+       * que separa "dinheiro mudando de bolso" de "dinheiro que saiu".
+       *
+       * O app não adivinha: ele LEMBRA. Comparar com o nome do perfil não
+       * serve — lá está "Leo" e no Pix vem "Leonam Henrique Silva Muniz", e
+       * casar por prefixo acharia "Leonardo" junto. Então o que vale é o que
+       * a pessoa já decidiu uma vez. */
+      this.prisma.transfer.findMany({
+        where: { userId, counterpartyName: { not: null } },
+        select: { counterpartyName: true },
+        distinct: ['counterpartyName'],
+      }),
     ]);
+    const seus = new Set(
+      nomesQueSaoSeus.map((t) => normalizarContraparte(t.counterpartyName)).filter(Boolean),
+    );
     /* Sai o que o app JÁ TEM, e nada mais.
      *
      * Houve aqui um terceiro conjunto: o que a pessoa tinha desfeito uma
@@ -644,7 +664,13 @@ export class OpenFinanceService {
     ]);
 
     const limpar = (lista: LancamentoDoProvedor[]) =>
-      lista.filter((t) => !jaTenho.has(t.providerTxId));
+      lista
+        .filter((t) => !jaTenho.has(t.providerTxId))
+        .map((t) =>
+          t.contraparte && seus.has(normalizarContraparte(t.contraparte))
+            ? { ...t, seuNome: true }
+            : t,
+        );
 
     for (const c of contas) c.lancamentos = limpar(c.lancamentos);
     for (const k of cartoes) k.lancamentos = limpar(k.lancamentos);

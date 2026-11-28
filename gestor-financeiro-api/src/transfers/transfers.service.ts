@@ -33,6 +33,9 @@ export interface CriarTransferencia {
   importedAt?: Date;
   /** O id no provedor, para a linha não voltar como novidade amanhã. */
   providerTxId?: string;
+  /** De quem é o outro lado, quando o banco diz. É por ele que o app
+   * aprende qual nome é o da própria pessoa — ver `contraparte.ts`. */
+  counterpartyName?: string | null;
 }
 
 export interface AlterarTransferencia {
@@ -97,6 +100,7 @@ export class TransfersService {
         importBatchId: input.importBatchId ?? null,
         importedAt: input.importedAt ?? null,
         providerTxId: input.providerTxId ?? null,
+        counterpartyName: input.counterpartyName ?? null,
       },
     });
 

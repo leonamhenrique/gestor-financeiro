@@ -511,6 +511,62 @@ describe('OpenFinance', () => {
       expect(prisma.openFinanceRefusal.findMany).not.toHaveBeenCalled();
     });
 
+    /* O provedor categoriza como TRANSFER todo Pix -- o do proprio titular
+     * e o que foi para outra pessoa. O que separa os dois e a decisao
+     * ANTERIOR da pessoa, e nao um palpite sobre o nome dela. */
+    it('o nome que a pessoa ja chamou de transferencia vem marcado', async () => {
+      prisma.transfer.findMany.mockImplementation(({ where }: any) =>
+        where.counterpartyName
+          ? Promise.resolve([{ counterpartyName: 'Leonam Henrique Silva Muniz' }])
+          : Promise.resolve([]),
+      );
+      polp.transacoesDoCartao.mockResolvedValue([
+        { providerTxId: 'tx-1', data: '2026-08-26', valor: 249.13, tipo: 'INCOME',
+          descricao: 'Pix recebido - Leonam Henrique Silva Muniz',
+          contraparte: 'Leonam Henrique Silva Muniz', faturada: true },
+        { providerTxId: 'tx-2', data: '2026-08-22', valor: 409, tipo: 'EXPENSE',
+          descricao: 'Pix enviado - Larissa Pereira Silva Muniz',
+          contraparte: 'Larissa Pereira Silva Muniz', faturada: true },
+      ]);
+
+      const r = await service.paraImportar('u1', 'cx1');
+      const porId: Record<string, any> = {};
+      r.cartoes[0].lancamentos.forEach((l: any) => { porId[l.providerTxId] = l; });
+
+      expect(porId['tx-1'].seuNome).toBe(true);
+      expect(porId['tx-2'].seuNome).toBeUndefined();
+    });
+
+    it('a comparacao ignora acento e caixa', async () => {
+      prisma.transfer.findMany.mockImplementation(({ where }: any) =>
+        where.counterpartyName
+          ? Promise.resolve([{ counterpartyName: '  JOSE  ANTONIO  ' }])
+          : Promise.resolve([]),
+      );
+      polp.transacoesDoCartao.mockResolvedValue([
+        { providerTxId: 'tx-1', data: '2026-08-26', valor: 10, tipo: 'INCOME',
+          descricao: 'Pix recebido - José Antônio', contraparte: 'José Antônio', faturada: true },
+      ]);
+
+      const r = await service.paraImportar('u1', 'cx1');
+      expect(r.cartoes[0].lancamentos[0].seuNome).toBe(true);
+    });
+
+    /* Linha sem contraparte -- compra, tarifa, conta de luz -- nunca e
+     * marcada: nao ha nome para reconhecer. */
+    it('linha sem contraparte nao recebe marca', async () => {
+      prisma.transfer.findMany.mockImplementation(({ where }: any) =>
+        where.counterpartyName ? Promise.resolve([{ counterpartyName: 'Fulano' }]) : Promise.resolve([]),
+      );
+      polp.transacoesDoCartao.mockResolvedValue([
+        { providerTxId: 'tx-1', data: '2026-08-26', valor: 10, tipo: 'EXPENSE',
+          descricao: 'Supermercado Dia', contraparte: null, faturada: true },
+      ]);
+
+      const r = await service.paraImportar('u1', 'cx1');
+      expect(r.cartoes[0].lancamentos[0].seuNome).toBeUndefined();
+    });
+
     /* A linha que a pessoa marcou como TRANSFERENCIA nao virou lancamento --
      * virou outra coisa, noutra tabela. Olhando so os lancamentos, o mesmo
      * Pix voltava como novidade na sincronizacao seguinte, e a pessoa teria

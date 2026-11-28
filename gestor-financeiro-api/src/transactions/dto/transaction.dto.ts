@@ -394,6 +394,14 @@ export class ImportTransferDto {
   @IsString()
   @Length(1, 128)
   providerTxId?: string;
+
+  /** De quem é o outro lado. É por ele que o app aprende qual nome é o da
+   * própria pessoa, e deixa de etiquetar como transferência o Pix que foi
+   * para outra. */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  counterpartyName?: string;
 }
 
 export class ImportBatchDto {

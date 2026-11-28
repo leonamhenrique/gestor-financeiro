@@ -225,6 +225,7 @@ export class TransactionsService {
       description?: string;
       transferDate: string;
       providerTxId?: string;
+      counterpartyName?: string;
     }[] = [],
   ) {
     const importedAt = new Date();

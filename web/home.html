@@ -13126,6 +13126,13 @@
                 * fábrica não vira dado. Aqui ele só levanta a mão — quem
                 * decide, e quem escolhe a outra conta, é a pessoa. */
                _transferencia: /^TRANSFER/.test(String(l.categoriaDoProvedor || "")),
+               /* De quem é o outro lado, e se esse nome é um que VOCÊ já
+                * chamou de transferência. O banco categoriza como TRANSFER
+                * todo Pix — o seu e o que foi para outra pessoa —, então a
+                * categoria dele não serve para distinguir. Quem distingue é
+                * a sua própria decisão anterior, lembrada pelo servidor. */
+               _contraparte: l.contraparte || "",
+               _seuNome: !!l.seuNome,
                /* A parcela importa para a entrada automática: compra
                 * parcelada cria série e projeta as que faltam, e isso é
                 * decisão grande demais para acontecer sem ninguém olhando. */
@@ -13668,7 +13675,14 @@
         (l.pagamento ? '<span class="imp-tag">pagamento da fatura</span>' : "") +
         /* O banco levantou a mão. É sugestão, e some assim que a pessoa
          * decide — para os dois lados. */
-        (!transferindo && b._transferencia ? '<span class="imp-tag">o banco diz que é transferência</span>' : "") +
+        /* A etiqueta mudou de dono. Ela dizia "o banco diz que é
+         * transferência", e isso era verdade e inútil: o banco diz isso de
+         * todo Pix, inclusive o que foi para outra pessoa. Agora ela só
+         * aparece quando o nome do outro lado é um que VOCÊ já marcou —
+         * aí ela é um lembrete, e não um palpite. */
+        (!transferindo && b._seuNome
+          ? '<span class="imp-tag">você já marcou este nome como transferência</span>'
+          : "") +
         (!transferindo && podeSerTransferencia()
           ? '<button type="button" class="pill imp-tr" data-i="' + i + '">É transferência</button>'
           : "") +
@@ -14203,7 +14217,10 @@
           amount: l.base.valor,
           description: l.base.desc,
           transferDate: l.base.data,
-          providerTxId: imp.openFinance ? (l.base.fitid || undefined) : undefined
+          providerTxId: imp.openFinance ? (l.base.fitid || undefined) : undefined,
+          /* O que ENSINA. Marcar esta transferência guarda o nome do outro
+           * lado, e na próxima vez que ele aparecer o app já sabe. */
+          counterpartyName: l.base._contraparte || undefined
         };
       });
   }

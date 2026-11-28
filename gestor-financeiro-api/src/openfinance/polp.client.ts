@@ -38,6 +38,7 @@
 // ============================================================
 
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { nomeDaContraparte } from './contraparte';
 
 /** Uma transação do provedor, já traduzida para o vocabulário do app. */
 export interface LancamentoDoProvedor {
@@ -51,6 +52,22 @@ export interface LancamentoDoProvedor {
   descricao: string;
   /** Categoria que o provedor sugere, quando sugere. Nunca manda no app. */
   categoriaDoProvedor?: string | null;
+  /**
+   * De quem é o outro lado, quando dá para saber.
+   *
+   * Separado da descrição de propósito: dentro do texto ele não dá para
+   * comparar, e é a comparação que distingue "Pix para mim mesmo" de "Pix
+   * para a Larissa". Nulo quando o banco não diz — ver `contraparte.ts`.
+   */
+  contraparte?: string | null;
+  /**
+   * A contraparte é um nome que a PESSOA já chamou de transferência.
+   *
+   * Não vem do provedor: é somado em `paraImportar`, comparando com o que
+   * ela já decidiu antes. É o que separa o Pix do próprio titular do Pix
+   * para outra pessoa — os dois chegam do banco com a mesma categoria.
+   */
+  seuNome?: boolean;
   /** Parcela `n` de `total`, quando é compra parcelada. */
   parcela?: { numero: number; total: number } | null;
   /** Já faturada? `false` = parcela futura. Ver armadilha 3. */
@@ -401,6 +418,14 @@ export class PolpClient {
       tipo: t.credit_debit_type === 'CREDITO' ? 'INCOME' : 'EXPENSE',
       descricao: parcelada ? nome + ' - Parcela ' + numero + '/' + total : nome,
       categoriaDoProvedor: t.category_ref ?? null,
+      /* O campo próprio do provedor primeiro; o texto do extrato só como
+       * queda. Nunca `transaction_name` cru: ali vem "Pix recebido - Fulano",
+       * e guardar isso como nome ensinaria o app a comparar a frase inteira,
+       * que muda entre receber e enviar. */
+      contraparte: nomeDaContraparte(
+        t.counterparty && (t.counterparty.alias || t.counterparty.name),
+        nome,
+      ),
       parcela: parcelada ? { numero: Number(numero), total: Number(total) } : null,
       faturada: Boolean(t.bill_id),
       faturaPrevista: t.bill_forecast_date ? soOMes(t.bill_forecast_date) : null,

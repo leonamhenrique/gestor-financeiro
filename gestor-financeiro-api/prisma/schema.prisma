@@ -511,6 +511,16 @@ model Transfer {
   /// O id da transação NO PROVEDOR, como nos lançamentos. É o que impede a
   /// linha de voltar como novidade na sincronização seguinte.
   providerTxId  String?   @map("provider_tx_id")
+  /// De quem é o outro lado, quando o banco diz.
+  ///
+  /// Guardado separado da `description` porque é por ele que o app aprende:
+  /// o nome que você já marcou como transferência uma vez é seu, e na
+  /// próxima o app já sabe sem perguntar. Dentro do texto isso não dá para
+  /// comparar — a mesma pessoa vem como "Pix recebido - Fulano" numa direção
+  /// e "Pix enviado - Fulano" na outra.
+  ///
+  /// Nulo quando o banco não diz, e nas transferências criadas à mão.
+  counterpartyName String? @map("counterparty_name")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -527,6 +537,8 @@ model Transfer {
   @@index([userId, importBatchId])
   @@index([fromAccountId])
   @@index([toAccountId])
+  /// "esta pessoa já marcou este nome como transferência?", por usuário.
+  @@index([userId, counterpartyName])
   @@map("transfers")
 }
 
